@@ -3,7 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.loginAsUser = exports.updateStudentProfile = exports.deleteUser = exports.updateUser = exports.getUserById = exports.getAllUsers = void 0;
+exports.loginAsUser = exports.updateEmployeeProfile = exports.updateFacultyProfile = exports.updateStudentProfile = exports.deleteUser = exports.updateUser = exports.getUserById = exports.getAllUsers = void 0;
 const models_1 = __importDefault(require("../models"));
 const User_1 = require("../models/User");
 const logger_1 = require("../utils/logger");
@@ -38,36 +38,56 @@ const getAllUsers = async (req, res) => {
             where.isActive = isActive === 'true';
         }
         const includeOptions = [];
-        // Only include profile models if they exist
-        if (models_1.default.StudentProfile) {
-            includeOptions.push({
-                model: models_1.default.StudentProfile,
-                as: 'studentProfile',
-                required: false,
-            });
+        // Only include profile models if they exist and are defined
+        try {
+            if (models_1.default.StudentProfile && typeof models_1.default.StudentProfile !== 'undefined') {
+                includeOptions.push({
+                    model: models_1.default.StudentProfile,
+                    as: 'studentProfile',
+                    required: false,
+                });
+            }
         }
-        if (models_1.default.FacultyProfile) {
-            includeOptions.push({
-                model: models_1.default.FacultyProfile,
-                as: 'facultyProfile',
-                required: false,
-            });
+        catch (e) {
+            // StudentProfile model not available
         }
-        if (models_1.default.EmployeeProfile) {
-            includeOptions.push({
-                model: models_1.default.EmployeeProfile,
-                as: 'employeeProfile',
-                required: false,
-            });
+        try {
+            if (models_1.default.FacultyProfile && typeof models_1.default.FacultyProfile !== 'undefined') {
+                includeOptions.push({
+                    model: models_1.default.FacultyProfile,
+                    as: 'facultyProfile',
+                    required: false,
+                });
+            }
         }
-        const { count, rows: users } = await models_1.default.User.findAndCountAll({
+        catch (e) {
+            // FacultyProfile model not available
+        }
+        try {
+            if (models_1.default.EmployeeProfile && typeof models_1.default.EmployeeProfile !== 'undefined') {
+                includeOptions.push({
+                    model: models_1.default.EmployeeProfile,
+                    as: 'employeeProfile',
+                    required: false,
+                });
+            }
+        }
+        catch (e) {
+            // EmployeeProfile model not available
+        }
+        const queryOptions = {
             where,
             attributes: { exclude: ['passwordHash'] },
-            include: includeOptions.length > 0 ? includeOptions : undefined,
             limit: limitNum,
             offset,
             order: [['createdAt', 'DESC']],
-        });
+        };
+        // Only add include if we have valid options
+        if (includeOptions.length > 0) {
+            queryOptions.include = includeOptions;
+        }
+        const { count, rows: users } = await models_1.default.User.findAndCountAll(queryOptions);
+        logger_1.logger.info(`Get all users: Found ${count} users with role=${role}, isActive=${isActive}`);
         res.status(200).json({
             status: 'success',
             data: {
@@ -117,32 +137,51 @@ const getUserById = async (req, res) => {
             return;
         }
         const includeOptions = [];
-        // Only include profile models if they exist
-        if (models_1.default.StudentProfile) {
-            includeOptions.push({
-                model: models_1.default.StudentProfile,
-                as: 'studentProfile',
-                required: false,
-            });
+        // Only include profile models if they exist and are defined
+        try {
+            if (models_1.default.StudentProfile && typeof models_1.default.StudentProfile !== 'undefined') {
+                includeOptions.push({
+                    model: models_1.default.StudentProfile,
+                    as: 'studentProfile',
+                    required: false,
+                });
+            }
         }
-        if (models_1.default.FacultyProfile) {
-            includeOptions.push({
-                model: models_1.default.FacultyProfile,
-                as: 'facultyProfile',
-                required: false,
-            });
+        catch (e) {
+            // StudentProfile model not available
         }
-        if (models_1.default.EmployeeProfile) {
-            includeOptions.push({
-                model: models_1.default.EmployeeProfile,
-                as: 'employeeProfile',
-                required: false,
-            });
+        try {
+            if (models_1.default.FacultyProfile && typeof models_1.default.FacultyProfile !== 'undefined') {
+                includeOptions.push({
+                    model: models_1.default.FacultyProfile,
+                    as: 'facultyProfile',
+                    required: false,
+                });
+            }
         }
-        const user = await models_1.default.User.findByPk(userId, {
+        catch (e) {
+            // FacultyProfile model not available
+        }
+        try {
+            if (models_1.default.EmployeeProfile && typeof models_1.default.EmployeeProfile !== 'undefined') {
+                includeOptions.push({
+                    model: models_1.default.EmployeeProfile,
+                    as: 'employeeProfile',
+                    required: false,
+                });
+            }
+        }
+        catch (e) {
+            // EmployeeProfile model not available
+        }
+        const queryOptions = {
             attributes: { exclude: ['passwordHash'] },
-            include: includeOptions.length > 0 ? includeOptions : undefined,
-        });
+        };
+        // Only add include if we have valid options
+        if (includeOptions.length > 0) {
+            queryOptions.include = includeOptions;
+        }
+        const user = await models_1.default.User.findByPk(userId, queryOptions);
         if (!user) {
             res.status(404).json({
                 status: 'error',
@@ -420,6 +459,220 @@ const updateStudentProfile = async (req, res) => {
     }
 };
 exports.updateStudentProfile = updateStudentProfile;
+// PUT /api/users/:id/faculty-profile - Update faculty profile
+const updateFacultyProfile = async (req, res) => {
+    try {
+        if (!req.user) {
+            res.status(401).json({
+                status: 'error',
+                message: 'Authentication required',
+            });
+            return;
+        }
+        const userId = parseInt(req.params.id, 10);
+        if (isNaN(userId)) {
+            res.status(400).json({
+                status: 'error',
+                message: 'Invalid user ID',
+            });
+            return;
+        }
+        // Users can update their own profile, or admins can update any profile
+        const isOwnProfile = req.user.userId === userId;
+        const isAdmin = req.user.role === User_1.UserRole.SUPERADMIN || req.user.role === User_1.UserRole.ADMIN;
+        if (!isOwnProfile && !isAdmin) {
+            res.status(403).json({
+                status: 'error',
+                message: 'You can only update your own profile unless you are an admin',
+            });
+            return;
+        }
+        const user = await models_1.default.User.findByPk(userId);
+        if (!user) {
+            res.status(404).json({
+                status: 'error',
+                message: 'User not found',
+            });
+            return;
+        }
+        if (user.role !== User_1.UserRole.FACULTY) {
+            res.status(400).json({
+                status: 'error',
+                message: 'User is not a faculty member',
+            });
+            return;
+        }
+        // Check if FacultyProfile model exists
+        if (!models_1.default.FacultyProfile) {
+            res.status(400).json({
+                status: 'error',
+                message: 'FacultyProfile model is not available',
+            });
+            return;
+        }
+        // Get or create faculty profile
+        let facultyProfile = await models_1.default.FacultyProfile.findOne({ where: { userId } });
+        if (!facultyProfile) {
+            facultyProfile = await models_1.default.FacultyProfile.create({ userId });
+        }
+        // Update profile fields
+        if (req.body.expertise !== undefined)
+            facultyProfile.expertise = req.body.expertise;
+        if (req.body.availability !== undefined)
+            facultyProfile.availability = req.body.availability;
+        await facultyProfile.save();
+        // Fetch updated user with profile
+        const updatedUser = await models_1.default.User.findByPk(userId, {
+            attributes: { exclude: ['passwordHash'] },
+            include: models_1.default.FacultyProfile ? [
+                {
+                    model: models_1.default.FacultyProfile,
+                    as: 'facultyProfile',
+                    required: false,
+                },
+            ] : undefined,
+        });
+        res.status(200).json({
+            status: 'success',
+            message: 'Faculty profile updated successfully',
+            data: {
+                user: updatedUser,
+            },
+        });
+    }
+    catch (error) {
+        logger_1.logger.error('Update faculty profile error:', error);
+        res.status(500).json({
+            status: 'error',
+            message: 'Internal server error while updating faculty profile',
+        });
+    }
+};
+exports.updateFacultyProfile = updateFacultyProfile;
+// PUT /api/users/:id/employee-profile - Update employee profile
+const updateEmployeeProfile = async (req, res) => {
+    try {
+        if (!req.user) {
+            res.status(401).json({
+                status: 'error',
+                message: 'Authentication required',
+            });
+            return;
+        }
+        const userId = parseInt(req.params.id, 10);
+        if (isNaN(userId)) {
+            res.status(400).json({
+                status: 'error',
+                message: 'Invalid user ID',
+            });
+            return;
+        }
+        // Users can update their own profile, or admins can update any profile
+        const isOwnProfile = req.user.userId === userId;
+        const isAdmin = req.user.role === User_1.UserRole.SUPERADMIN || req.user.role === User_1.UserRole.ADMIN;
+        if (!isOwnProfile && !isAdmin) {
+            res.status(403).json({
+                status: 'error',
+                message: 'You can only update your own profile unless you are an admin',
+            });
+            return;
+        }
+        const user = await models_1.default.User.findByPk(userId);
+        if (!user) {
+            res.status(404).json({
+                status: 'error',
+                message: 'User not found',
+            });
+            return;
+        }
+        if (user.role !== User_1.UserRole.EMPLOYEE) {
+            res.status(400).json({
+                status: 'error',
+                message: 'User is not an employee',
+            });
+            return;
+        }
+        // Check if EmployeeProfile model exists
+        if (!models_1.default.EmployeeProfile) {
+            res.status(400).json({
+                status: 'error',
+                message: 'EmployeeProfile model is not available',
+            });
+            return;
+        }
+        // Get or create employee profile
+        let employeeProfile = await models_1.default.EmployeeProfile.findOne({ where: { userId } });
+        if (!employeeProfile) {
+            employeeProfile = await models_1.default.EmployeeProfile.create({ userId });
+        }
+        // Update profile fields
+        if (req.body.employeeId !== undefined)
+            employeeProfile.employeeId = req.body.employeeId;
+        if (req.body.gender !== undefined)
+            employeeProfile.gender = req.body.gender;
+        if (req.body.dateOfBirth !== undefined)
+            employeeProfile.dateOfBirth = req.body.dateOfBirth ? new Date(req.body.dateOfBirth) : null;
+        if (req.body.nationality !== undefined)
+            employeeProfile.nationality = req.body.nationality;
+        if (req.body.maritalStatus !== undefined)
+            employeeProfile.maritalStatus = req.body.maritalStatus;
+        if (req.body.department !== undefined)
+            employeeProfile.department = req.body.department;
+        if (req.body.designation !== undefined)
+            employeeProfile.designation = req.body.designation;
+        if (req.body.dateOfJoining !== undefined)
+            employeeProfile.dateOfJoining = req.body.dateOfJoining ? new Date(req.body.dateOfJoining) : null;
+        if (req.body.employmentType !== undefined)
+            employeeProfile.employmentType = req.body.employmentType;
+        if (req.body.reportingManager !== undefined)
+            employeeProfile.reportingManager = req.body.reportingManager;
+        if (req.body.workLocation !== undefined)
+            employeeProfile.workLocation = req.body.workLocation;
+        if (req.body.bankName !== undefined)
+            employeeProfile.bankName = req.body.bankName;
+        if (req.body.accountNumber !== undefined)
+            employeeProfile.accountNumber = req.body.accountNumber;
+        if (req.body.ifscCode !== undefined)
+            employeeProfile.ifscCode = req.body.ifscCode;
+        if (req.body.branch !== undefined)
+            employeeProfile.branch = req.body.branch;
+        if (req.body.panNumber !== undefined)
+            employeeProfile.panNumber = req.body.panNumber;
+        if (req.body.city !== undefined)
+            employeeProfile.city = req.body.city;
+        if (req.body.state !== undefined)
+            employeeProfile.state = req.body.state;
+        if (req.body.postalCode !== undefined)
+            employeeProfile.postalCode = req.body.postalCode;
+        await employeeProfile.save();
+        // Fetch updated user with profile
+        const updatedUser = await models_1.default.User.findByPk(userId, {
+            attributes: { exclude: ['passwordHash'] },
+            include: models_1.default.EmployeeProfile ? [
+                {
+                    model: models_1.default.EmployeeProfile,
+                    as: 'employeeProfile',
+                    required: false,
+                },
+            ] : undefined,
+        });
+        res.status(200).json({
+            status: 'success',
+            message: 'Employee profile updated successfully',
+            data: {
+                user: updatedUser,
+            },
+        });
+    }
+    catch (error) {
+        logger_1.logger.error('Update employee profile error:', error);
+        res.status(500).json({
+            status: 'error',
+            message: 'Internal server error while updating employee profile',
+        });
+    }
+};
+exports.updateEmployeeProfile = updateEmployeeProfile;
 // POST /api/users/:id/login-as - Login as another user (SuperAdmin only)
 const loginAsUser = async (req, res) => {
     try {

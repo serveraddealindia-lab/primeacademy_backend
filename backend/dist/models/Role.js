@@ -39,4 +39,3 @@ Role.init({
 });
 exports.default = Role;
 //# sourceMappingURL=Role.js.map
-

@@ -50,4 +50,3 @@ router.get('/today', auth_middleware_1.verifyTokenMiddleware, studentAttendanceC
 router.get('/history', auth_middleware_1.verifyTokenMiddleware, studentAttendanceController.getStudentPunchHistory);
 exports.default = router;
 //# sourceMappingURL=studentAttendance.routes.js.map
-

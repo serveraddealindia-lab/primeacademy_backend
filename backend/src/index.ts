@@ -5,17 +5,17 @@ import morgan from 'morgan';
 import dotenv from 'dotenv';
 import sequelize from './config/database';
 import healthRoutes from './routes/health.routes';
-import authRoutes from './routes/auth.routes';
+// import authRoutes from './routes/auth.routes';
 import batchRoutes from './routes/batch.routes';
-import sessionRoutes from './routes/session.routes';
-import reportRoutes from './routes/report.routes';
-import portfolioRoutes from './routes/portfolio.routes';
-import facultyRoutes from './routes/faculty.routes';
-import paymentRoutes from './routes/payment.routes';
-import approvalRoutes from './routes/approval.routes';
-import uploadRoutes from './routes/upload.routes';
-import employeeRoutes from './routes/employee.routes';
-import orientationRoutes from './routes/orientation.routes';
+// import sessionRoutes from './routes/session.routes';
+// import reportRoutes from './routes/report.routes';
+// import portfolioRoutes from './routes/portfolio.routes';
+// import facultyRoutes from './routes/faculty.routes';
+// import paymentRoutes from './routes/payment.routes';
+// import approvalRoutes from './routes/approval.routes';
+// import uploadRoutes from './routes/upload.routes';
+// import employeeRoutes from './routes/employee.routes';
+// import orientationRoutes from './routes/orientation.routes';
 import studentLeaveRoutes from './routes/studentLeave.routes';
 import employeeLeaveRoutes from './routes/employeeLeave.routes';
 import facultyLeaveRoutes from './routes/facultyLeave.routes';
@@ -23,8 +23,8 @@ import batchExtensionRoutes from './routes/batchExtension.routes';
 import roleRoutes from './routes/role.routes';
 import softwareCompletionRoutes from './routes/softwareCompletion.routes';
 import userRoutes from './routes/user.routes';
-import employeeAttendanceRoutes from './routes/employeeAttendance.routes';
-import studentRoutes from './routes/student.routes';
+// import employeeAttendanceRoutes from './routes/employeeAttendance.routes';
+// import studentRoutes from './routes/student.routes';
 import studentAttendanceRoutes from './routes/studentAttendance.routes';
 import { notFoundHandler, errorHandler } from './middleware/error.middleware';
 import path from 'path';
@@ -47,23 +47,23 @@ app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
 // Routes
 app.use('/api', healthRoutes);
-app.use('/api/auth', authRoutes);
+// app.use('/api/auth', authRoutes);
 
 // Debug: Log registered routes (development only)
-if (process.env.NODE_ENV === 'development') {
-  logger.info('Registered auth routes: POST /api/auth/register, POST /api/auth/login, GET /api/auth/me, POST /api/auth/impersonate/:userId');
-}
+// if (process.env.NODE_ENV === 'development') {
+//   logger.info('Registered auth routes: POST /api/auth/register, POST /api/auth/login, GET /api/auth/me, POST /api/auth/impersonate/:userId');
+// }
 
-app.use('/api/faculty', facultyRoutes);
+// app.use('/api/faculty', facultyRoutes);
 app.use('/api/batches', batchRoutes);
-app.use('/api/sessions', sessionRoutes);
-app.use('/api/reports', reportRoutes);
-app.use('/api', portfolioRoutes);
-app.use('/api/payments', paymentRoutes);
-app.use('/api/approvals', approvalRoutes);
-app.use('/api/upload', uploadRoutes);
-app.use('/api/employees', employeeRoutes);
-app.use('/api/orientation', orientationRoutes);
+// app.use('/api/sessions', sessionRoutes);
+// app.use('/api/reports', reportRoutes);
+// app.use('/api', portfolioRoutes);
+// app.use('/api/payments', paymentRoutes);
+// app.use('/api/approvals', approvalRoutes);
+// app.use('/api/upload', uploadRoutes);
+// app.use('/api/employees', employeeRoutes);
+// app.use('/api/orientation', orientationRoutes);
 app.use('/api/student-leaves', studentLeaveRoutes);
 app.use('/api/employee-leaves', employeeLeaveRoutes);
 app.use('/api/faculty-leaves', facultyLeaveRoutes);
@@ -71,14 +71,14 @@ app.use('/api/batch-extensions', batchExtensionRoutes);
 app.use('/api/roles', roleRoutes);
 app.use('/api/software-completions', softwareCompletionRoutes);
 app.use('/api/users', userRoutes);
-app.use('/api/employee-attendance', employeeAttendanceRoutes);
+// app.use('/api/employee-attendance', employeeAttendanceRoutes);
 app.use('/api/student-attendance', studentAttendanceRoutes);
-app.use('/api/students', studentRoutes);
+// app.use('/api/students', studentRoutes);
 
 // Debug: Log registered student routes (development only)
-if (process.env.NODE_ENV === 'development') {
-  logger.info('Registered student routes: POST /api/students/bulk-enroll, GET /api/students/template');
-}
+// if (process.env.NODE_ENV === 'development') {
+//   logger.info('Registered student routes: POST /api/students/bulk-enroll, GET /api/students/template');
+// }
 
 // Error handling middleware (must be last)
 app.use(notFoundHandler);

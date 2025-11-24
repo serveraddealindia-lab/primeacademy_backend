@@ -45,6 +45,41 @@ export declare const updateStudentProfile: (req: AuthRequest & {
         documents?: any;
     };
 }, res: Response) => Promise<void>;
+export declare const updateFacultyProfile: (req: AuthRequest & {
+    params: {
+        id: string;
+    };
+    body: {
+        expertise?: string;
+        availability?: string;
+    };
+}, res: Response) => Promise<void>;
+export declare const updateEmployeeProfile: (req: AuthRequest & {
+    params: {
+        id: string;
+    };
+    body: {
+        employeeId?: string;
+        gender?: string;
+        dateOfBirth?: string;
+        nationality?: string;
+        maritalStatus?: string;
+        department?: string;
+        designation?: string;
+        dateOfJoining?: string;
+        employmentType?: string;
+        reportingManager?: string;
+        workLocation?: string;
+        bankName?: string;
+        accountNumber?: string;
+        ifscCode?: string;
+        branch?: string;
+        panNumber?: string;
+        city?: string;
+        state?: string;
+        postalCode?: string;
+    };
+}, res: Response) => Promise<void>;
 export declare const loginAsUser: (req: AuthRequest & {
     params: {
         id: string;

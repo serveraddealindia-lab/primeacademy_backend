@@ -68,4 +68,3 @@ FacultyLeave.init({
 });
 exports.default = FacultyLeave;
 //# sourceMappingURL=FacultyLeave.js.map
-
