@@ -15,7 +15,6 @@ export const PortfolioManagement: React.FC = () => {
   const [isApproveModalOpen, setIsApproveModalOpen] = useState(false);
   const [imageLinks, setImageLinks] = useState<string[]>(['']);
   const [videoLinks, setVideoLinks] = useState<string[]>(['']);
-  const [uploadedImages, setUploadedImages] = useState<File[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const addingImageLinkRef = useRef(false);
   const addingVideoLinkRef = useRef(false);
@@ -190,7 +189,6 @@ export const PortfolioManagement: React.FC = () => {
       // Add uploaded URLs to image links
       const newUrls = response.data.urls;
       setImageLinks(prev => [...prev, ...newUrls]);
-      setUploadedImages(prev => [...prev, ...fileArray]);
       
       alert(`${fileArray.length} image(s) uploaded successfully!`);
     } catch (error: any) {
@@ -442,7 +440,6 @@ export const PortfolioManagement: React.FC = () => {
                     setIsCreateModalOpen(false);
                     setImageLinks(['']);
                     setVideoLinks(['']);
-                    setUploadedImages([]);
                   }}
                   className="flex-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-lg font-semibold hover:bg-gray-300 transition-colors"
                 >

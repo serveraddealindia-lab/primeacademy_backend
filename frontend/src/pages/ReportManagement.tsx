@@ -1,12 +1,10 @@
 import React, { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { useAuth } from '../context/AuthContext';
 import { Layout } from '../components/Layout';
 import { reportAPI } from '../api/report.api';
 import { batchAPI } from '../api/batch.api';
 
 export const ReportManagement: React.FC = () => {
-  const { user } = useAuth();
   const [activeReport, setActiveReport] = useState<'all-analysis' | 'students-without-batch' | 'batch-attendance' | 'pending-payments' | 'portfolio-status' | null>(null);
   const [selectedBatchId, setSelectedBatchId] = useState<number | null>(null);
   const [dateFrom, setDateFrom] = useState<string>('');

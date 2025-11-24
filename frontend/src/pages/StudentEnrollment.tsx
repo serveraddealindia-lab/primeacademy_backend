@@ -1,13 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
 import { Layout } from '../components/Layout';
 import { studentAPI, CompleteEnrollmentRequest } from '../api/student.api';
 import { batchAPI, Batch } from '../api/batch.api';
 
 export const StudentEnrollment: React.FC = () => {
-  const { user } = useAuth();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [currentStep, setCurrentStep] = useState(1);

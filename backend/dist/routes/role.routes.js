@@ -57,3 +57,4 @@ router.delete('/users/:id/roles/:roleId', auth_middleware_1.verifyTokenMiddlewar
 router.get('/users/:id/roles', auth_middleware_1.verifyTokenMiddleware, roleController.getUserRoles);
 exports.default = router;
 //# sourceMappingURL=role.routes.js.map
+

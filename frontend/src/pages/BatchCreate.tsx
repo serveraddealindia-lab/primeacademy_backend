@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../context/AuthContext';
@@ -308,14 +308,6 @@ export const BatchCreate: React.FC = () => {
                         onChange={(e) => {
                           const value = e.target.value;
                           setOtherSoftware(value);
-                          // Remove previous "Other" entries and add new ones
-                          const previousOther = selectedSoftwares.filter(s => 
-                            !['Photoshop', 'Illustrator', 'InDesign', 'After Effects', 'Premiere Pro', 
-                              'Figma', 'Sketch', 'Blender', 'Maya', '3ds Max', 'Cinema 4D', 'Lightroom',
-                              'CorelDRAW', 'AutoCAD', 'SolidWorks', 'Revit', 'SketchUp', 'Unity',
-                              'Unreal Engine', 'DaVinci Resolve', 'Final Cut Pro', 'Procreate',
-                              'Affinity Designer', 'Affinity Photo', 'Canva Pro'].includes(s)
-                          );
                           if (value.trim()) {
                             // Split by comma and add each software
                             const newSoftwares = value.split(',').map(s => s.trim()).filter(s => s);

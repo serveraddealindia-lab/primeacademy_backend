@@ -1,9 +1,9 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../context/AuthContext';
 import { Layout } from '../components/Layout';
-import { facultyAPI, FacultyUser } from '../api/faculty.api';
+import { facultyAPI } from '../api/faculty.api';
 import { userAPI, UpdateUserRequest } from '../api/user.api';
 import api from '../api/axios';
 

@@ -4,7 +4,6 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../context/AuthContext';
 import { Layout } from '../components/Layout';
 import { userAPI, UpdateUserRequest, UpdateStudentProfileRequest } from '../api/user.api';
-import api from '../api/axios';
 
 export const StudentEdit: React.FC = () => {
   const { id } = useParams<{ id: string }>();

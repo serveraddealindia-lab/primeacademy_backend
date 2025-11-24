@@ -236,3 +236,4 @@ const approveLeave = async (req, res) => {
 };
 exports.approveLeave = approveLeave;
 //# sourceMappingURL=employeeLeave.controller.js.map
+

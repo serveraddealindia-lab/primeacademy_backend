@@ -2,9 +2,9 @@ import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../context/AuthContext';
 import { Layout } from '../components/Layout';
-import { studentLeaveAPI, StudentLeave, CreateLeaveRequest as CreateStudentLeaveRequest, LeaveStatus } from '../api/studentLeave.api';
-import { employeeLeaveAPI, EmployeeLeave, CreateEmployeeLeaveRequest } from '../api/employeeLeave.api';
-import { facultyLeaveAPI, FacultyLeave, CreateFacultyLeaveRequest } from '../api/facultyLeave.api';
+import { studentLeaveAPI, CreateLeaveRequest as CreateStudentLeaveRequest, LeaveStatus } from '../api/studentLeave.api';
+import { employeeLeaveAPI, CreateEmployeeLeaveRequest } from '../api/employeeLeave.api';
+import { facultyLeaveAPI, CreateFacultyLeaveRequest } from '../api/facultyLeave.api';
 import { batchAPI } from '../api/batch.api';
 import { userAPI } from '../api/user.api';
 
@@ -184,7 +184,7 @@ export const LeaveManagement: React.FC = () => {
     }
   };
 
-  const handleApprove = (leave: any, approve: boolean) => {
+  const handleApprove = (leave: any) => {
     setSelectedLeave(leave);
     setIsApproveModalOpen(true);
   };
@@ -416,13 +416,13 @@ export const LeaveManagement: React.FC = () => {
                         {canApproveLeave() && leave.status === LeaveStatus.PENDING && (
                           <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                             <button
-                              onClick={() => handleApprove(leave, true)}
+                              onClick={() => handleApprove(leave)}
                               className="text-green-600 hover:text-green-900 mr-3"
                             >
                               Approve
                             </button>
                             <button
-                              onClick={() => handleApprove(leave, false)}
+                              onClick={() => handleApprove(leave)}
                               className="text-red-600 hover:text-red-900"
                             >
                               Reject

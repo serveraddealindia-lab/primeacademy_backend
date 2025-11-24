@@ -46,3 +46,4 @@ router.get('/', auth_middleware_1.verifyTokenMiddleware, facultyLeaveController.
 router.post('/:id/approve', auth_middleware_1.verifyTokenMiddleware, (0, auth_middleware_1.checkRole)(User_1.UserRole.ADMIN, User_1.UserRole.SUPERADMIN), facultyLeaveController.approveLeave);
 exports.default = router;
 //# sourceMappingURL=facultyLeave.routes.js.map
+

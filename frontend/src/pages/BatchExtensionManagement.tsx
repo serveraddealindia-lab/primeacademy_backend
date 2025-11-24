@@ -61,7 +61,7 @@ export const BatchExtensionManagement: React.FC = () => {
     );
   };
 
-  const handleApprove = (extension: BatchExtension, approve: boolean) => {
+  const handleApprove = (extension: BatchExtension, _approve: boolean) => {
     setSelectedExtension(extension);
     setIsApproveModalOpen(true);
   };

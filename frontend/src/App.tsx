@@ -26,7 +26,6 @@ import { ReportManagement } from './pages/ReportManagement';
 import { ApprovalManagement } from './pages/ApprovalManagement';
 import { UserManagement } from './pages/UserManagement';
 import { RoleManagement } from './pages/RoleManagement';
-import { Layout } from './components/Layout';
 
 // Protected Route Component
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {

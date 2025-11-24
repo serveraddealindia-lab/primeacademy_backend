@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../context/AuthContext';
 import { Layout } from '../components/Layout';
@@ -8,7 +7,6 @@ import { sessionAPI } from '../api/session.api';
 
 export const AttendanceManagement: React.FC = () => {
   const { user } = useAuth();
-  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [selectedSessionId, setSelectedSessionId] = useState<number | null>(null);
   const [isMarkModalOpen, setIsMarkModalOpen] = useState(false);

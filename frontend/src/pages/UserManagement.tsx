@@ -67,31 +67,6 @@ export const UserManagement: React.FC = () => {
     },
   });
 
-  const loginAsUserMutation = useMutation({
-    mutationFn: (id: number) => userAPI.loginAsUser(id),
-    onSuccess: (data) => {
-      // Store the impersonation token and update the main token
-      if (data.data?.token) {
-        // Store original token if not already stored
-        const originalToken = localStorage.getItem('token');
-        if (originalToken && !localStorage.getItem('original_token')) {
-          localStorage.setItem('original_token', originalToken);
-        }
-        
-        // Set the new token as the main token
-        localStorage.setItem('token', data.data.token);
-        localStorage.setItem('impersonation_user_id', id.toString());
-        localStorage.setItem('is_impersonating', 'true');
-        
-        alert('Logged in as user successfully!');
-        window.location.reload();
-      }
-    },
-    onError: (error: any) => {
-      alert(error.response?.data?.message || 'Failed to login as user');
-    },
-  });
-
   const createUserMutation = useMutation({
     mutationFn: (data: CreateUserRequest) => userAPI.createUser(data),
     onSuccess: () => {
@@ -314,18 +289,6 @@ export const UserManagement: React.FC = () => {
     setIsViewModalOpen(true);
   };
 
-  const handleLoginAs = (userId: number) => {
-    if (window.confirm('Are you sure you want to login as this user? You will be logged in as them.')) {
-      console.log('Logging in as user:', userId);
-      loginAsUserMutation.mutate(userId, {
-        onError: (error: any) => {
-          console.error('Login as user error:', error);
-          alert(error.response?.data?.message || 'Failed to login as user. Please check console for details.');
-        },
-      });
-    }
-  };
-
   const handleUpdateUser = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!selectedUser) return;
@@ -335,7 +298,7 @@ export const UserManagement: React.FC = () => {
       name: formData.get('name') as string || undefined,
       email: formData.get('email') as string || undefined,
       phone: formData.get('phone') as string || undefined,
-      role: formData.get('role') as string || undefined,
+      role: formData.get('role') ? (formData.get('role') as User['role']) : undefined,
       isActive: formData.get('isActive') === 'true',
     };
     updateUserMutation.mutate({ id: selectedUser.id, data });

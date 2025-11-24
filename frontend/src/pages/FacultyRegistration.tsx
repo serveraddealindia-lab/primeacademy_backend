@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
 import { Layout } from '../components/Layout';
 import api from '../api/axios';
 import { facultyAPI, CreateFacultyRequest } from '../api/faculty.api';
@@ -15,7 +14,6 @@ interface RegisterUserRequest {
 }
 
 export const FacultyRegistration: React.FC = () => {
-  const { user } = useAuth();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [currentStep, setCurrentStep] = useState(1);
@@ -713,5 +711,6 @@ export const FacultyRegistration: React.FC = () => {
     </Layout>
   );
 };
+
 
 
