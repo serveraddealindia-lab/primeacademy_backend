@@ -1,0 +1,1 @@
+{"version":3,"file":"20240101000017-create-employee-leaves.d.ts","sourceRoot":"","sources":["../../src/migrations/20240101000017-create-employee-leaves.ts"],"names":[],"mappings":"AAAA,OAAO,EAAE,cAAc,EAAa,MAAM,WAAW,CAAC;;yBAGzB,cAAc,KAAG,OAAO,CAAC,IAAI,CAAC;2BAqE5B,cAAc,KAAG,OAAO,CAAC,IAAI,CAAC;;AAtE7D,wBAyEE"}

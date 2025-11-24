@@ -1,0 +1,1 @@
+{"version":3,"file":"20240101000005-create-enrollments.d.ts","sourceRoot":"","sources":["../../src/migrations/20240101000005-create-enrollments.ts"],"names":[],"mappings":"AAAA,OAAO,EAAE,cAAc,EAAa,MAAM,WAAW,CAAC;;yBAGzB,cAAc,KAAG,OAAO,CAAC,IAAI,CAAC;2BAqD5B,cAAc,KAAG,OAAO,CAAC,IAAI,CAAC;;AAtD7D,wBAyDE"}

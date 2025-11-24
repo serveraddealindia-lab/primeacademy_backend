@@ -1,0 +1,1 @@
+{"version":3,"file":"20240101000017-create-permissions.d.ts","sourceRoot":"","sources":["../../src/migrations/20240101000017-create-permissions.ts"],"names":[],"mappings":"AAAA,OAAO,EAAE,cAAc,EAAa,MAAM,WAAW,CAAC;AAEtD,eAAO,MAAM,EAAE,GAAU,gBAAgB,cAAc,KAAG,OAAO,CAAC,IAAI,CAmErE,CAAC;AAEF,eAAO,MAAM,IAAI,GAAU,gBAAgB,cAAc,KAAG,OAAO,CAAC,IAAI,CAEvE,CAAC"}

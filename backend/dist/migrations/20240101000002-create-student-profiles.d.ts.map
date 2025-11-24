@@ -1,0 +1,1 @@
+{"version":3,"file":"20240101000002-create-student-profiles.d.ts","sourceRoot":"","sources":["../../src/migrations/20240101000002-create-student-profiles.ts"],"names":[],"mappings":"AAAA,OAAO,EAAE,cAAc,EAAa,MAAM,WAAW,CAAC;;yBAGzB,cAAc,KAAG,OAAO,CAAC,IAAI,CAAC;2BA2D5B,cAAc,KAAG,OAAO,CAAC,IAAI,CAAC;;AA5D7D,wBA+DE"}
