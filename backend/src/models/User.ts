@@ -1,9 +1,8 @@
-import {
-  Model,
-  DataTypes,
-  Optional,
-} from 'sequelize';
+import { Model, DataTypes, Optional } from 'sequelize';
 import sequelize from '../config/database';
+import type StudentProfile from './StudentProfile';
+import type FacultyProfile from './FacultyProfile';
+import type EmployeeProfile from './EmployeeProfile';
 
 export enum UserRole {
   SUPERADMIN = 'superadmin',
@@ -39,6 +38,10 @@ class User extends Model<UserAttributes, UserCreationAttributes> implements User
   public isActive!: boolean;
   public readonly createdAt!: Date;
   public readonly updatedAt!: Date;
+
+  public studentProfile?: StudentProfile;
+  public facultyProfile?: FacultyProfile;
+  public employeeProfile?: EmployeeProfile;
 }
 
 User.init(
@@ -89,6 +92,7 @@ User.init(
 );
 
 export default User;
+
 
 
 

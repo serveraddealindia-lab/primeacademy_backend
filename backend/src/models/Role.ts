@@ -1,15 +1,7 @@
-import {
-  Model,
-  DataTypes,
-  Optional,
-  HasManyGetAssociationsMixin,
-  BelongsToManyGetAssociationsMixin,
-  Association,
-} from 'sequelize';
+import { Model, DataTypes, Optional, BelongsToManyGetAssociationsMixin, Association } from 'sequelize';
 import sequelize from '../config/database';
 import User from './User';
 import Permission from './Permission';
-import RolePermission from './RolePermission';
 
 export interface RoleAttributes {
   id: number;
@@ -77,6 +69,7 @@ Role.init(
 );
 
 export default Role;
+
 
 
 

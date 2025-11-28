@@ -24,6 +24,9 @@ import BatchFacultyAssignment from './BatchFacultyAssignment';
 import Role from './Role';
 import RolePermission from './RolePermission';
 import UserRole from './UserRole';
+import Certificate from './Certificate';
+import BiometricDevice from './BiometricDevice';
+import AttendanceLog from './AttendanceLog';
 
 const db = {
   sequelize,
@@ -50,6 +53,9 @@ const db = {
   Role,
   RolePermission,
   UserRole,
+  Certificate,
+  BiometricDevice,
+  AttendanceLog,
 };
 
 // Define associations
@@ -80,6 +86,9 @@ User.hasMany(SoftwareCompletion, { foreignKey: 'studentId', as: 'softwareComplet
 User.hasMany(SoftwareCompletion, { foreignKey: 'facultyId', as: 'taughtSoftware' });
 User.hasMany(Permission, { foreignKey: 'userId', as: 'permissions' });
 User.hasMany(BatchFacultyAssignment, { foreignKey: 'facultyId', as: 'facultyAssignments' });
+User.hasMany(Certificate, { foreignKey: 'studentId', as: 'certificates' });
+User.hasMany(Certificate, { foreignKey: 'issuedBy', as: 'issuedCertificates' });
+User.hasMany(AttendanceLog, { foreignKey: 'employeeId', as: 'attendanceLogs' });
 User.belongsToMany(Batch, {
   through: BatchFacultyAssignment,
   as: 'assignedBatches',
@@ -121,6 +130,7 @@ BatchFacultyAssignment.belongsTo(User, { foreignKey: 'facultyId', as: 'faculty' 
 // Enrollment associations
 Enrollment.belongsTo(User, { foreignKey: 'studentId', as: 'student' });
 Enrollment.belongsTo(Batch, { foreignKey: 'batchId', as: 'batch' });
+Enrollment.hasMany(PaymentTransaction, { foreignKey: 'enrollmentId', as: 'payments' });
 
 // Session associations
 Session.belongsTo(Batch, { foreignKey: 'batchId', as: 'batch' });
@@ -134,6 +144,7 @@ Attendance.belongsTo(User, { foreignKey: 'markedBy', as: 'marker' });
 
 // PaymentTransaction associations
 PaymentTransaction.belongsTo(User, { foreignKey: 'studentId', as: 'student' });
+PaymentTransaction.belongsTo(Enrollment, { foreignKey: 'enrollmentId', as: 'enrollment' });
 
 // Portfolio associations
 Portfolio.belongsTo(User, { foreignKey: 'studentId', as: 'student' });
@@ -192,6 +203,17 @@ RolePermission.belongsTo(Role, { foreignKey: 'roleId', as: 'role' });
 // UserRole associations
 UserRole.belongsTo(User, { foreignKey: 'userId', as: 'user' });
 UserRole.belongsTo(Role, { foreignKey: 'roleId', as: 'role' });
+
+// Certificate associations
+Certificate.belongsTo(User, { foreignKey: 'studentId', as: 'student' });
+Certificate.belongsTo(User, { foreignKey: 'issuedBy', as: 'issuer' });
+
+// BiometricDevice associations
+BiometricDevice.hasMany(AttendanceLog, { foreignKey: 'deviceId', as: 'attendanceLogs' });
+
+// AttendanceLog associations
+AttendanceLog.belongsTo(User, { foreignKey: 'employeeId', as: 'employee' });
+AttendanceLog.belongsTo(BiometricDevice, { foreignKey: 'deviceId', as: 'device' });
 
 export default db;
 

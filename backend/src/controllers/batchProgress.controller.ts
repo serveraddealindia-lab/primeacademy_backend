@@ -3,7 +3,7 @@ import { Op } from 'sequelize';
 import db from '../models';
 import { SessionStatus } from '../models/Session';
 import { AuthRequest } from '../middleware/auth.middleware';
-import logger from '../utils/logger';
+import { logger } from '../utils/logger';
 
 // GET /api/batches/progress → Get batch-wise progress list
 export const getBatchProgress = async (req: AuthRequest, res: Response): Promise<void> => {
@@ -222,6 +222,7 @@ function exportToPDF(batches: any[], res: Response): void {
     },
   });
 }
+
 
 
 

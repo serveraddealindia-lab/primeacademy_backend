@@ -26,6 +26,9 @@ class UserRole extends Model<UserRoleAttributes, UserRoleCreationAttributes> imp
   public readonly createdAt!: Date;
   public readonly updatedAt!: Date;
 
+  public role?: Role;
+  public user?: User;
+
   // Associations
   public getUser!: BelongsToGetAssociationMixin<User>;
   public getRole!: BelongsToGetAssociationMixin<Role>;
@@ -78,6 +81,7 @@ UserRole.init(
 );
 
 export default UserRole;
+
 
 
 
