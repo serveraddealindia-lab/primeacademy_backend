@@ -19,7 +19,7 @@ import paymentRoutes from './routes/payment.routes';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 // import reportRoutes from './routes/report.routes';
-// import facultyRoutes from './routes/faculty.routes';
+import facultyRoutes from './routes/faculty.routes';
 // import approvalRoutes from './routes/approval.routes';
 import uploadRoutes from './routes/upload.routes';
 import employeeRoutes from './routes/employee.routes';
@@ -193,7 +193,7 @@ app.use('/api/auth', authRoutes);
 //   logger.info('Registered auth routes: POST /api/auth/register, POST /api/auth/login, GET /api/auth/me, POST /api/auth/impersonate/:userId');
 // }
 
-// app.use('/api/faculty', facultyRoutes);
+app.use('/api/faculty', facultyRoutes);
 app.use('/api/batches', batchRoutes);
 app.use('/api/sessions', sessionRoutes);
 // app.use('/api/reports', reportRoutes);
