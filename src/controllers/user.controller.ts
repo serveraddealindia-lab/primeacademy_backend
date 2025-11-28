@@ -826,3 +826,56 @@ export const loginAsUser = async (
   }
 };
 
+// GET /api/users/modules/list - Get list of available modules
+export const getModulesList = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    if (!req.user) {
+      res.status(401).json({
+        status: 'error',
+        message: 'Authentication required',
+      });
+      return;
+    }
+
+    // Module labels mapping
+    const moduleLabels: Record<string, string> = {
+      batches: 'Batches',
+      students: 'Students',
+      faculty: 'Faculty',
+      employees: 'Employees',
+      sessions: 'Sessions',
+      attendance: 'Attendance',
+      payments: 'Payments',
+      portfolios: 'Portfolios',
+      reports: 'Reports',
+      approvals: 'Approvals',
+      users: 'Users',
+      software_completions: 'Software Completions',
+      student_leaves: 'Student Leaves',
+      batch_extensions: 'Batch Extensions',
+      employee_leaves: 'Employee Leaves',
+      faculty_leaves: 'Faculty Leaves',
+    };
+
+    // Get all modules from RolePermission enum
+    const { Module } = await import('../models/RolePermission');
+    const modules = Object.values(Module).map((module) => ({
+      value: module,
+      label: moduleLabels[module] || module.charAt(0).toUpperCase() + module.slice(1).replace(/_/g, ' '),
+    }));
+
+    res.status(200).json({
+      status: 'success',
+      data: {
+        modules,
+      },
+    });
+  } catch (error) {
+    logger.error('Get modules list error:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Internal server error while fetching modules list',
+    });
+  }
+};
+

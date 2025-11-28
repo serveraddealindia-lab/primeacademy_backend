@@ -24,8 +24,13 @@ router.post(
 // GET /batches/:id/candidates/suggest → suggest eligible students
 router.get('/:id/candidates/suggest', verifyTokenMiddleware, batchController.suggestCandidates);
 
-// GET /batches/:id/enrollments → get batch enrollments
-router.get('/:id/enrollments', verifyTokenMiddleware, batchController.getBatchEnrollments);
+// GET /batches/:id/enrollments → get batch enrollments (faculty can view enrollments for their assigned batches)
+router.get(
+  '/:id/enrollments',
+  verifyTokenMiddleware,
+  checkRole(UserRole.ADMIN, UserRole.SUPERADMIN, UserRole.FACULTY),
+  batchController.getBatchEnrollments
+);
 
 // PUT /batches/:id/faculty → assign faculty to batch
 router.put(
@@ -56,6 +61,7 @@ router.delete(
 );
 
 export default router;
+
 
 
 

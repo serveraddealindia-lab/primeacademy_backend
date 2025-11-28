@@ -64,5 +64,12 @@ router.delete(
   userController.deleteUser
 );
 
+// GET /api/users/modules/list - Get list of available modules
+router.get(
+  '/modules/list',
+  verifyTokenMiddleware,
+  userController.getModulesList
+);
+
 export default router;
 
