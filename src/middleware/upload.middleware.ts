@@ -2,11 +2,9 @@ import multer from 'multer';
 import path from 'path';
 import { existsSync, mkdirSync } from 'fs';
 import { randomUUID } from 'crypto';
-import { fileURLToPath } from 'url';
 import type { Request } from 'express';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+// __dirname is available in CommonJS
 
 const uploadsRoot = path.join(__dirname, '../../uploads');
 const attendanceUploadDir = process.env.ATTENDANCE_UPLOAD_DIR

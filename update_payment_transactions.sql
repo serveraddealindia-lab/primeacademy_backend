@@ -40,3 +40,5 @@ NOT NULL DEFAULT 'pending';
 -- Verify the changes
 DESCRIBE payment_transactions;
 
+
+

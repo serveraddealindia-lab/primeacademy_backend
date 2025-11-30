@@ -106,3 +106,5 @@ If image uploads still don't work after running the SQL:
 - `fix_image_upload_columns.sql` - Manual fix with instructions
 - `create_database_tables.sql` - Updated with correct column sizes
 
+
+

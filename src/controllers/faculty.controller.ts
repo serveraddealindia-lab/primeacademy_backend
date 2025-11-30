@@ -84,7 +84,7 @@ export const createFaculty = async (
           userId: profileWithUser?.userId,
           expertise: profileWithUser?.expertise,
           availability: profileWithUser?.availability,
-          user: profileWithUser?.user,
+          user: (profileWithUser as any)?.user,
           createdAt: profileWithUser?.createdAt,
           updatedAt: profileWithUser?.updatedAt,
         },
@@ -186,7 +186,7 @@ export const updateFacultyProfile = async (
           userId: updatedProfile?.userId,
           expertise: updatedProfile?.expertise,
           availability: updatedProfile?.availability,
-          user: updatedProfile?.user,
+          user: (updatedProfile as any)?.user,
           createdAt: updatedProfile?.createdAt,
           updatedAt: updatedProfile?.updatedAt,
         },
@@ -200,4 +200,6 @@ export const updateFacultyProfile = async (
     });
   }
 };
+
+
 

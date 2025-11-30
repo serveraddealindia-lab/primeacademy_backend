@@ -495,12 +495,550 @@ export const getPunchSummaryReport = async (req: AuthRequest, res: Response): Pr
   }
 };
 
+// GET /attendance-reports/students-without-batch → Students without any batch enrollment
+export const getStudentsWithoutBatch = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    if (!req.user) {
+      res.status(401).json({
+        status: 'error',
+        message: 'Authentication required',
+      });
+      return;
+    }
+
+    if (req.user.role !== UserRole.ADMIN && req.user.role !== UserRole.SUPERADMIN) {
+      res.status(403).json({
+        status: 'error',
+        message: 'Only admins can view this report',
+      });
+      return;
+    }
+
+    // Get all students
+    const allStudents = await db.User.findAll({
+      where: {
+        role: UserRole.STUDENT,
+        isActive: true,
+      },
+      attributes: ['id', 'name', 'email', 'phone', 'avatarUrl', 'createdAt'],
+      include: [
+        {
+          model: db.Enrollment,
+          as: 'enrollments',
+          required: false,
+          include: [
+            {
+              model: db.Batch,
+              as: 'batch',
+              attributes: ['id', 'title', 'status'],
+            },
+          ],
+        },
+      ],
+      order: [['createdAt', 'DESC']],
+    });
+
+    // Filter students with no active enrollments
+    const studentsWithoutBatch = allStudents
+      .filter((student: any) => {
+        const enrollments = student.enrollments || [];
+        return enrollments.length === 0 || enrollments.every((e: any) => e.status !== 'active');
+      })
+      .map((student: any) => ({
+        id: student.id,
+        name: student.name,
+        email: student.email,
+        phone: student.phone,
+        createdAt: student.createdAt,
+        enrollments: (student.enrollments || []).map((e: any) => ({
+          id: e.id,
+          batch: e.batch ? {
+            id: e.batch.id,
+            title: e.batch.title,
+            status: e.batch.status,
+          } : null,
+        })),
+      }));
+
+    res.status(200).json({
+      status: 'success',
+      data: {
+        students: studentsWithoutBatch,
+        totalCount: studentsWithoutBatch.length,
+      },
+    });
+  } catch (error) {
+    logger.error('Get students without batch error:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Internal server error while fetching students',
+    });
+  }
+};
+
+// GET /reports/students-enrolled-batch-not-started → Students enrolled but batch not started
+export const getStudentsEnrolledBatchNotStarted = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    if (!req.user) {
+      res.status(401).json({
+        status: 'error',
+        message: 'Authentication required',
+      });
+      return;
+    }
+
+    if (req.user.role !== UserRole.ADMIN && req.user.role !== UserRole.SUPERADMIN) {
+      res.status(403).json({
+        status: 'error',
+        message: 'Only admins can view this report',
+      });
+      return;
+    }
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    // Get all enrollments where batch startDate is in the future
+    // First get all active enrollments, then filter by batch start date
+    const allEnrollments = await db.Enrollment.findAll({
+      where: {
+        status: 'active',
+      },
+      include: [
+        {
+          model: db.User,
+          as: 'student',
+          attributes: ['id', 'name', 'email', 'phone', 'avatarUrl'],
+          where: {
+            role: UserRole.STUDENT,
+            isActive: true,
+          },
+          required: true,
+        },
+        {
+          model: db.Batch,
+          as: 'batch',
+          attributes: ['id', 'title', 'software', 'mode', 'startDate', 'endDate', 'status', 'schedule'],
+          required: true,
+        },
+      ],
+      order: [['enrollmentDate', 'DESC']],
+    });
+
+    // Filter enrollments where batch startDate is in the future
+    const enrollments = allEnrollments.filter((enrollment: any) => {
+      if (!enrollment.batch || !enrollment.student) return false;
+      const batchStartDate = new Date(enrollment.batch.startDate);
+      batchStartDate.setHours(0, 0, 0, 0);
+      return batchStartDate > today;
+    });
+
+    const students = enrollments
+      .filter((e: any) => e.batch && e.student)
+      .map((enrollment: any) => ({
+        id: enrollment.student.id,
+        name: enrollment.student.name,
+        email: enrollment.student.email,
+        phone: enrollment.student.phone,
+        avatarUrl: enrollment.student.avatarUrl,
+        enrollmentId: enrollment.id,
+        enrollmentDate: enrollment.enrollmentDate,
+        batch: {
+          id: enrollment.batch.id,
+          title: enrollment.batch.title,
+          software: enrollment.batch.software,
+          mode: enrollment.batch.mode,
+          startDate: enrollment.batch.startDate,
+          endDate: enrollment.batch.endDate,
+          status: enrollment.batch.status,
+          schedule: enrollment.batch.schedule,
+        },
+      }));
+
+    res.status(200).json({
+      status: 'success',
+      data: {
+        students,
+        totalCount: students.length,
+      },
+    });
+  } catch (error) {
+    logger.error('Get students enrolled batch not started error:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Internal server error while fetching students',
+    });
+  }
+};
+
+// Helper function to check if two time ranges overlap
+const isTimeOverlapping = (start1: string, end1: string, start2: string, end2: string): boolean => {
+  const parseTime = (timeStr: string): number => {
+    const [time, period] = timeStr.split(' ');
+    const [hours, minutes] = time.split(':').map(Number);
+    let hour24 = hours;
+    if (period === 'PM' && hours !== 12) hour24 += 12;
+    if (period === 'AM' && hours === 12) hour24 = 0;
+    return hour24 * 60 + minutes;
+  };
+
+  const start1Min = parseTime(start1);
+  const end1Min = parseTime(end1);
+  const start2Min = parseTime(start2);
+  const end2Min = parseTime(end2);
+
+  return start1Min < end2Min && start2Min < end1Min;
+};
+
+// Helper function to check time conflicts between batches
+const checkTimeConflicts = (batches: any[]): boolean => {
+  for (let i = 0; i < batches.length; i++) {
+    for (let j = i + 1; j < batches.length; j++) {
+      const batch1 = batches[i];
+      const batch2 = batches[j];
+      
+      if (!batch1.schedule || !batch2.schedule) continue;
+      
+      // Check if batches have overlapping days and times
+      const schedule1 = batch1.schedule;
+      const schedule2 = batch2.schedule;
+      
+      for (const day in schedule1) {
+        if (schedule2[day]) {
+          const time1 = schedule1[day];
+          const time2 = schedule2[day];
+          
+          if (time1.startTime && time1.endTime && time2.startTime && time2.endTime) {
+            // Check if times overlap
+            if (isTimeOverlapping(time1.startTime, time1.endTime, time2.startTime, time2.endTime)) {
+              return true;
+            }
+          }
+        }
+      }
+    }
+  }
+  return false;
+};
+
+// GET /reports/students-multiple-courses-conflict → Students enrolled in 2+ courses with conflicts
+export const getStudentsMultipleCoursesConflict = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    if (!req.user) {
+      res.status(401).json({
+        status: 'error',
+        message: 'Authentication required',
+      });
+      return;
+    }
+
+    if (req.user.role !== UserRole.ADMIN && req.user.role !== UserRole.SUPERADMIN) {
+      res.status(403).json({
+        status: 'error',
+        message: 'Only admins can view this report',
+      });
+      return;
+    }
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    // Get all students with multiple active enrollments
+    const allEnrollments = await db.Enrollment.findAll({
+      where: {
+        status: 'active',
+      },
+      include: [
+        {
+          model: db.User,
+          as: 'student',
+          attributes: ['id', 'name', 'email', 'phone', 'avatarUrl'],
+          where: {
+            role: UserRole.STUDENT,
+            isActive: true,
+          },
+        },
+        {
+          model: db.Batch,
+          as: 'batch',
+          attributes: ['id', 'title', 'software', 'mode', 'startDate', 'endDate', 'status', 'schedule'],
+          where: {
+            [Op.or]: [
+              { startDate: { [Op.lte]: today }, endDate: { [Op.gte]: today } }, // Currently running
+              { startDate: { [Op.gt]: today } }, // Future batches
+            ],
+          },
+        },
+      ],
+      order: [['enrollmentDate', 'DESC']],
+    });
+
+    // Group by student
+    const studentEnrollmentsMap = new Map<number, any[]>();
+    allEnrollments.forEach((enrollment: any) => {
+      if (enrollment.batch && enrollment.student) {
+        const studentId = enrollment.student.id;
+        if (!studentEnrollmentsMap.has(studentId)) {
+          studentEnrollmentsMap.set(studentId, []);
+        }
+        studentEnrollmentsMap.get(studentId)!.push(enrollment);
+      }
+    });
+
+    // Find students with 2+ enrollments
+    const conflictStudents: any[] = [];
+    studentEnrollmentsMap.forEach((enrollments) => {
+      if (enrollments.length >= 2) {
+        const student = enrollments[0].student;
+        const batches = enrollments.map((e: any) => ({
+          id: e.batch.id,
+          title: e.batch.title,
+          software: e.batch.software,
+          mode: e.batch.mode,
+          startDate: e.batch.startDate,
+          endDate: e.batch.endDate,
+          status: e.batch.status,
+          schedule: e.batch.schedule,
+          enrollmentId: e.id,
+          enrollmentDate: e.enrollmentDate,
+        }));
+
+        // Check for time conflicts
+        const hasTimeConflict = checkTimeConflicts(batches);
+        const runningBatches = batches.filter((b: any) => {
+          const startDate = new Date(b.startDate);
+          const endDate = new Date(b.endDate);
+          return startDate <= today && endDate >= today;
+        });
+        const futureBatches = batches.filter((b: any) => {
+          const startDate = new Date(b.startDate);
+          return startDate > today;
+        });
+
+        conflictStudents.push({
+          id: student.id,
+          name: student.name,
+          email: student.email,
+          phone: student.phone,
+          avatarUrl: student.avatarUrl,
+          batches,
+          runningBatches: runningBatches.length,
+          futureBatches: futureBatches.length,
+          hasTimeConflict,
+          totalEnrollments: enrollments.length,
+        });
+      }
+    });
+
+    res.status(200).json({
+      status: 'success',
+      data: {
+        students: conflictStudents,
+        totalCount: conflictStudents.length,
+      },
+    });
+  } catch (error) {
+    logger.error('Get students multiple courses conflict error:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Internal server error while fetching students',
+    });
+  }
+};
+
+// GET /reports/students-on-leave-pending-batches → Students on leave with pending batches
+export const getStudentsOnLeavePendingBatches = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    if (!req.user) {
+      res.status(401).json({
+        status: 'error',
+        message: 'Authentication required',
+      });
+      return;
+    }
+
+    if (req.user.role !== UserRole.ADMIN && req.user.role !== UserRole.SUPERADMIN) {
+      res.status(403).json({
+        status: 'error',
+        message: 'Only admins can view this report',
+      });
+      return;
+    }
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    // Get all active student leaves
+    const activeLeaves = await db.StudentLeave.findAll({
+      where: {
+        status: 'approved',
+        [Op.or]: [
+          { startDate: { [Op.lte]: today }, endDate: { [Op.gte]: today } }, // Currently on leave
+          { startDate: { [Op.gt]: today } }, // Future leave
+        ],
+      },
+      include: [
+        {
+          model: db.User,
+          as: 'student',
+          attributes: ['id', 'name', 'email', 'phone', 'avatarUrl'],
+          where: {
+            role: UserRole.STUDENT,
+            isActive: true,
+          },
+        },
+        {
+          model: db.Batch,
+          as: 'batch',
+          attributes: ['id', 'title', 'software', 'mode', 'startDate', 'endDate', 'status', 'schedule'],
+        },
+      ],
+      order: [['startDate', 'DESC']],
+    });
+
+    // Get all enrollments for students on leave
+    const studentIdsOnLeave = [...new Set(activeLeaves.map((leave: any) => leave.studentId))];
+    
+    const allEnrollments = await db.Enrollment.findAll({
+      where: {
+        status: 'active',
+        studentId: {
+          [Op.in]: studentIdsOnLeave,
+        },
+      },
+      include: [
+        {
+          model: db.User,
+          as: 'student',
+          attributes: ['id', 'name', 'email', 'phone', 'avatarUrl'],
+          where: {
+            role: UserRole.STUDENT,
+            isActive: true,
+          },
+        },
+        {
+          model: db.Batch,
+          as: 'batch',
+          attributes: ['id', 'title', 'software', 'mode', 'startDate', 'endDate', 'status', 'schedule'],
+        },
+      ],
+      order: [['enrollmentDate', 'DESC']],
+    });
+
+    // Group by student
+    const studentDataMap = new Map<number, any>();
+    
+    activeLeaves.forEach((leave: any) => {
+      if (leave.student && leave.batch) {
+        const studentId = leave.student.id;
+        if (!studentDataMap.has(studentId)) {
+          studentDataMap.set(studentId, {
+            id: leave.student.id,
+            name: leave.student.name,
+            email: leave.student.email,
+            phone: leave.student.phone,
+            avatarUrl: leave.student.avatarUrl,
+            leaves: [],
+            pendingBatches: [],
+          });
+        }
+        const studentData = studentDataMap.get(studentId)!;
+        studentData.leaves.push({
+          id: leave.id,
+          batchId: leave.batchId,
+          batchTitle: leave.batch.title,
+          startDate: leave.startDate,
+          endDate: leave.endDate,
+          reason: leave.reason,
+          status: leave.status,
+        });
+      }
+    });
+
+    // Add enrollments that are not covered by leaves (pending batches)
+    allEnrollments.forEach((enrollment: any) => {
+      if (enrollment.batch && enrollment.student) {
+        const studentId = enrollment.student.id;
+        const studentData = studentDataMap.get(studentId);
+        if (studentData) {
+          // Check if this batch is covered by a leave
+          const isCoveredByLeave = studentData.leaves.some((leave: any) => leave.batchId === enrollment.batchId);
+          if (!isCoveredByLeave) {
+            const batchStartDate = new Date(enrollment.batch.startDate);
+            const batchEndDate = new Date(enrollment.batch.endDate);
+            
+            // Check if batch is running or future
+            if (batchStartDate <= today && batchEndDate >= today) {
+              // Currently running batch
+              studentData.pendingBatches.push({
+                id: enrollment.batch.id,
+                title: enrollment.batch.title,
+                software: enrollment.batch.software,
+                mode: enrollment.batch.mode,
+                startDate: enrollment.batch.startDate,
+                endDate: enrollment.batch.endDate,
+                status: enrollment.batch.status,
+                schedule: enrollment.batch.schedule,
+                enrollmentId: enrollment.id,
+                enrollmentDate: enrollment.enrollmentDate,
+                isRunning: true,
+              });
+            } else if (batchStartDate > today) {
+              // Future batch
+              studentData.pendingBatches.push({
+                id: enrollment.batch.id,
+                title: enrollment.batch.title,
+                software: enrollment.batch.software,
+                mode: enrollment.batch.mode,
+                startDate: enrollment.batch.startDate,
+                endDate: enrollment.batch.endDate,
+                status: enrollment.batch.status,
+                schedule: enrollment.batch.schedule,
+                enrollmentId: enrollment.id,
+                enrollmentDate: enrollment.enrollmentDate,
+                isRunning: false,
+              });
+            }
+          }
+        }
+      }
+    });
+
+    // Filter to only students with pending batches
+    const studentsWithPendingBatches = Array.from(studentDataMap.values())
+      .filter((student) => student.pendingBatches.length > 0)
+      .map((student) => ({
+        ...student,
+        totalLeaves: student.leaves.length,
+        totalPendingBatches: student.pendingBatches.length,
+      }));
+
+    res.status(200).json({
+      status: 'success',
+      data: {
+        students: studentsWithPendingBatches,
+        totalCount: studentsWithPendingBatches.length,
+      },
+    });
+  } catch (error) {
+    logger.error('Get students on leave pending batches error:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Internal server error while fetching students',
+    });
+  }
+};
+
 export default {
   getAllStudents,
   getStudentDetails,
   getFacultyAttendanceReport,
   getStudentAttendanceReport,
   getPunchSummaryReport,
+  getStudentsWithoutBatch,
+  getStudentsEnrolledBatchNotStarted,
+  getStudentsMultipleCoursesConflict,
+  getStudentsOnLeavePendingBatches,
 };
 
 

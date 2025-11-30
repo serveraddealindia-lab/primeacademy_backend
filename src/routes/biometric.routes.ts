@@ -59,3 +59,5 @@ router.post('/push-log', biometricController.pushLog as any);
 
 export default router;
 
+
+

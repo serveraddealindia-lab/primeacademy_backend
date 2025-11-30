@@ -1,15 +1,14 @@
 import { Response } from 'express';
+// @ts-ignore - pdfmake doesn't have type definitions
 import PdfPrinter from 'pdfmake';
 import path from 'path';
 import fs from 'fs';
-import { fileURLToPath } from 'url';
 import { AuthRequest } from '../middleware/auth.middleware';
 import { UserRole } from '../models/User';
 import db from '../models';
 import { logger } from '../utils/logger';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+// __dirname is available in CommonJS
 
 const certificatesDir = path.join(__dirname, '../../certificates');
 if (!fs.existsSync(certificatesDir)) {
@@ -298,7 +297,7 @@ export const createCertificate = async (req: AuthRequest, res: Response): Promis
       return;
     }
 
-    const { studentId, courseName, softwareCovered, grade, monthOfCompletion, certificateNumber } = req.body;
+    const { studentId, courseName, softwareCovered, grade, monthOfCompletion, certificateNumber, studentDeclarationAccepted } = req.body;
 
     if (!studentId || !courseName || !grade || !monthOfCompletion) {
       res.status(400).json({
@@ -362,6 +361,8 @@ export const createCertificate = async (req: AuthRequest, res: Response): Promis
       pdfUrl,
       issuedBy: req.user.userId,
       issuedAt: new Date(),
+      studentDeclarationAccepted: studentDeclarationAccepted === true,
+      studentDeclarationDate: studentDeclarationAccepted === true ? new Date() : undefined,
     });
 
     // Fetch with associations
@@ -385,7 +386,8 @@ export const createCertificate = async (req: AuthRequest, res: Response): Promis
         try {
           certObj.softwareCovered = JSON.parse(certObj.softwareCovered);
         } catch {
-          certObj.softwareCovered = certObj.softwareCovered.split(',').map((s: string) => s.trim()).filter((s: string) => s);
+          const softwareStr = String(certObj.softwareCovered);
+          certObj.softwareCovered = softwareStr.split(',').map((s: string) => s.trim()).filter((s: string) => s);
         }
       } else {
         certObj.softwareCovered = [];
@@ -448,7 +450,8 @@ export const getAllCertificates = async (req: AuthRequest, res: Response): Promi
             certObj.softwareCovered = JSON.parse(certObj.softwareCovered);
           } catch {
             // If not JSON, treat as comma-separated string
-            certObj.softwareCovered = certObj.softwareCovered.split(',').map((s: string) => s.trim()).filter((s: string) => s);
+            const softwareStr = String(certObj.softwareCovered);
+          certObj.softwareCovered = softwareStr.split(',').map((s: string) => s.trim()).filter((s: string) => s);
           }
         } else {
           certObj.softwareCovered = [];
@@ -521,7 +524,8 @@ export const getCertificateById = async (req: AuthRequest, res: Response): Promi
         try {
           certObj.softwareCovered = JSON.parse(certObj.softwareCovered);
         } catch {
-          certObj.softwareCovered = certObj.softwareCovered.split(',').map((s: string) => s.trim()).filter((s: string) => s);
+          const softwareStr = String(certObj.softwareCovered);
+          certObj.softwareCovered = softwareStr.split(',').map((s: string) => s.trim()).filter((s: string) => s);
         }
       } else {
         certObj.softwareCovered = [];

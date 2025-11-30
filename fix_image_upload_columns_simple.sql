@@ -86,3 +86,5 @@ WHERE TABLE_SCHEMA = DATABASE()
 AND TABLE_NAME = 'student_profiles' 
 AND COLUMN_NAME = 'photoUrl';
 
+
+

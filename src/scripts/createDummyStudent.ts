@@ -87,7 +87,7 @@ async function createDummyStudent() {
     });
 
     if (firstBatch && db.Enrollment) {
-      const enrollment = await db.Enrollment.create(
+      await db.Enrollment.create(
         {
           studentId: user.id,
           batchId: firstBatch.id,
