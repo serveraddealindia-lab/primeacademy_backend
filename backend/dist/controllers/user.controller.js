@@ -1,9 +1,42 @@
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.loginAsUser = exports.updateEmployeeProfile = exports.updateFacultyProfile = exports.updateStudentProfile = exports.deleteUser = exports.updateUser = exports.getUserById = exports.getAllUsers = void 0;
+exports.getModulesList = exports.loginAsUser = exports.updateEmployeeProfile = exports.updateFacultyProfile = exports.updateStudentProfile = exports.deleteUser = exports.updateUser = exports.getUserById = exports.getAllUsers = void 0;
 const models_1 = __importDefault(require("../models"));
 const User_1 = require("../models/User");
 const logger_1 = require("../utils/logger");
@@ -603,7 +636,11 @@ const updateEmployeeProfile = async (req, res) => {
         // Get or create employee profile
         let employeeProfile = await models_1.default.EmployeeProfile.findOne({ where: { userId } });
         if (!employeeProfile) {
-            employeeProfile = await models_1.default.EmployeeProfile.create({ userId });
+            const generatedEmployeeId = (req.body.employeeId ? String(req.body.employeeId) : `EMP-${userId}-${Date.now()}`);
+            employeeProfile = await models_1.default.EmployeeProfile.create({
+                userId,
+                employeeId: generatedEmployeeId,
+            });
         }
         // Update profile fields
         if (req.body.employeeId !== undefined)
@@ -749,4 +786,55 @@ const loginAsUser = async (req, res) => {
     }
 };
 exports.loginAsUser = loginAsUser;
+// GET /api/users/modules/list - Get list of available modules
+const getModulesList = async (req, res) => {
+    try {
+        if (!req.user) {
+            res.status(401).json({
+                status: 'error',
+                message: 'Authentication required',
+            });
+            return;
+        }
+        // Module labels mapping
+        const moduleLabels = {
+            batches: 'Batches',
+            students: 'Students',
+            faculty: 'Faculty',
+            employees: 'Employees',
+            sessions: 'Sessions',
+            attendance: 'Attendance',
+            payments: 'Payments',
+            portfolios: 'Portfolios',
+            reports: 'Reports',
+            approvals: 'Approvals',
+            users: 'Users',
+            software_completions: 'Software Completions',
+            student_leaves: 'Student Leaves',
+            batch_extensions: 'Batch Extensions',
+            employee_leaves: 'Employee Leaves',
+            faculty_leaves: 'Faculty Leaves',
+        };
+        // Get all modules from RolePermission enum
+        const { Module } = await Promise.resolve().then(() => __importStar(require('../models/RolePermission')));
+        const modules = Object.values(Module).map((module) => ({
+            value: module,
+            label: moduleLabels[module] || module.charAt(0).toUpperCase() + module.slice(1).replace(/_/g, ' '),
+        }));
+        res.status(200).json({
+            status: 'success',
+            data: {
+                modules,
+            },
+        });
+    }
+    catch (error) {
+        logger_1.logger.error('Get modules list error:', error);
+        res.status(500).json({
+            status: 'error',
+            message: 'Internal server error while fetching modules list',
+        });
+    }
+};
+exports.getModulesList = getModulesList;
 //# sourceMappingURL=user.controller.js.map

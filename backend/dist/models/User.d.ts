@@ -1,4 +1,7 @@
 import { Model, Optional } from 'sequelize';
+import type StudentProfile from './StudentProfile';
+import type FacultyProfile from './FacultyProfile';
+import type EmployeeProfile from './EmployeeProfile';
 export declare enum UserRole {
     SUPERADMIN = "superadmin",
     ADMIN = "admin",
@@ -31,6 +34,9 @@ declare class User extends Model<UserAttributes, UserCreationAttributes> impleme
     isActive: boolean;
     readonly createdAt: Date;
     readonly updatedAt: Date;
+    studentProfile?: StudentProfile;
+    facultyProfile?: FacultyProfile;
+    employeeProfile?: EmployeeProfile;
 }
 export default User;
 //# sourceMappingURL=User.d.ts.map

@@ -1,24 +1,6 @@
 import { Response } from 'express';
 import { AuthRequest } from '../middleware/auth.middleware';
-interface AcknowledgeOrientationBody {
-    studentId: number;
-    studentName: string;
-    course: string;
-    specialCommitment?: string;
-    specialBatchTiming?: string;
-    unableToPracticeReason?: string;
-    paymentExemption?: string;
-    confirmed: boolean;
-}
-export declare const acknowledgeOrientation: (req: {
-    body: AcknowledgeOrientationBody;
-} & {
-    user?: any;
-}, res: Response) => Promise<void>;
-export declare const getOrientationStatus: (req: AuthRequest & {
-    params: {
-        id: string;
-    };
-}, res: Response) => Promise<void>;
-export {};
+export declare const getStudentOrientation: (req: AuthRequest, res: Response) => Promise<void>;
+export declare const acceptOrientation: (req: AuthRequest, res: Response) => Promise<void>;
+export declare const getBulkOrientationStatus: (req: AuthRequest, res: Response) => Promise<void>;
 //# sourceMappingURL=orientation.controller.d.ts.map

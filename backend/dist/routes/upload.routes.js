@@ -1,45 +1,56 @@
 "use strict";
-var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    var desc = Object.getOwnPropertyDescriptor(m, k);
-    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-      desc = { enumerable: true, get: function() { return m[k]; } };
-    }
-    Object.defineProperty(o, k2, desc);
-}) : (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    o[k2] = m[k];
-}));
-var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
-    Object.defineProperty(o, "default", { enumerable: true, value: v });
-}) : function(o, v) {
-    o["default"] = v;
-});
-var __importStar = (this && this.__importStar) || (function () {
-    var ownKeys = function(o) {
-        ownKeys = Object.getOwnPropertyNames || function (o) {
-            var ar = [];
-            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
-            return ar;
-        };
-        return ownKeys(o);
-    };
-    return function (mod) {
-        if (mod && mod.__esModule) return mod;
-        var result = {};
-        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
-        __setModuleDefault(result, mod);
-        return result;
-    };
-})();
 Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
-const uploadController = __importStar(require("../controllers/upload.controller"));
+const upload_controller_1 = require("../controllers/upload.controller");
 const auth_middleware_1 = require("../middleware/auth.middleware");
-const upload_middleware_1 = require("../middleware/upload.middleware");
 const router = (0, express_1.Router)();
-// POST /upload → upload multiple files
-router.post('/', auth_middleware_1.verifyTokenMiddleware, upload_middleware_1.upload.array('files', 10), // Accept up to 10 files with field name 'files'
-upload_middleware_1.handleUploadError, uploadController.uploadFiles);
+// Test route to verify upload endpoint is accessible
+router.get('/', auth_middleware_1.verifyTokenMiddleware, (_req, res) => {
+    res.json({
+        status: 'success',
+        message: 'Upload endpoint is working',
+        endpoint: 'POST /api/upload',
+        staticPath: '/uploads',
+        note: 'Uploaded files are served at /uploads/[path]',
+    });
+});
+// Test route to verify static file serving
+router.get('/test-static', auth_middleware_1.verifyTokenMiddleware, (_req, res) => {
+    const path = require('path');
+    const fs = require('fs');
+    const uploadsRoot = path.join(__dirname, '../../uploads');
+    const generalUploadDir = path.join(uploadsRoot, 'general');
+    let files = [];
+    try {
+        if (fs.existsSync(generalUploadDir)) {
+            files = fs.readdirSync(generalUploadDir).slice(0, 5); // Get first 5 files
+        }
+    }
+    catch (error) {
+        // Ignore
+    }
+    res.json({
+        status: 'success',
+        message: 'Static file serving test',
+        uploadsRoot,
+        generalUploadDir,
+        exists: fs.existsSync(generalUploadDir),
+        fileCount: files.length,
+        sampleFiles: files,
+        note: 'Files should be accessible at http://localhost:3000/uploads/general/[filename]',
+    });
+});
+// POST /api/upload - Upload files (images)
+router.post('/', auth_middleware_1.verifyTokenMiddleware, (req, res, next) => {
+    upload_controller_1.uploadMiddleware.array('files', 10)(req, res, (err) => {
+        if (err) {
+            return res.status(400).json({
+                status: 'error',
+                message: err.message || 'File upload error',
+            });
+        }
+        return next();
+    });
+}, upload_controller_1.uploadFiles);
 exports.default = router;
 //# sourceMappingURL=upload.routes.js.map

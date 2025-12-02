@@ -189,6 +189,27 @@ export const getUserById = async (
       // EmployeeProfile model not available
     }
 
+    // Include enrollments for students
+    try {
+      if (db.Enrollment && typeof db.Enrollment !== 'undefined') {
+        includeOptions.push({
+          model: db.Enrollment,
+          as: 'enrollments',
+          required: false,
+          include: [
+            {
+              model: db.Batch,
+              as: 'batch',
+              attributes: ['id', 'title', 'software', 'mode', 'status', 'schedule'],
+              required: false,
+            },
+          ],
+        });
+      }
+    } catch (e) {
+      // Enrollment model not available
+    }
+
     const queryOptions: any = {
       attributes: { exclude: ['passwordHash'] },
     };

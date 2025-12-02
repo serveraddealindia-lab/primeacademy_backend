@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { Layout } from '../components/Layout';
 import { paymentAPI, PaymentTransaction, CreatePaymentRequest, UpdatePaymentRequest } from '../api/payment.api';
 import { studentAPI } from '../api/student.api';
+import { formatDateDDMMYYYY } from '../utils/dateUtils';
 
 export const PaymentManagement: React.FC = () => {
   const { user } = useAuth();
@@ -68,8 +69,8 @@ export const PaymentManagement: React.FC = () => {
         payment.amount.toFixed(2),
         paidAmount.toFixed(2),
         balance.toFixed(2),
-        payment.dueDate ? new Date(payment.dueDate).toLocaleDateString() : '-',
-        payment.paidDate ? new Date(payment.paidDate).toLocaleDateString() : '-',
+        payment.dueDate ? formatDateDDMMYYYY(payment.dueDate) : '-',
+        payment.paidDate ? formatDateDDMMYYYY(payment.paidDate) : '-',
         payment.status,
         payment.paymentMethod || '-',
         payment.transactionId || '-',
@@ -174,18 +175,18 @@ export const PaymentManagement: React.FC = () => {
 
   return (
     <Layout>
-      <div className="max-w-7xl mx-auto">
+      <div className="max-w-7xl mx-auto p-4 md:p-6">
         <div className="bg-white shadow-xl rounded-lg overflow-hidden">
-          <div className="bg-gradient-to-r from-orange-600 to-orange-500 px-8 py-6">
-            <div className="flex justify-between items-center">
+          <div className="bg-gradient-to-r from-orange-600 to-orange-500 px-4 md:px-8 py-4 md:py-6">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
               <div>
-                <h1 className="text-3xl font-bold text-white">Payment Management</h1>
-                <p className="mt-2 text-orange-100">Manage payments</p>
+                <h1 className="text-2xl md:text-3xl font-bold text-white">Payment Management</h1>
+                <p className="mt-2 text-sm md:text-base text-orange-100">Manage payments</p>
               </div>
-              <div className="flex gap-3">
+              <div className="flex flex-wrap gap-2 md:gap-3 w-full sm:w-auto">
                 <button
                   onClick={handleDownloadCSV}
-                  className="px-4 py-2 bg-white text-orange-600 rounded-lg font-semibold hover:bg-orange-50 transition-colors flex items-center gap-2"
+                  className="px-4 py-2 bg-white text-orange-600 rounded-lg font-semibold hover:bg-orange-50 transition-colors flex items-center gap-2 text-sm md:text-base"
                 >
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
@@ -195,7 +196,7 @@ export const PaymentManagement: React.FC = () => {
                 {(user?.role === 'admin' || user?.role === 'superadmin') && (
                   <button
                     onClick={() => setIsCreateModalOpen(true)}
-                    className="px-4 py-2 bg-white text-orange-600 rounded-lg font-semibold hover:bg-orange-50 transition-colors"
+                    className="px-4 py-2 bg-white text-orange-600 rounded-lg font-semibold hover:bg-orange-50 transition-colors text-sm md:text-base whitespace-nowrap"
                   >
                     + Create Payment
                   </button>
@@ -204,7 +205,7 @@ export const PaymentManagement: React.FC = () => {
             </div>
           </div>
 
-          <div className="p-6">
+          <div className="p-4 md:p-6">
             {payments.length === 0 ? (
               <div className="text-center py-12">
                 <p className="text-gray-500 text-lg">No payments found</p>
@@ -248,12 +249,12 @@ export const PaymentManagement: React.FC = () => {
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
                           <div className="text-sm text-gray-500">
-                            {payment.dueDate ? new Date(payment.dueDate).toLocaleDateString() : '-'}
+                            {formatDateDDMMYYYY(payment.dueDate)}
                           </div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
                           <div className="text-sm text-gray-500">
-                            {payment.paidDate ? new Date(payment.paidDate).toLocaleDateString() : '-'}
+                            {formatDateDDMMYYYY(payment.paidDate)}
                           </div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
@@ -272,17 +273,53 @@ export const PaymentManagement: React.FC = () => {
                           </span>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                          {(user?.role === 'admin' || user?.role === 'superadmin') && (
-                            <button
-                              onClick={() => {
-                                setSelectedPayment(payment);
-                                setIsUpdateModalOpen(true);
-                              }}
-                              className="text-orange-600 hover:text-orange-900"
-                            >
-                              Update
-                            </button>
-                          )}
+                          <div className="flex gap-3 items-center">
+                            {payment.receiptUrl && (
+                              <>
+                                <button
+                                  onClick={async () => {
+                                    try {
+                                      const blob = await paymentAPI.downloadReceipt(payment.id);
+                                      const url = window.URL.createObjectURL(blob);
+                                      const link = document.createElement('a');
+                                      link.href = url;
+                                      link.download = `receipt_${payment.id}_${new Date().toISOString().split('T')[0]}.pdf`;
+                                      document.body.appendChild(link);
+                                      link.click();
+                                      document.body.removeChild(link);
+                                      window.URL.revokeObjectURL(url);
+                                    } catch (error: any) {
+                                      alert(error.response?.data?.message || 'Failed to download receipt');
+                                    }
+                                  }}
+                                  className="text-blue-600 hover:text-blue-900 font-medium"
+                                  title="Download Receipt"
+                                >
+                                  📥 Receipt
+                                </button>
+                                <a
+                                  href={payment.receiptUrl.startsWith('http') ? payment.receiptUrl : `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000'}${payment.receiptUrl}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-green-600 hover:text-green-900 font-medium"
+                                  title="View Receipt"
+                                >
+                                  👁️ View
+                                </a>
+                              </>
+                            )}
+                            {(user?.role === 'admin' || user?.role === 'superadmin') && (
+                              <button
+                                onClick={() => {
+                                  setSelectedPayment(payment);
+                                  setIsUpdateModalOpen(true);
+                                }}
+                                className="text-orange-600 hover:text-orange-900"
+                              >
+                                Update
+                              </button>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -297,7 +334,7 @@ export const PaymentManagement: React.FC = () => {
       {/* Create Payment Modal */}
       {isCreateModalOpen && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4 max-h-[90vh] overflow-y-auto">
+          <div className="bg-white rounded-lg p-4 md:p-6 max-w-md w-full mx-4 max-h-[90vh] overflow-y-auto">
             <h2 className="text-2xl font-bold mb-4">Create Payment</h2>
             <form onSubmit={handleCreatePayment}>
               <div className="mb-4">
@@ -391,7 +428,7 @@ export const PaymentManagement: React.FC = () => {
       {/* Update Payment Modal */}
       {isUpdateModalOpen && selectedPayment && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4 max-h-[90vh] overflow-y-auto">
+          <div className="bg-white rounded-lg p-4 md:p-6 max-w-md w-full mx-4 max-h-[90vh] overflow-y-auto">
             <h2 className="text-2xl font-bold mb-4">Update Payment</h2>
             <form onSubmit={handleUpdatePayment}>
               <div className="mb-4">

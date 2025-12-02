@@ -1,0 +1,46 @@
+QUICK FIX - Certificates Directory:
+
+===========================================
+STEP 1: Create Certificates Directory
+===========================================
+cd /var/www/primeacademy_backend
+mkdir -p certificates receipts
+chmod 755 certificates receipts
+
+===========================================
+STEP 2: Create in Serving Location
+===========================================
+mkdir -p /var/www/certificates
+chmod 755 /var/www/certificates
+
+===========================================
+STEP 3: Create Symlink (if needed)
+===========================================
+ln -sf /var/www/primeacademy_backend/certificates /var/www/certificates
+
+===========================================
+STEP 4: Verify
+===========================================
+ls -la /var/www/primeacademy_backend/certificates
+ls -la /var/www/certificates
+
+===========================================
+STEP 5: Restart Backend
+===========================================
+pm2 restart primeacademy-backend
+pm2 logs primeacademy-backend --lines 20
+
+===========================================
+ALL-IN-ONE COMMAND:
+===========================================
+cd /var/www/primeacademy_backend && \
+mkdir -p certificates receipts && \
+chmod 755 certificates receipts && \
+mkdir -p /var/www/certificates && \
+chmod 755 /var/www/certificates && \
+ln -sf /var/www/primeacademy_backend/certificates /var/www/certificates && \
+pm2 restart primeacademy-backend && \
+sleep 3 && \
+pm2 logs primeacademy-backend --lines 20 | grep -i certificate
+
+

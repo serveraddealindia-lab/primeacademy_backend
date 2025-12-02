@@ -1,4 +1,4 @@
-import { Model, Optional, Association, BelongsToGetAssociationMixin } from 'sequelize';
+import { Model, Optional, BelongsToGetAssociationMixin } from 'sequelize';
 import Batch from './Batch';
 import User from './User';
 export interface BatchFacultyAssignmentAttributes {
@@ -18,10 +18,6 @@ declare class BatchFacultyAssignment extends Model<BatchFacultyAssignmentAttribu
     readonly updatedAt: Date;
     getBatch: BelongsToGetAssociationMixin<Batch>;
     getFaculty: BelongsToGetAssociationMixin<User>;
-    static associations: {
-        batch: Association<BatchFacultyAssignment, Batch>;
-        faculty: Association<BatchFacultyAssignment, User>;
-    };
 }
 export default BatchFacultyAssignment;
 //# sourceMappingURL=BatchFacultyAssignment.d.ts.map

@@ -7,7 +7,7 @@ exports.getBatchProgress = void 0;
 const sequelize_1 = require("sequelize");
 const models_1 = __importDefault(require("../models"));
 const Session_1 = require("../models/Session");
-const logger_1 = __importDefault(require("../utils/logger"));
+const logger_1 = require("../utils/logger");
 // GET /api/batches/progress → Get batch-wise progress list
 const getBatchProgress = async (req, res) => {
     try {
@@ -137,7 +137,7 @@ const getBatchProgress = async (req, res) => {
         });
     }
     catch (error) {
-        logger_1.default.error('Get batch progress error:', error);
+        logger_1.logger.error('Get batch progress error:', error);
         // If it's a validation error, return 400
         if (error.name === 'SequelizeValidationError' || error.name === 'SequelizeDatabaseError') {
             res.status(400).json({

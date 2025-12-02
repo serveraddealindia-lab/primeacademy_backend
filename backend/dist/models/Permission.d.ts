@@ -1,4 +1,4 @@
-import { Model, Optional, BelongsToGetAssociationMixin, Association } from 'sequelize';
+import { Model, Optional, BelongsToGetAssociationMixin } from 'sequelize';
 import User from './User';
 export declare enum Module {
     BATCHES = "batches",
@@ -40,9 +40,6 @@ declare class Permission extends Model<PermissionAttributes, PermissionCreationA
     readonly createdAt: Date;
     readonly updatedAt: Date;
     getUser: BelongsToGetAssociationMixin<User>;
-    static associations: {
-        user: Association<Permission, User>;
-    };
 }
 export default Permission;
 //# sourceMappingURL=Permission.d.ts.map

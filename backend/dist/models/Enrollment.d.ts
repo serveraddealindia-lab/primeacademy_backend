@@ -7,7 +7,7 @@ export interface EnrollmentAttributes {
     batchId: number;
     enrollmentDate: Date;
     status: string | null;
-    paymentPlan: Record<string, any> | null;
+    paymentPlan: Record<string, unknown> | null;
     createdAt?: Date;
     updatedAt?: Date;
 }
@@ -19,7 +19,7 @@ declare class Enrollment extends Model<EnrollmentAttributes, EnrollmentCreationA
     batchId: number;
     enrollmentDate: Date;
     status: string | null;
-    paymentPlan: Record<string, any> | null;
+    paymentPlan: Record<string, unknown> | null;
     readonly createdAt: Date;
     readonly updatedAt: Date;
     getStudent: BelongsToGetAssociationMixin<User>;

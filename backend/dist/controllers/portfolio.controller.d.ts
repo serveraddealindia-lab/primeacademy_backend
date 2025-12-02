@@ -1,26 +1,20 @@
 import { Response } from 'express';
 import { AuthRequest } from '../middleware/auth.middleware';
-interface UploadPortfolioParams {
-    id: string;
-}
-interface UploadPortfolioBody {
+interface CreatePortfolioBody {
     batchId: number;
     files?: string[];
     pdfUrl?: string;
     youtubeUrl?: string;
 }
-interface ApprovePortfolioParams {
-    id: string;
-}
 interface ApprovePortfolioBody {
     approve: boolean;
 }
+export declare const getAllPortfolios: (req: AuthRequest, res: Response) => Promise<void>;
+export declare const getStudentPortfolio: (req: AuthRequest, res: Response) => Promise<void>;
 export declare const uploadPortfolio: (req: AuthRequest & {
-    params: UploadPortfolioParams;
-    body: UploadPortfolioBody;
+    body: CreatePortfolioBody;
 }, res: Response) => Promise<void>;
 export declare const approvePortfolio: (req: AuthRequest & {
-    params: ApprovePortfolioParams;
     body: ApprovePortfolioBody;
 }, res: Response) => Promise<void>;
 export {};

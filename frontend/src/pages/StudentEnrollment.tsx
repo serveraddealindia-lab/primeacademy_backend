@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { Layout } from '../components/Layout';
 import { studentAPI, CompleteEnrollmentRequest } from '../api/student.api';
 import { batchAPI, Batch } from '../api/batch.api';
+import { formatDateDDMMYYYY } from '../utils/dateUtils';
 
 export const StudentEnrollment: React.FC = () => {
   const navigate = useNavigate();
@@ -172,21 +173,21 @@ export const StudentEnrollment: React.FC = () => {
 
   return (
     <Layout>
-      <div className="max-w-4xl mx-auto">
+      <div className="max-w-4xl mx-auto p-4 md:p-6">
         <div className="bg-white shadow-xl rounded-lg overflow-hidden">
-          <div className="bg-gradient-to-r from-orange-600 to-orange-500 px-8 py-6">
-            <h1 className="text-3xl font-bold text-white">Student Enrollment Form</h1>
-            <p className="mt-2 text-orange-100">Complete student registration and enrollment</p>
+          <div className="bg-gradient-to-r from-orange-600 to-orange-500 px-4 md:px-8 py-4 md:py-6">
+            <h1 className="text-2xl md:text-3xl font-bold text-white">Student Enrollment Form</h1>
+            <p className="mt-2 text-sm md:text-base text-orange-100">Complete student registration and enrollment</p>
           </div>
 
           {/* Progress Steps */}
-          <div className="px-8 py-4 bg-gray-50 border-b">
-            <div className="flex items-center justify-between">
+          <div className="px-4 md:px-8 py-4 bg-gray-50 border-b">
+            <div className="flex items-center justify-between overflow-x-auto">
               {[1, 2, 3, 4].map((step) => (
                 <React.Fragment key={step}>
-                  <div className="flex items-center">
+                  <div className="flex items-center min-w-0 flex-shrink-0">
                     <div
-                      className={`w-10 h-10 rounded-full flex items-center justify-center font-semibold ${
+                      className={`w-8 h-8 md:w-10 md:h-10 rounded-full flex items-center justify-center font-semibold text-sm md:text-base ${
                         currentStep >= step
                           ? 'bg-orange-600 text-white'
                           : 'bg-gray-300 text-gray-600'
@@ -195,7 +196,7 @@ export const StudentEnrollment: React.FC = () => {
                       {step}
                     </div>
                     <span
-                      className={`ml-2 text-sm font-medium ${
+                      className={`ml-2 text-xs md:text-sm font-medium hidden sm:inline ${
                         currentStep >= step ? 'text-orange-600' : 'text-gray-500'
                       }`}
                     >
@@ -207,7 +208,7 @@ export const StudentEnrollment: React.FC = () => {
                   </div>
                   {step < totalSteps && (
                     <div
-                      className={`flex-1 h-1 mx-2 ${
+                      className={`flex-1 h-1 mx-1 md:mx-2 min-w-[20px] ${
                         currentStep > step ? 'bg-orange-600' : 'bg-gray-300'
                       }`}
                     />
@@ -218,7 +219,7 @@ export const StudentEnrollment: React.FC = () => {
           </div>
 
           <form onSubmit={handleSubmit}>
-            <div className="p-8">
+            <div className="p-4 md:p-8 max-h-[calc(100vh-12rem)] overflow-y-auto">
               {/* Step 1: Basic Information */}
               {currentStep === 1 && (
                 <div className="space-y-6">
@@ -416,7 +417,7 @@ export const StudentEnrollment: React.FC = () => {
                                       <span className="text-sm text-gray-600 ml-2">- {batch.software}</span>
                                     )}
                                     <span className="text-xs text-gray-500 ml-2">
-                                      ({batch.mode}) | Starts: {new Date(batch.startDate).toLocaleDateString()}
+                                      ({batch.mode}) | Starts: {formatDateDDMMYYYY(batch.startDate)}
                                     </span>
                                   </div>
                                   <span className="text-xs bg-green-100 text-green-800 px-2 py-1 rounded">
@@ -440,7 +441,7 @@ export const StudentEnrollment: React.FC = () => {
                           <optgroup label="Suggested Batches">
                             {suggestedBatches.map((batch) => (
                               <option key={batch.id} value={batch.id}>
-                                {batch.title} {batch.software ? `- ${batch.software}` : ''} ({batch.mode}) - Starts: {new Date(batch.startDate).toLocaleDateString()}
+                                {batch.title} {batch.software ? `- ${batch.software}` : ''} ({batch.mode}) - Starts: {formatDateDDMMYYYY(batch.startDate)}
                               </option>
                             ))}
                           </optgroup>
@@ -757,12 +758,12 @@ export const StudentEnrollment: React.FC = () => {
               )}
 
               {/* Navigation Buttons */}
-              <div className="flex justify-between mt-8 pt-6 border-t">
+              <div className="flex flex-col sm:flex-row justify-between gap-3 mt-6 md:mt-8 pt-6 border-t">
                 <button
                   type="button"
                   onClick={prevStep}
                   disabled={currentStep === 1}
-                  className="px-6 py-2 bg-gray-200 text-gray-700 rounded-lg font-semibold hover:bg-gray-300 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="w-full sm:w-auto px-6 py-2 bg-gray-200 text-gray-700 rounded-lg font-semibold hover:bg-gray-300 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   Previous
                 </button>
@@ -770,7 +771,7 @@ export const StudentEnrollment: React.FC = () => {
                   <button
                     type="button"
                     onClick={nextStep}
-                    className="px-6 py-2 bg-orange-600 text-white rounded-lg font-semibold hover:bg-orange-700 transition-colors"
+                    className="w-full sm:w-auto px-6 py-2 bg-orange-600 text-white rounded-lg font-semibold hover:bg-orange-700 transition-colors"
                   >
                     Next
                   </button>
@@ -778,7 +779,7 @@ export const StudentEnrollment: React.FC = () => {
                   <button
                     type="submit"
                     disabled={enrollmentMutation.isPending}
-                    className="px-6 py-2 bg-orange-600 text-white rounded-lg font-semibold hover:bg-orange-700 transition-colors disabled:opacity-50"
+                    className="w-full sm:w-auto px-6 py-2 bg-orange-600 text-white rounded-lg font-semibold hover:bg-orange-700 transition-colors disabled:opacity-50"
                   >
                     {enrollmentMutation.isPending ? 'Submitting...' : 'Submit Enrollment'}
                   </button>

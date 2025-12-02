@@ -27,6 +27,19 @@ export interface User {
   studentProfile?: StudentProfile;
   facultyProfile?: any;
   employeeProfile?: any;
+  enrollments?: Array<{
+    id: number;
+    status: string;
+    enrollmentDate?: string;
+    batch?: {
+      id: number;
+      title: string;
+      software?: string | null;
+      mode?: string | null;
+      status?: string | null;
+      schedule?: Record<string, unknown> | null;
+    } | null;
+  }>;
 }
 
 export interface CreateUserRequest {

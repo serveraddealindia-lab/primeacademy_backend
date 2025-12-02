@@ -212,7 +212,7 @@ export const EmployeeEdit: React.FC = () => {
             </div>
           </div>
 
-          <div className="p-8">
+          <div className="p-8 max-h-[calc(100vh-12rem)] overflow-y-auto">
             {/* Step 1: Basic Information */}
             {currentStep === 1 && (
               <form onSubmit={handleStep1Submit} className="space-y-6">

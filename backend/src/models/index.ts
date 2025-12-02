@@ -27,6 +27,7 @@ import UserRole from './UserRole';
 import Certificate from './Certificate';
 import BiometricDevice from './BiometricDevice';
 import AttendanceLog from './AttendanceLog';
+import StudentOrientation from './StudentOrientation';
 
 const db = {
   sequelize,
@@ -56,6 +57,7 @@ const db = {
   Certificate,
   BiometricDevice,
   AttendanceLog,
+  StudentOrientation,
 };
 
 // Define associations
@@ -89,6 +91,7 @@ User.hasMany(BatchFacultyAssignment, { foreignKey: 'facultyId', as: 'facultyAssi
 User.hasMany(Certificate, { foreignKey: 'studentId', as: 'certificates' });
 User.hasMany(Certificate, { foreignKey: 'issuedBy', as: 'issuedCertificates' });
 User.hasMany(AttendanceLog, { foreignKey: 'employeeId', as: 'attendanceLogs' });
+User.hasMany(StudentOrientation, { foreignKey: 'studentId', as: 'studentOrientations' });
 User.belongsToMany(Batch, {
   through: BatchFacultyAssignment,
   as: 'assignedBatches',
@@ -214,6 +217,9 @@ BiometricDevice.hasMany(AttendanceLog, { foreignKey: 'deviceId', as: 'attendance
 // AttendanceLog associations
 AttendanceLog.belongsTo(User, { foreignKey: 'employeeId', as: 'employee' });
 AttendanceLog.belongsTo(BiometricDevice, { foreignKey: 'deviceId', as: 'device' });
+
+// StudentOrientation associations
+StudentOrientation.belongsTo(User, { foreignKey: 'studentId', as: 'student' });
 
 export default db;
 

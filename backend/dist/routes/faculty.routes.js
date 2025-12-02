@@ -37,9 +37,9 @@ const express_1 = require("express");
 const facultyController = __importStar(require("../controllers/faculty.controller"));
 const auth_middleware_1 = require("../middleware/auth.middleware");
 const router = (0, express_1.Router)();
-// POST /faculty → create faculty profile
+// POST /api/faculty - Create faculty profile
 router.post('/', auth_middleware_1.verifyTokenMiddleware, facultyController.createFaculty);
-// PUT /faculty/:id → update faculty profile
+// PUT /api/faculty/:id - Update faculty profile
 router.put('/:id', auth_middleware_1.verifyTokenMiddleware, facultyController.updateFacultyProfile);
 exports.default = router;
 //# sourceMappingURL=faculty.routes.js.map

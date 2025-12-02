@@ -28,6 +28,10 @@ const BatchFacultyAssignment_1 = __importDefault(require("./BatchFacultyAssignme
 const Role_1 = __importDefault(require("./Role"));
 const RolePermission_1 = __importDefault(require("./RolePermission"));
 const UserRole_1 = __importDefault(require("./UserRole"));
+const Certificate_1 = __importDefault(require("./Certificate"));
+const BiometricDevice_1 = __importDefault(require("./BiometricDevice"));
+const AttendanceLog_1 = __importDefault(require("./AttendanceLog"));
+const StudentOrientation_1 = __importDefault(require("./StudentOrientation"));
 const db = {
     sequelize: database_1.default,
     Sequelize: sequelize_1.Sequelize,
@@ -53,6 +57,10 @@ const db = {
     Role: Role_1.default,
     RolePermission: RolePermission_1.default,
     UserRole: UserRole_1.default,
+    Certificate: Certificate_1.default,
+    BiometricDevice: BiometricDevice_1.default,
+    AttendanceLog: AttendanceLog_1.default,
+    StudentOrientation: StudentOrientation_1.default,
 };
 // Define associations
 // User associations
@@ -82,6 +90,10 @@ User_1.default.hasMany(SoftwareCompletion_1.default, { foreignKey: 'studentId', 
 User_1.default.hasMany(SoftwareCompletion_1.default, { foreignKey: 'facultyId', as: 'taughtSoftware' });
 User_1.default.hasMany(Permission_1.default, { foreignKey: 'userId', as: 'permissions' });
 User_1.default.hasMany(BatchFacultyAssignment_1.default, { foreignKey: 'facultyId', as: 'facultyAssignments' });
+User_1.default.hasMany(Certificate_1.default, { foreignKey: 'studentId', as: 'certificates' });
+User_1.default.hasMany(Certificate_1.default, { foreignKey: 'issuedBy', as: 'issuedCertificates' });
+User_1.default.hasMany(AttendanceLog_1.default, { foreignKey: 'employeeId', as: 'attendanceLogs' });
+User_1.default.hasMany(StudentOrientation_1.default, { foreignKey: 'studentId', as: 'studentOrientations' });
 User_1.default.belongsToMany(Batch_1.default, {
     through: BatchFacultyAssignment_1.default,
     as: 'assignedBatches',
@@ -118,6 +130,7 @@ BatchFacultyAssignment_1.default.belongsTo(User_1.default, { foreignKey: 'facult
 // Enrollment associations
 Enrollment_1.default.belongsTo(User_1.default, { foreignKey: 'studentId', as: 'student' });
 Enrollment_1.default.belongsTo(Batch_1.default, { foreignKey: 'batchId', as: 'batch' });
+Enrollment_1.default.hasMany(PaymentTransaction_1.default, { foreignKey: 'enrollmentId', as: 'payments' });
 // Session associations
 Session_1.default.belongsTo(Batch_1.default, { foreignKey: 'batchId', as: 'batch' });
 Session_1.default.belongsTo(User_1.default, { foreignKey: 'facultyId', as: 'faculty' });
@@ -128,6 +141,7 @@ Attendance_1.default.belongsTo(User_1.default, { foreignKey: 'studentId', as: 's
 Attendance_1.default.belongsTo(User_1.default, { foreignKey: 'markedBy', as: 'marker' });
 // PaymentTransaction associations
 PaymentTransaction_1.default.belongsTo(User_1.default, { foreignKey: 'studentId', as: 'student' });
+PaymentTransaction_1.default.belongsTo(Enrollment_1.default, { foreignKey: 'enrollmentId', as: 'enrollment' });
 // Portfolio associations
 Portfolio_1.default.belongsTo(User_1.default, { foreignKey: 'studentId', as: 'student' });
 Portfolio_1.default.belongsTo(Batch_1.default, { foreignKey: 'batchId', as: 'batch' });
@@ -173,5 +187,15 @@ RolePermission_1.default.belongsTo(Role_1.default, { foreignKey: 'roleId', as: '
 // UserRole associations
 UserRole_1.default.belongsTo(User_1.default, { foreignKey: 'userId', as: 'user' });
 UserRole_1.default.belongsTo(Role_1.default, { foreignKey: 'roleId', as: 'role' });
+// Certificate associations
+Certificate_1.default.belongsTo(User_1.default, { foreignKey: 'studentId', as: 'student' });
+Certificate_1.default.belongsTo(User_1.default, { foreignKey: 'issuedBy', as: 'issuer' });
+// BiometricDevice associations
+BiometricDevice_1.default.hasMany(AttendanceLog_1.default, { foreignKey: 'deviceId', as: 'attendanceLogs' });
+// AttendanceLog associations
+AttendanceLog_1.default.belongsTo(User_1.default, { foreignKey: 'employeeId', as: 'employee' });
+AttendanceLog_1.default.belongsTo(BiometricDevice_1.default, { foreignKey: 'deviceId', as: 'device' });
+// StudentOrientation associations
+StudentOrientation_1.default.belongsTo(User_1.default, { foreignKey: 'studentId', as: 'student' });
 exports.default = db;
 //# sourceMappingURL=index.js.map

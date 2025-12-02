@@ -5,6 +5,7 @@ import { Layout } from '../components/Layout';
 import { softwareCompletionAPI, SoftwareCompletion, SoftwareCompletionStatus, CreateCompletionRequest } from '../api/softwareCompletion.api';
 import { batchAPI } from '../api/batch.api';
 import { studentAPI } from '../api/student.api';
+import { formatDateDDMMYYYY } from '../utils/dateUtils';
 
 export const SoftwareCompletionManagement: React.FC = () => {
   const { user } = useAuth();
@@ -154,10 +155,10 @@ export const SoftwareCompletionManagement: React.FC = () => {
                           {completion.faculty?.name}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                          {new Date(completion.startDate).toLocaleDateString()}
+                          {formatDateDDMMYYYY(completion.startDate)}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                          {new Date(completion.endDate).toLocaleDateString()}
+                          {formatDateDDMMYYYY(completion.endDate)}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">{getStatusBadge(completion.status)}</td>
                         {(user?.role === 'faculty' || user?.role === 'admin' || user?.role === 'superadmin') && (

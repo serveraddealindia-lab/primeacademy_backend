@@ -1,7 +1,40 @@
 import { Response } from 'express';
 import { AuthRequest } from '../middleware/auth.middleware';
-export declare const bulkEnrollStudents: (req: AuthRequest & {
-    file?: Express.Multer.File;
+interface CompleteEnrollmentBody {
+    studentName: string;
+    email: string;
+    phone: string;
+    whatsappNumber?: string;
+    dateOfAdmission: string;
+    localAddress?: string;
+    permanentAddress?: string;
+    emergencyContactNumber?: string;
+    emergencyName?: string;
+    emergencyRelation?: string;
+    courseName?: string;
+    batchId?: number;
+    softwaresIncluded?: string;
+    totalDeal?: number;
+    bookingAmount?: number;
+    balanceAmount?: number;
+    emiPlan?: boolean;
+    emiPlanDate?: string;
+    complimentarySoftware?: string;
+    complimentaryGift?: string;
+    hasReference?: boolean;
+    referenceDetails?: string;
+    counselorName?: string;
+    leadSource?: string;
+    walkinDate?: string;
+    masterFaculty?: string;
+}
+export declare const completeEnrollment: (req: AuthRequest & {
+    body: CompleteEnrollmentBody;
 }, res: Response) => Promise<void>;
+export declare const createDummyStudent: (_req: AuthRequest, res: Response) => Promise<void>;
+export declare const createThreeDummyStudents: (_req: AuthRequest, res: Response) => Promise<void>;
+export declare const getAllSoftware: (req: AuthRequest, res: Response) => Promise<void>;
+export declare const bulkEnrollStudents: (req: AuthRequest, res: Response) => Promise<void>;
 export declare const downloadEnrollmentTemplate: (req: AuthRequest, res: Response) => Promise<void>;
+export {};
 //# sourceMappingURL=student.controller.d.ts.map

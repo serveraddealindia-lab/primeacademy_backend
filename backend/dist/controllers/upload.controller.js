@@ -1,7 +1,62 @@
 "use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.uploadFiles = void 0;
+exports.uploadFiles = exports.uploadMiddleware = void 0;
+const multer_1 = __importDefault(require("multer"));
+const path_1 = __importDefault(require("path"));
+const fs_1 = require("fs");
+const crypto_1 = require("crypto");
 const logger_1 = require("../utils/logger");
+// __dirname is available in CommonJS
+const uploadsRoot = path_1.default.join(__dirname, '../../uploads');
+const generalUploadDir = process.env.UPLOAD_DIR
+    ? path_1.default.resolve(process.env.UPLOAD_DIR)
+    : path_1.default.join(uploadsRoot, 'general');
+const ensureDirExists = (dirPath) => {
+    if (!(0, fs_1.existsSync)(dirPath)) {
+        (0, fs_1.mkdirSync)(dirPath, { recursive: true });
+    }
+};
+// Ensure upload directories exist
+ensureDirExists(uploadsRoot);
+ensureDirExists(generalUploadDir);
+const storage = multer_1.default.diskStorage({
+    destination: (_req, _file, cb) => {
+        ensureDirExists(generalUploadDir);
+        cb(null, generalUploadDir);
+    },
+    filename: (_req, file, cb) => {
+        const ext = path_1.default.extname(file.originalname) || '.jpg';
+        const uniqueName = `${Date.now()}-${(0, crypto_1.randomUUID)()}${ext}`;
+        cb(null, uniqueName);
+    },
+});
+const allowedMimeTypes = [
+    'image/jpeg',
+    'image/jpg',
+    'image/png',
+    'image/webp',
+    'image/gif',
+];
+const fileFilter = (_req, file, cb) => {
+    if (allowedMimeTypes.includes(file.mimetype)) {
+        cb(null, true);
+    }
+    else {
+        cb(new Error(`File type ${file.mimetype} is not allowed. Only images (JPG, PNG, WEBP, GIF) are allowed.`));
+    }
+};
+exports.uploadMiddleware = (0, multer_1.default)({
+    storage,
+    fileFilter,
+    limits: {
+        fileSize: 10 * 1024 * 1024, // 10 MB
+        files: 10, // Max 10 files
+    },
+});
+// POST /api/upload - Upload files
 const uploadFiles = async (req, res) => {
     try {
         if (!req.user) {
@@ -11,40 +66,50 @@ const uploadFiles = async (req, res) => {
             });
             return;
         }
-        // Handle multer files (can be array or object with field names)
-        const uploadedFiles = Array.isArray(req.files)
-            ? req.files
-            : req.files
-                ? Object.values(req.files).flat()
-                : [];
-        if (uploadedFiles.length === 0) {
+        if (!req.files || (Array.isArray(req.files) && req.files.length === 0)) {
             res.status(400).json({
                 status: 'error',
                 message: 'No files uploaded',
             });
             return;
         }
-        // Generate file URLs
-        const baseUrl = process.env.BASE_URL || `http://localhost:${process.env.PORT || 3000}`;
-        const fileUrls = uploadedFiles.map((file) => {
-            // Return URL path relative to API base
-            return `${baseUrl}/uploads/${file.filename}`;
+        const files = Array.isArray(req.files) ? req.files : req.files.files || [];
+        if (!Array.isArray(files) || files.length === 0) {
+            res.status(400).json({
+                status: 'error',
+                message: 'No files uploaded',
+            });
+            return;
+        }
+        const uploadedFiles = files.map((file) => {
+            // Calculate relative path from uploads root
+            const relativePath = path_1.default.relative(uploadsRoot, file.path);
+            // Convert to URL-friendly path (forward slashes)
+            const urlPath = relativePath.replace(/\\/g, '/');
+            // Use relative URL that will work with the static middleware
+            const url = `/uploads/${urlPath}`;
+            logger_1.logger.info(`File uploaded: ${file.originalname}`);
+            logger_1.logger.info(`File saved to: ${file.path}`);
+            logger_1.logger.info(`Relative path: ${relativePath}`);
+            logger_1.logger.info(`URL path: ${urlPath}`);
+            logger_1.logger.info(`Final URL: ${url}`);
+            return {
+                originalName: file.originalname,
+                filename: file.filename,
+                size: file.size,
+                mimetype: file.mimetype,
+                url: url,
+                path: file.path, // For debugging
+            };
         });
-        // Format response with file details
-        const files = uploadedFiles.map((file) => ({
-            originalName: file.originalname,
-            filename: file.filename,
-            size: file.size,
-            mimetype: file.mimetype,
-            url: `${baseUrl}/uploads/${file.filename}`,
-        }));
+        const urls = uploadedFiles.map((f) => f.url);
         res.status(200).json({
             status: 'success',
             message: `${uploadedFiles.length} file(s) uploaded successfully`,
             data: {
-                files,
-                urls: fileUrls,
-                count: files.length,
+                files: uploadedFiles,
+                urls: urls,
+                count: uploadedFiles.length,
             },
         });
     }
@@ -52,7 +117,7 @@ const uploadFiles = async (req, res) => {
         logger_1.logger.error('Upload files error:', error);
         res.status(500).json({
             status: 'error',
-            message: 'Internal server error while uploading files',
+            message: error.message || 'Internal server error while uploading files',
         });
     }
 };

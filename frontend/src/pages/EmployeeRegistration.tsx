@@ -326,7 +326,7 @@ export const EmployeeRegistration: React.FC = () => {
 
           {/* Step 1: User Account Creation */}
           {currentStep === 1 && (
-            <form onSubmit={handleUserRegistration} className="p-8">
+            <form onSubmit={handleUserRegistration} className="p-8 max-h-[calc(100vh-12rem)] overflow-y-auto">
               <h2 className="text-2xl font-bold text-gray-900 mb-6">Step 1: Create User Account</h2>
               
               <div className="space-y-6">

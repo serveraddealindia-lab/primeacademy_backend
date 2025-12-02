@@ -38,9 +38,13 @@ const portfolioController = __importStar(require("../controllers/portfolio.contr
 const auth_middleware_1 = require("../middleware/auth.middleware");
 const User_1 = require("../models/User");
 const router = (0, express_1.Router)();
-// POST /students/:id/portfolio
+// GET /portfolios - Get all portfolios (with filters)
+router.get('/portfolios', auth_middleware_1.verifyTokenMiddleware, (0, auth_middleware_1.checkRole)(User_1.UserRole.ADMIN, User_1.UserRole.SUPERADMIN, User_1.UserRole.FACULTY), portfolioController.getAllPortfolios);
+// GET /students/:id/portfolio - Get student portfolio
+router.get('/students/:id/portfolio', auth_middleware_1.verifyTokenMiddleware, portfolioController.getStudentPortfolio);
+// POST /students/:id/portfolio - Upload/Update portfolio
 router.post('/students/:id/portfolio', auth_middleware_1.verifyTokenMiddleware, portfolioController.uploadPortfolio);
-// POST /portfolio/:id/approve (Admin/SuperAdmin only)
-router.post('/portfolio/:id/approve', auth_middleware_1.verifyTokenMiddleware, (0, auth_middleware_1.checkRole)(User_1.UserRole.ADMIN, User_1.UserRole.SUPERADMIN), portfolioController.approvePortfolio);
+// POST /portfolio/:id/approve - Approve/Reject portfolio (Admin/SuperAdmin/Faculty)
+router.post('/portfolio/:id/approve', auth_middleware_1.verifyTokenMiddleware, (0, auth_middleware_1.checkRole)(User_1.UserRole.ADMIN, User_1.UserRole.SUPERADMIN, User_1.UserRole.FACULTY), portfolioController.approvePortfolio);
 exports.default = router;
 //# sourceMappingURL=portfolio.routes.js.map

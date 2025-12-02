@@ -5,7 +5,6 @@ import morgan from 'morgan';
 import dotenv from 'dotenv';
 import path from 'path';
 import fs from 'fs';
-import { fileURLToPath } from 'url';
 import sequelize from './config/database';
 import { runPendingMigrations } from './utils/runMigrations';
 import healthRoutes from './routes/health.routes';
@@ -16,14 +15,13 @@ import attendanceReportRoutes from './routes/attendanceReport.routes';
 import portfolioRoutes from './routes/portfolio.routes';
 import paymentRoutes from './routes/payment.routes';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+// __dirname is available in CommonJS
 // import reportRoutes from './routes/report.routes';
-// import facultyRoutes from './routes/faculty.routes';
+import facultyRoutes from './routes/faculty.routes';
 // import approvalRoutes from './routes/approval.routes';
 import uploadRoutes from './routes/upload.routes';
 import employeeRoutes from './routes/employee.routes';
-// import orientationRoutes from './routes/orientation.routes';
+import orientationRoutes from './routes/orientation.routes';
 import studentLeaveRoutes from './routes/studentLeave.routes';
 import employeeLeaveRoutes from './routes/employeeLeave.routes';
 import facultyLeaveRoutes from './routes/facultyLeave.routes';
@@ -39,7 +37,6 @@ import studentRoutes from './routes/student.routes';
 import certificateRoutes from './routes/certificate.routes';
 import biometricRoutes from './routes/biometric.routes';
 import { notFoundHandler, errorHandler } from './middleware/error.middleware';
-import path from 'path';
 import { logger } from './utils/logger';
 
 dotenv.config();
@@ -64,7 +61,211 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // Serve uploaded files statically
-app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+// Calculate uploads path - from dist/src, go up TWO levels to backend root, then to uploads
+// This matches where upload.controller.ts saves files: __dirname/../../uploads
+let uploadsStaticPath = path.resolve(__dirname, '../../uploads');
+// Also try process.cwd() as base (more reliable)
+const cwdUploadsPath = path.join(process.cwd(), 'uploads');
+if (fs.existsSync(cwdUploadsPath) && !fs.existsSync(uploadsStaticPath)) {
+  uploadsStaticPath = cwdUploadsPath;
+  logger.info(`Using uploads path from process.cwd(): ${uploadsStaticPath}`);
+}
+
+if (!fs.existsSync(uploadsStaticPath)) {
+  fs.mkdirSync(uploadsStaticPath, { recursive: true });
+  logger.info(`Created uploads directory: ${uploadsStaticPath}`);
+}
+logger.info(`Serving uploads from: ${uploadsStaticPath}`);
+logger.info(`__dirname: ${__dirname}`);
+logger.info(`process.cwd(): ${process.cwd()}`);
+
+// Serve uploads with proper headers - MUST be before API routes to avoid auth middleware
+app.use('/uploads', (req, res, next) => {
+  // Set CORS headers for all upload requests
+  const origin = req.headers.origin;
+  const allowedOrigins = process.env.FRONTEND_URL?.split(',').map((o) => o.trim()) || [
+    'http://localhost:5173',
+    'http://crm.prashantthakar.com',
+  ];
+  
+  if (origin && allowedOrigins.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+  } else {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+  }
+  
+  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  
+  if (req.method === 'OPTIONS') {
+    res.sendStatus(200);
+    return;
+  }
+  
+  next();
+}, express.static(uploadsStaticPath, {
+  setHeaders: (res, filePath) => {
+    // Set proper content type for images
+    if (filePath.endsWith('.jpg') || filePath.endsWith('.jpeg')) {
+      res.setHeader('Content-Type', 'image/jpeg');
+    } else if (filePath.endsWith('.png')) {
+      res.setHeader('Content-Type', 'image/png');
+    } else if (filePath.endsWith('.webp')) {
+      res.setHeader('Content-Type', 'image/webp');
+    } else if (filePath.endsWith('.gif')) {
+      res.setHeader('Content-Type', 'image/gif');
+    }
+    // Cache control
+    res.setHeader('Cache-Control', 'public, max-age=31536000'); // Cache for 1 year
+  },
+  index: false,
+  dotfiles: 'ignore',
+}));
+
+// Test endpoint to verify static file serving (no auth required)
+app.get('/uploads/test', (_req, res) => {
+  res.json({
+    status: 'success',
+    message: 'Static file serving is working',
+    uploadsPath: uploadsStaticPath,
+    note: 'Images should be accessible at /uploads/general/[filename]',
+  });
+});
+// Serve orientation PDFs statically (must be before API routes to avoid conflicts)
+// Try multiple paths to find orientations directory
+let orientationsStaticPath = path.join(process.cwd(), 'orientations');
+const altPath1 = path.resolve(__dirname, '../../orientations');
+const altPath2 = path.resolve(__dirname, '../orientations');
+
+// Prefer process.cwd() path, but check alternatives if it doesn't exist
+if (!fs.existsSync(orientationsStaticPath)) {
+  if (fs.existsSync(altPath1)) {
+    orientationsStaticPath = altPath1;
+    logger.info(`Using orientations path from __dirname/../../: ${orientationsStaticPath}`);
+  } else if (fs.existsSync(altPath2)) {
+    orientationsStaticPath = altPath2;
+    logger.info(`Using orientations path from __dirname/../: ${orientationsStaticPath}`);
+  } else {
+    // Create in process.cwd() if none exist
+    fs.mkdirSync(orientationsStaticPath, { recursive: true });
+    logger.info(`Created orientations directory: ${orientationsStaticPath}`);
+  }
+} else {
+  logger.info(`Using orientations path from process.cwd(): ${orientationsStaticPath}`);
+}
+logger.info(`Serving orientations from: ${orientationsStaticPath}`);
+
+// List existing PDF files for debugging
+try {
+  const existingFiles = fs.readdirSync(orientationsStaticPath).filter(f => f.endsWith('.pdf'));
+  if (existingFiles.length > 0) {
+    logger.info(`Found ${existingFiles.length} orientation PDF(s): ${existingFiles.join(', ')}`);
+  } else {
+    logger.warn(`No PDF files found in orientations directory`);
+  }
+} catch (err) {
+  logger.warn(`Could not list orientation files: ${err}`);
+}
+
+// Test endpoint to verify orientation file serving (no auth required)
+app.get('/orientations/test', (_req, res) => {
+  try {
+    const files = fs.readdirSync(orientationsStaticPath).filter(f => f.endsWith('.pdf'));
+    res.json({
+      status: 'success',
+      message: 'Orientations directory is accessible',
+      path: orientationsStaticPath,
+      files: files,
+      note: 'PDFs should be accessible at /orientations/[filename]',
+    });
+  } catch (error) {
+    res.status(500).json({
+      status: 'error',
+      message: 'Could not access orientations directory',
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
+
+app.use('/orientations', (req, res, next) => {
+  const origin = req.headers.origin;
+  const allowedOrigins = process.env.FRONTEND_URL?.split(',').map((o) => o.trim()) || [
+    'http://localhost:5173',
+    'http://crm.prashantthakar.com',
+  ];
+  
+  if (origin && allowedOrigins.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+  } else {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+  }
+  
+  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  
+  if (req.method === 'OPTIONS') {
+    res.sendStatus(200);
+    return;
+  }
+  
+  next();
+}, express.static(orientationsStaticPath, {
+  setHeaders: (res, _filePath) => {
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Cache-Control', 'public, max-age=31536000');
+  },
+  index: false,
+  dotfiles: 'ignore',
+}));
+
+// Serve receipts PDFs statically (must be before API routes to avoid conflicts)
+let receiptsStaticPath = path.resolve(__dirname, '../../receipts');
+const cwdReceiptsPath = path.join(process.cwd(), 'receipts');
+if (fs.existsSync(cwdReceiptsPath) && !fs.existsSync(receiptsStaticPath)) {
+  receiptsStaticPath = cwdReceiptsPath;
+  logger.info(`Using receipts path from process.cwd(): ${receiptsStaticPath}`);
+}
+
+if (!fs.existsSync(receiptsStaticPath)) {
+  fs.mkdirSync(receiptsStaticPath, { recursive: true });
+  logger.info(`Created receipts directory: ${receiptsStaticPath}`);
+}
+logger.info(`Serving receipts from: ${receiptsStaticPath}`);
+
+app.use('/receipts', (req, res, next) => {
+  const origin = req.headers.origin;
+  const allowedOrigins = process.env.FRONTEND_URL?.split(',').map((o) => o.trim()) || [
+    'http://localhost:5173',
+    'http://crm.prashantthakar.com',
+  ];
+  
+  if (origin && allowedOrigins.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+  } else {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+  }
+  
+  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  
+  if (req.method === 'OPTIONS') {
+    res.sendStatus(200);
+    return;
+  }
+  
+  next();
+}, express.static(receiptsStaticPath, {
+  setHeaders: (res, _filePath) => {
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Cache-Control', 'public, max-age=31536000');
+  },
+  index: false,
+  dotfiles: 'ignore',
+}));
+
 // Serve certificate PDFs statically (must be before API routes to avoid conflicts)
 // This allows direct access to PDF files via /certificates/filename.pdf
 // Use the same path calculation as certificate controller
@@ -127,7 +328,7 @@ app.get('/certificates/:filename', (req, res, next) => {
     const altPath1 = path.resolve(__dirname, '../../certificates', filename);
     const altPath2 = path.resolve(__dirname, '../certificates', filename);
     const altPath3 = path.join(process.cwd(), 'certificates', filename);
-    const altPath4 = path.join(certificatesStaticPath, filename); // Already tried, but log it
+    // altPath4 would be same as filePath, already tried above
     
     logger.warn(`Certificate file not found at primary path: ${filePath}`);
     logger.info(`Trying alternative paths...`);
@@ -193,7 +394,7 @@ app.use('/api/auth', authRoutes);
 //   logger.info('Registered auth routes: POST /api/auth/register, POST /api/auth/login, GET /api/auth/me, POST /api/auth/impersonate/:userId');
 // }
 
-// app.use('/api/faculty', facultyRoutes);
+app.use('/api/faculty', facultyRoutes);
 app.use('/api/batches', batchRoutes);
 app.use('/api/sessions', sessionRoutes);
 // app.use('/api/reports', reportRoutes);
@@ -208,7 +409,7 @@ if (process.env.NODE_ENV === 'development') {
   logger.info('Upload routes registered: POST /api/upload');
 }
 app.use('/api/employees', employeeRoutes);
-// app.use('/api/orientation', orientationRoutes);
+app.use('/api/orientation', orientationRoutes);
 app.use('/api/student-leaves', studentLeaveRoutes);
 app.use('/api/employee-leaves', employeeLeaveRoutes);
 app.use('/api/faculty-leaves', facultyLeaveRoutes);

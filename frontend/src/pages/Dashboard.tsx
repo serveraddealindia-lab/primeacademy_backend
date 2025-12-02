@@ -64,22 +64,22 @@ export const Dashboard: React.FC = () => {
 
   return (
     <Layout>
-      <div className="max-w-7xl mx-auto">
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900">Dashboard</h1>
-          <p className="mt-2 text-gray-600">Welcome back, {user?.name}!</p>
+      <div className="max-w-7xl mx-auto p-4 md:p-6">
+        <div className="mb-6 md:mb-8">
+          <h1 className="text-2xl md:text-3xl font-bold text-gray-900">Dashboard</h1>
+          <p className="mt-2 text-sm md:text-base text-gray-600">Welcome back, {user?.name}!</p>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 md:gap-6">
           {modules.map((module) => (
             <div
               key={module.path}
               onClick={() => navigate(module.path)}
-              className="bg-white rounded-lg shadow-md p-6 cursor-pointer hover:shadow-lg transition-shadow border border-gray-200 hover:border-orange-500"
+              className="bg-white rounded-lg shadow-md p-4 md:p-6 cursor-pointer hover:shadow-lg transition-shadow border border-gray-200 hover:border-orange-500"
             >
-              <div className="text-4xl mb-4">{module.icon}</div>
-              <h3 className="text-xl font-semibold text-gray-900 mb-2">{module.name}</h3>
-              <p className="text-sm text-gray-600">{module.description}</p>
+              <div className="text-3xl md:text-4xl mb-3 md:mb-4">{module.icon}</div>
+              <h3 className="text-lg md:text-xl font-semibold text-gray-900 mb-2">{module.name}</h3>
+              <p className="text-xs md:text-sm text-gray-600">{module.description}</p>
             </div>
           ))}
         </div>

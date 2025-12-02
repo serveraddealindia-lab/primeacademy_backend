@@ -39,14 +39,19 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = __importDefault(require("express"));
 const studentAttendanceController = __importStar(require("../controllers/studentAttendance.controller"));
 const auth_middleware_1 = require("../middleware/auth.middleware");
+const upload_middleware_1 = require("../middleware/upload.middleware");
 const router = express_1.default.Router();
 // POST /student-attendance/punch-in → punch in
-router.post('/punch-in', auth_middleware_1.verifyTokenMiddleware, studentAttendanceController.punchIn);
+router.post('/punch-in', auth_middleware_1.verifyTokenMiddleware, upload_middleware_1.attendanceUpload.single('photo'), studentAttendanceController.punchIn);
 // POST /student-attendance/punch-out → punch out
-router.post('/punch-out', auth_middleware_1.verifyTokenMiddleware, studentAttendanceController.punchOut);
+router.post('/punch-out', auth_middleware_1.verifyTokenMiddleware, upload_middleware_1.attendanceUpload.single('photo'), studentAttendanceController.punchOut);
 // GET /student-attendance/today → get today's punch status
 router.get('/today', auth_middleware_1.verifyTokenMiddleware, studentAttendanceController.getTodayPunch);
 // GET /student-attendance/history → get punch history
 router.get('/history', auth_middleware_1.verifyTokenMiddleware, studentAttendanceController.getStudentPunchHistory);
+// POST /student-attendance/break-in → break in
+router.post('/break-in', auth_middleware_1.verifyTokenMiddleware, studentAttendanceController.breakIn);
+// POST /student-attendance/break-out → break out
+router.post('/break-out', auth_middleware_1.verifyTokenMiddleware, studentAttendanceController.breakOut);
 exports.default = router;
 //# sourceMappingURL=studentAttendance.routes.js.map

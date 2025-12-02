@@ -32,21 +32,23 @@ var __importStar = (this && this.__importStar) || (function () {
         return result;
     };
 })();
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
-const express_1 = require("express");
+const express_1 = __importDefault(require("express"));
 const sessionController = __importStar(require("../controllers/session.controller"));
 const auth_middleware_1 = require("../middleware/auth.middleware");
 const User_1 = require("../models/User");
-const router = (0, express_1.Router)();
-// GET /sessions → get sessions (with optional filters: facultyId, batchId, status)
-router.get('/', auth_middleware_1.verifyTokenMiddleware, sessionController.getSessions);
-// POST /sessions → create session (faculty/admin)
-router.post('/', auth_middleware_1.verifyTokenMiddleware, (0, auth_middleware_1.checkRole)(User_1.UserRole.FACULTY, User_1.UserRole.ADMIN, User_1.UserRole.SUPERADMIN), sessionController.createSession);
-// POST /sessions/:id/checkin → faculty starts session (faculty-only)
-router.post('/:id/checkin', auth_middleware_1.verifyTokenMiddleware, (0, auth_middleware_1.checkRole)(User_1.UserRole.FACULTY), sessionController.checkinSession);
-// POST /sessions/:id/checkout → faculty ends session (faculty-only)
-router.post('/:id/checkout', auth_middleware_1.verifyTokenMiddleware, (0, auth_middleware_1.checkRole)(User_1.UserRole.FACULTY), sessionController.checkoutSession);
-// POST /sessions/:id/attendance → mark attendance
-router.post('/:id/attendance', auth_middleware_1.verifyTokenMiddleware, sessionController.markAttendance);
+const router = express_1.default.Router();
+const requireFaculty = [auth_middleware_1.verifyTokenMiddleware, (0, auth_middleware_1.checkRole)(User_1.UserRole.FACULTY, User_1.UserRole.ADMIN, User_1.UserRole.SUPERADMIN)];
+router.get('/faculty/assigned', requireFaculty, sessionController.getFacultyAssignedBatches);
+// Debug endpoint to check faculty assignments (admin only)
+router.get('/faculty/:facultyId/assignments', auth_middleware_1.verifyTokenMiddleware, (0, auth_middleware_1.checkRole)(User_1.UserRole.ADMIN, User_1.UserRole.SUPERADMIN), sessionController.getFacultyAssignmentsDebug);
+// Get batch history
+router.get('/batch/:batchId/history', requireFaculty, sessionController.getBatchHistory);
+router.post('/:batchId/start', requireFaculty, sessionController.startSession);
+router.post('/:sessionId/end', requireFaculty, sessionController.endSession);
+router.post('/:sessionId/attendance', requireFaculty, sessionController.submitSessionAttendance);
 exports.default = router;
 //# sourceMappingURL=session.routes.js.map

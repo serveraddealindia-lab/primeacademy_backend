@@ -1,11 +1,10 @@
 import axios from 'axios';
 import { Op } from 'sequelize';
 import db from '../../models';
-import { BiometricDevice, DeviceType } from '../../models/BiometricDevice';
-import { AttendanceLog, PunchType } from '../../models/AttendanceLog';
+import BiometricDevice, { DeviceType } from '../../models/BiometricDevice';
+import AttendanceLog, { PunchType } from '../../models/AttendanceLog';
 import { UserRole } from '../../models/User';
 import { logger } from '../../utils/logger';
-import EmployeePunch from '../../models/EmployeePunch';
 
 /**
  * Connect to a biometric device and test the connection
@@ -252,4 +251,6 @@ export const syncDeviceLogs = async (deviceId: number): Promise<{ success: boole
     throw error;
   }
 };
+
+
 

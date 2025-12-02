@@ -11,6 +11,8 @@ var PaymentStatus;
     PaymentStatus["PENDING"] = "pending";
     PaymentStatus["PARTIAL"] = "partial";
     PaymentStatus["PAID"] = "paid";
+    PaymentStatus["OVERDUE"] = "overdue";
+    PaymentStatus["CANCELLED"] = "cancelled";
 })(PaymentStatus || (exports.PaymentStatus = PaymentStatus = {}));
 class PaymentTransaction extends sequelize_1.Model {
 }
@@ -27,6 +29,16 @@ PaymentTransaction.init({
             model: 'users',
             key: 'id',
         },
+    },
+    enrollmentId: {
+        type: sequelize_1.DataTypes.INTEGER,
+        allowNull: true,
+        references: {
+            model: 'enrollments',
+            key: 'id',
+        },
+        onUpdate: 'CASCADE',
+        onDelete: 'SET NULL',
     },
     amount: {
         type: sequelize_1.DataTypes.DECIMAL(10, 2),
@@ -52,6 +64,18 @@ PaymentTransaction.init({
     },
     receiptUrl: {
         type: sequelize_1.DataTypes.STRING,
+        allowNull: true,
+    },
+    paymentMethod: {
+        type: sequelize_1.DataTypes.STRING,
+        allowNull: true,
+    },
+    transactionId: {
+        type: sequelize_1.DataTypes.STRING,
+        allowNull: true,
+    },
+    notes: {
+        type: sequelize_1.DataTypes.TEXT,
         allowNull: true,
     },
 }, {

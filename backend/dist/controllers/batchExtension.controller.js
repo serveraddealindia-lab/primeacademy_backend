@@ -232,14 +232,15 @@ const approveExtension = async (req, res) => {
         }
         await extension.save();
         // If approved, extend the batch end date
-        if (approve && extension.batch) {
+        const extensionBatch = extension.batch;
+        if (approve && extensionBatch) {
             // Calculate new end date (assuming each session is roughly a week apart)
             // In a real scenario, you might want to add the actual session dates
-            const currentEndDate = new Date(extension.batch.endDate);
+            const currentEndDate = new Date(extensionBatch.endDate);
             const daysToAdd = extension.numberOfSessions * 7; // Approximate: 1 session per week
             currentEndDate.setDate(currentEndDate.getDate() + daysToAdd);
-            extension.batch.endDate = currentEndDate;
-            await extension.batch.save();
+            extensionBatch.endDate = currentEndDate;
+            await extensionBatch.save();
         }
         // Fetch with relations
         const extensionWithDetails = await models_1.default.BatchExtension.findByPk(extension.id, {

@@ -1,8 +1,6 @@
 import { QueryInterface, DataTypes } from 'sequelize';
 
 const TABLE_NAME = 'payment_transactions';
-const NEW_STATUS_VALUES = ['pending', 'partial', 'paid', 'overdue', 'cancelled'];
-const OLD_STATUS_VALUES = ['pending', 'paid'];
 
 export default {
   up: async (queryInterface: QueryInterface): Promise<void> => {

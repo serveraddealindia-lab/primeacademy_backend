@@ -7,6 +7,7 @@ exports.updateFacultyProfile = exports.createFaculty = void 0;
 const models_1 = __importDefault(require("../models"));
 const User_1 = require("../models/User");
 const logger_1 = require("../utils/logger");
+// POST /api/faculty - Create faculty profile
 const createFaculty = async (req, res) => {
     try {
         if (!req.user) {
@@ -91,7 +92,7 @@ const createFaculty = async (req, res) => {
     }
 };
 exports.createFaculty = createFaculty;
-// Update faculty profile
+// PUT /api/faculty/:id - Update faculty profile
 const updateFacultyProfile = async (req, res) => {
     try {
         if (!req.user) {
@@ -101,17 +102,25 @@ const updateFacultyProfile = async (req, res) => {
             });
             return;
         }
-        const userId = parseInt(req.params.id, 10);
-        if (isNaN(userId)) {
+        const facultyProfileId = parseInt(req.params.id, 10);
+        if (isNaN(facultyProfileId)) {
             res.status(400).json({
                 status: 'error',
-                message: 'Invalid user ID',
+                message: 'Invalid faculty profile ID',
             });
             return;
         }
         const { expertise, availability } = req.body;
         // Find faculty profile
-        const facultyProfile = await models_1.default.FacultyProfile.findOne({ where: { userId } });
+        const facultyProfile = await models_1.default.FacultyProfile.findByPk(facultyProfileId, {
+            include: [
+                {
+                    model: models_1.default.User,
+                    as: 'user',
+                    attributes: ['id', 'name', 'email', 'phone', 'role', 'isActive'],
+                },
+            ],
+        });
         if (!facultyProfile) {
             res.status(404).json({
                 status: 'error',
@@ -119,11 +128,24 @@ const updateFacultyProfile = async (req, res) => {
             });
             return;
         }
-        // Update profile
-        await facultyProfile.update({
-            expertise: expertise !== undefined ? expertise : facultyProfile.expertise,
-            availability: availability !== undefined ? availability : facultyProfile.availability,
-        });
+        // Check permissions: users can update their own profile, admins can update any
+        if (req.user.userId !== facultyProfile.userId &&
+            req.user.role !== User_1.UserRole.SUPERADMIN &&
+            req.user.role !== User_1.UserRole.ADMIN) {
+            res.status(403).json({
+                status: 'error',
+                message: 'You can only update your own faculty profile unless you are an admin',
+            });
+            return;
+        }
+        // Update fields
+        if (expertise !== undefined) {
+            facultyProfile.expertise = expertise || null;
+        }
+        if (availability !== undefined) {
+            facultyProfile.availability = availability || null;
+        }
+        await facultyProfile.save();
         // Fetch updated profile with user
         const updatedProfile = await models_1.default.FacultyProfile.findByPk(facultyProfile.id, {
             include: [

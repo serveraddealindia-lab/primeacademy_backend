@@ -1,12 +1,19 @@
 import { Response } from 'express';
 import { AuthRequest } from '../middleware/auth.middleware';
-interface CreateFacultyBody {
-    userId: number;
-    expertise?: Record<string, any>;
-    availability?: Record<string, any>;
-}
 export declare const createFaculty: (req: AuthRequest & {
-    body: CreateFacultyBody;
+    body: {
+        userId: number;
+        expertise?: string;
+        availability?: string;
+    };
 }, res: Response) => Promise<void>;
-export {};
+export declare const updateFacultyProfile: (req: AuthRequest & {
+    params: {
+        id: string;
+    };
+    body: {
+        expertise?: string;
+        availability?: string;
+    };
+}, res: Response) => Promise<void>;
 //# sourceMappingURL=faculty.controller.d.ts.map

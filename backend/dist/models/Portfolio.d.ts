@@ -10,7 +10,7 @@ export interface PortfolioAttributes {
     id: number;
     studentId: number;
     batchId: number;
-    files: Record<string, any> | null;
+    files: Record<string, unknown> | null;
     pdfUrl: string | null;
     youtubeUrl: string | null;
     status: PortfolioStatus;
@@ -25,7 +25,7 @@ declare class Portfolio extends Model<PortfolioAttributes, PortfolioCreationAttr
     id: number;
     studentId: number;
     batchId: number;
-    files: Record<string, any> | null;
+    files: Record<string, unknown> | null;
     pdfUrl: string | null;
     youtubeUrl: string | null;
     status: PortfolioStatus;

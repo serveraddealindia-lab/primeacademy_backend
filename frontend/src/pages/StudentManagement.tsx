@@ -8,6 +8,9 @@ import { batchAPI } from '../api/batch.api';
 import { uploadAPI } from '../api/upload.api';
 import { softwareCompletionAPI } from '../api/softwareCompletion.api';
 import { userAPI } from '../api/user.api';
+import { getImageUrl } from '../utils/imageUtils';
+import { orientationAPI, OrientationLanguage } from '../api/orientation.api';
+import { formatDateDDMMYYYY } from '../utils/dateUtils';
 
 export const StudentManagement: React.FC = () => {
   const { user } = useAuth();
@@ -18,11 +21,17 @@ export const StudentManagement: React.FC = () => {
   const [isViewModalOpen, setIsViewModalOpen] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [isBulkUploadModalOpen, setIsBulkUploadModalOpen] = useState(false);
+  const [isOrientationModalOpen, setIsOrientationModalOpen] = useState(false);
+  const [orientationStudentId, setOrientationStudentId] = useState<number | null>(null);
+  const [activeOrientationTab, setActiveOrientationTab] = useState<'english' | 'gujarati'>('english');
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [uploadingImage, setUploadingImage] = useState(false);
   const [uploadingBulk, setUploadingBulk] = useState(false);
   const [bulkUploadResult, setBulkUploadResult] = useState<{ success: number; failed: number; errors: any[] } | null>(null);
+  
+  // Store orientation status for all students
+  const [orientationStatusMap, setOrientationStatusMap] = useState<Record<number, { isEligible: boolean; english: boolean; gujarati: boolean }>>({});
 
   // Fetch students
   const { data: studentsData, isLoading } = useQuery({
@@ -73,10 +82,32 @@ export const StudentManagement: React.FC = () => {
     },
   });
 
+  // Accept orientation mutation
+  const acceptOrientationMutation = useMutation({
+    mutationFn: ({ studentId, language }: { studentId: number; language: OrientationLanguage }) =>
+      orientationAPI.acceptOrientation(studentId, language),
+    onSuccess: (data, variables) => {
+      // Update local state
+      setOrientationStatusMap((prev) => ({
+        ...prev,
+        [variables.studentId]: {
+          isEligible: data.data.isEligible,
+          english: data.data.orientations.english.accepted,
+          gujarati: data.data.orientations.gujarati.accepted,
+        },
+      }));
+      queryClient.invalidateQueries({ queryKey: ['bulk-orientation-status'] });
+      alert('Orientation accepted successfully!');
+    },
+    onError: (error: any) => {
+      alert(error.response?.data?.message || 'Failed to accept orientation');
+    },
+  });
+
   const updateUserImageMutation = useMutation({
     mutationFn: ({ userId, avatarUrl }: { userId: number; avatarUrl: string }) =>
       userAPI.updateUser(userId, { avatarUrl }),
-    onSuccess: (data, variables) => {
+    onSuccess: (_data, variables) => {
       // Invalidate and refetch students list
       queryClient.invalidateQueries({ queryKey: ['students'] });
       queryClient.invalidateQueries({ queryKey: ['users'] });
@@ -132,6 +163,15 @@ export const StudentManagement: React.FC = () => {
   const handleDownloadTemplate = async () => {
     try {
       const blob = await studentAPI.downloadEnrollmentTemplate();
+      
+      // Check if blob is actually an error JSON response
+      if (blob.type === 'application/json') {
+        const text = await blob.text();
+        const errorData = JSON.parse(text);
+        alert(errorData.message || 'Failed to download template');
+        return;
+      }
+      
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
@@ -141,7 +181,24 @@ export const StudentManagement: React.FC = () => {
       document.body.removeChild(link);
       window.URL.revokeObjectURL(url);
     } catch (error: any) {
-      alert(error.response?.data?.message || 'Failed to download template');
+      console.error('Download template error:', error);
+      // Try to extract error message from response
+      if (error.response?.data) {
+        if (error.response.data instanceof Blob) {
+          error.response.data.text().then((text: string) => {
+            try {
+              const errorData = JSON.parse(text);
+              alert(errorData.message || 'Failed to download template');
+            } catch {
+              alert('Failed to download template');
+            }
+          });
+        } else {
+          alert(error.response.data.message || 'Failed to download template');
+        }
+      } else {
+        alert(error.message || 'Failed to download template');
+      }
     }
   };
 
@@ -222,7 +279,9 @@ export const StudentManagement: React.FC = () => {
   };
 
   const students = studentsData?.data.students || [];
+  const totalStudents = studentsData?.data.totalCount || students.length;
   const batches = batchesData?.data || [];
+
 
   const handleEnrollStudent = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -271,37 +330,38 @@ export const StudentManagement: React.FC = () => {
 
   return (
     <Layout>
-      <div className="max-w-7xl mx-auto">
+      <div className="max-w-7xl mx-auto p-4 md:p-6">
         <div className="bg-white shadow-xl rounded-lg overflow-hidden">
-          <div className="bg-gradient-to-r from-orange-600 to-orange-500 px-8 py-6">
-            <div className="flex justify-between items-center">
+          <div className="bg-gradient-to-r from-orange-600 to-orange-500 px-4 md:px-8 py-4 md:py-6">
+            <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
               <div>
-                <h1 className="text-3xl font-bold text-white">Student Management</h1>
-                <p className="mt-2 text-orange-100">Manage students and enrollments</p>
+                <h1 className="text-2xl md:text-3xl font-bold text-white">Student Management</h1>
+                <p className="mt-2 text-sm md:text-base text-orange-100">Manage students and enrollments</p>
+                <p className="mt-1 text-orange-200 text-xs md:text-sm font-semibold">Total Students: {totalStudents}</p>
               </div>
               {(user?.role === 'admin' || user?.role === 'superadmin') && (
-                <div className="flex gap-3">
+                <div className="flex flex-wrap gap-2 md:gap-3 w-full lg:w-auto">
                   <button
                     onClick={() => navigate('/students/enroll')}
-                    className="px-4 py-2 bg-white text-orange-600 rounded-lg font-semibold hover:bg-orange-50 transition-colors"
+                    className="flex-1 lg:flex-none px-3 md:px-4 py-2 text-sm md:text-base bg-white text-orange-600 rounded-lg font-semibold hover:bg-orange-50 transition-colors"
                   >
                     + New Enrollment
                   </button>
                   <button
                     onClick={() => setIsEnrollmentModalOpen(true)}
-                    className="px-4 py-2 bg-orange-700 text-white rounded-lg font-semibold hover:bg-orange-800 transition-colors"
+                    className="flex-1 lg:flex-none px-3 md:px-4 py-2 text-sm md:text-base bg-orange-700 text-white rounded-lg font-semibold hover:bg-orange-800 transition-colors"
                   >
-                    Enroll Existing Student
+                    Enroll Existing
                   </button>
                   <button
                     onClick={handleDownloadTemplate}
-                    className="px-4 py-2 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700 transition-colors"
+                    className="flex-1 lg:flex-none px-3 md:px-4 py-2 text-sm md:text-base bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700 transition-colors"
                   >
-                    📥 Download Template
+                    📥 Template
                   </button>
                   <button
                     onClick={() => setIsBulkUploadModalOpen(true)}
-                    className="px-4 py-2 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition-colors"
+                    className="flex-1 lg:flex-none px-3 md:px-4 py-2 text-sm md:text-base bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition-colors"
                   >
                     📤 Bulk Upload
                   </button>
@@ -310,50 +370,60 @@ export const StudentManagement: React.FC = () => {
             </div>
           </div>
 
-          <div className="p-6">
+          <div className="p-4 md:p-6">
             {students.length === 0 ? (
               <div className="text-center py-12">
                 <p className="text-gray-500 text-lg">No students found</p>
               </div>
             ) : (
-              <div className="overflow-x-auto">
+              <div className="overflow-x-auto -mx-4 md:mx-0">
                 <table className="min-w-full divide-y divide-gray-200">
                   <thead className="bg-gray-50">
                     <tr>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      <th className="px-3 md:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        S.No
+                      </th>
+                      <th className="px-3 md:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                         Photo
                       </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      <th className="px-3 md:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                         Name
                       </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      <th className="px-3 md:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden md:table-cell">
                         Email
                       </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      <th className="px-3 md:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden lg:table-cell">
                         Phone
                       </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      <th className="px-3 md:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden lg:table-cell">
                         Joined Date
                       </th>
+                      <th className="px-3 md:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Orientation
+                      </th>
                       {(user?.role === 'admin' || user?.role === 'superadmin') && (
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        <th className="px-3 md:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                           Actions
                         </th>
                       )}
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
-                    {students.map((student) => (
+                    {students.map((student, index) => (
                       <tr key={student.id} className="hover:bg-gray-50">
-                        <td className="px-6 py-4 whitespace-nowrap">
+                        <td className="px-3 md:px-6 py-4 whitespace-nowrap">
+                          <div className="text-sm font-medium text-gray-900">{index + 1}</div>
+                        </td>
+                        <td className="px-3 md:px-6 py-4 whitespace-nowrap">
                           <div className="flex items-center">
                             {student.avatarUrl ? (
                               <img
-                                src={student.avatarUrl}
+                                src={getImageUrl(student.avatarUrl) || ''}
                                 alt={student.name}
                                 className="h-12 w-12 rounded-full object-cover border-2 border-gray-200"
+                                crossOrigin="anonymous"
                                 onError={(e) => {
-                                  (e.target as HTMLImageElement).src = 'https://ui-avatars.com/api/?name=' + encodeURIComponent(student.name) + '&background=orange&color=fff';
+                                  (e.target as HTMLImageElement).src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDgiIGhlaWdodD0iNDgiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHJlY3Qgd2lkdGg9IjEwMCUiIGhlaWdodD0iMTAwJSIgZmlsbD0iI2ZmOTUwMCIvPjx0ZXh0IHg9IjUwJSIgeT0iNTAlIiBmb250LWZhbWlseT0iQXJpYWwsIHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMjAiIGZpbGw9IiNmZmYiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGR5PSIuM2VtIj57e3N0dWRlbnQubmFtZS5jaGFyQXQoMCl9fTwvdGV4dD48L3N2Zz4=';
                                 }}
                               />
                             ) : (
@@ -363,22 +433,53 @@ export const StudentManagement: React.FC = () => {
                             )}
                           </div>
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
+                        <td className="px-3 md:px-6 py-4 whitespace-nowrap">
                           <div className="text-sm font-medium text-gray-900">{student.name}</div>
+                          <div className="text-xs text-gray-500 md:hidden mt-1">{student.email}</div>
+                          <div className="text-xs text-gray-500 lg:hidden mt-1">{student.phone || '-'}</div>
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
+                        <td className="px-3 md:px-6 py-4 whitespace-nowrap hidden md:table-cell">
                           <div className="text-sm text-gray-500">{student.email}</div>
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
+                        <td className="px-3 md:px-6 py-4 whitespace-nowrap hidden lg:table-cell">
                           <div className="text-sm text-gray-500">{student.phone || '-'}</div>
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
+                        <td className="px-3 md:px-6 py-4 whitespace-nowrap hidden lg:table-cell">
                           <div className="text-sm text-gray-500">
-                            {student.createdAt ? new Date(student.createdAt).toLocaleDateString() : '-'}
+                            {formatDateDDMMYYYY(student.createdAt)}
                           </div>
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                          <div className="flex gap-2">
+                        <td className="px-3 md:px-6 py-4 whitespace-nowrap">
+                          {(() => {
+                            const status = orientationStatusMap[student.id];
+                            const isEligible = status?.isEligible || false;
+                            return (
+                              <div className="flex items-center gap-2">
+                                <span
+                                  className={`px-2 py-1 rounded text-xs font-semibold ${
+                                    isEligible
+                                      ? 'bg-green-100 text-green-800'
+                                      : 'bg-yellow-100 text-yellow-800'
+                                  }`}
+                                >
+                                  {isEligible ? '✓ Eligible' : '⏳ Pending'}
+                                </span>
+                                <button
+                                  onClick={() => {
+                                    setOrientationStudentId(student.id);
+                                    setIsOrientationModalOpen(true);
+                                  }}
+                                  className="text-blue-600 hover:text-blue-900 text-xs"
+                                  title="View Orientation"
+                                >
+                                  📄 Orientation
+                                </button>
+                              </div>
+                            );
+                          })()}
+                        </td>
+                        <td className="px-3 md:px-6 py-4 whitespace-nowrap text-sm font-medium">
+                          <div className="flex flex-wrap gap-1 md:gap-2">
                             <button
                               onClick={() => handleView(student)}
                               className="text-blue-600 hover:text-blue-900"
@@ -431,8 +532,8 @@ export const StudentManagement: React.FC = () => {
 
       {/* Enrollment Modal */}
       {isEnrollmentModalOpen && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4 max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg p-4 md:p-6 max-w-md w-full max-h-[90vh] overflow-y-auto">
             <h2 className="text-2xl font-bold mb-4">Enroll Student in Batch</h2>
             <form onSubmit={handleEnrollStudent}>
               <div className="mb-4">
@@ -511,8 +612,8 @@ export const StudentManagement: React.FC = () => {
 
       {/* Image Upload Modal */}
       {isImageModalOpen && selectedStudent && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg p-4 md:p-6 max-w-md w-full max-h-[90vh] overflow-y-auto">
             <h2 className="text-2xl font-bold mb-4">Update Student Photo</h2>
             <div className="mb-4">
               <p className="text-sm text-gray-600 mb-2">
@@ -528,10 +629,14 @@ export const StudentManagement: React.FC = () => {
                   />
                 ) : selectedStudent?.avatarUrl ? (
                   <img
-                    src={`${selectedStudent.avatarUrl}?t=${Date.now()}`}
+                    src={getImageUrl(selectedStudent.avatarUrl) || ''}
                     alt="Current"
                     className="h-32 w-32 rounded-full object-cover border-4 border-orange-500"
+                    crossOrigin="anonymous"
                     key={selectedStudent.avatarUrl}
+                    onError={(e) => {
+                      (e.target as HTMLImageElement).src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTI4IiBoZWlnaHQ9IjEyOCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZmY5NTAwIi8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtZmFtaWx5PSJBcmlhbCwgc2Fucy1zZXJpZiIgZm9udC1zaXplPSI0OCIgZmlsbD0iI2ZmZiIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZHk9Ii4zZW0iPnt7c2VsZWN0ZWRTdHVkZW50Lm5hbWUuY2hhckF0KDApfX08L3RleHQ+PC9zdmc+';
+                    }}
                   />
                 ) : (
                   <div className="h-32 w-32 rounded-full bg-gray-200 flex items-center justify-center">
@@ -570,8 +675,8 @@ export const StudentManagement: React.FC = () => {
 
       {/* View Student Modal */}
       {isViewModalOpen && selectedStudent && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg p-4 md:p-6 max-w-4xl w-full max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-2xl font-bold">Student Profile</h2>
               <button
@@ -659,11 +764,12 @@ export const StudentManagement: React.FC = () => {
                       return (
                         <div className="text-center">
                           <img
-                            src={photoUrl}
+                            src={getImageUrl(photoUrl) || photoUrl}
                             alt={studentName}
                             className="w-40 h-40 rounded-full object-cover border-4 border-orange-500 shadow-lg mx-auto"
+                            crossOrigin="anonymous"
                             onError={(e) => {
-                              (e.target as HTMLImageElement).src = 'https://ui-avatars.com/api/?name=' + encodeURIComponent(studentName) + '&background=orange&color=fff&size=160';
+                              (e.target as HTMLImageElement).src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTYwIiBoZWlnaHQ9IjE2MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZmY5NTAwIi8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtZmFtaWx5PSJBcmlhbCwgc2Fucy1zZXJpZiIgZm9udC1zaXplPSI0OCIgZmlsbD0iI2ZmZiIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZHk9Ii4zZW0iPnt7c3R1ZGVudE5hbWUuY2hhckF0KDApfX08L3RleHQ+PC9zdmc+';
                             }}
                           />
                           <p className="mt-3 text-sm font-medium text-gray-700">Student Photo</p>
@@ -698,6 +804,18 @@ export const StudentManagement: React.FC = () => {
                       <label className="block text-sm font-medium text-gray-700">Phone</label>
                       <p className="mt-1 text-sm text-gray-900">{studentProfileData?.data?.user?.phone || selectedStudent?.phone || '-'}</p>
                     </div>
+                    {(() => {
+                      const documents = studentProfileData?.data?.user?.studentProfile?.documents;
+                      const enrollmentMetadata = documents && typeof documents === 'object' && 'enrollmentMetadata' in documents
+                        ? (documents as any).enrollmentMetadata
+                        : null;
+                      return (
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700">WhatsApp Number</label>
+                          <p className="mt-1 text-sm text-gray-900">{enrollmentMetadata?.whatsappNumber || '-'}</p>
+                        </div>
+                      );
+                    })()}
                     <div>
                       <label className="block text-sm font-medium text-gray-700">Status</label>
                       <p className="mt-1">
@@ -711,13 +829,13 @@ export const StudentManagement: React.FC = () => {
                     {(studentProfileData?.data?.user?.createdAt || selectedStudent?.createdAt) && (
                       <div>
                         <label className="block text-sm font-medium text-gray-700">Joined Date</label>
-                        <p className="mt-1 text-sm text-gray-900">{new Date(studentProfileData?.data?.user?.createdAt || selectedStudent?.createdAt || '').toLocaleDateString()}</p>
+                        <p className="mt-1 text-sm text-gray-900">{formatDateDDMMYYYY(studentProfileData?.data?.user?.createdAt || selectedStudent?.createdAt)}</p>
                       </div>
                     )}
-                    {(studentProfileData?.data?.user?.updatedAt || selectedStudent?.updatedAt) && (
+                    {studentProfileData?.data?.user?.updatedAt && (
                       <div>
                         <label className="block text-sm font-medium text-gray-700">Last Updated</label>
-                        <p className="mt-1 text-sm text-gray-900">{new Date(studentProfileData?.data?.user?.updatedAt || selectedStudent?.updatedAt || '').toLocaleDateString()}</p>
+                        <p className="mt-1 text-sm text-gray-900">{formatDateDDMMYYYY(studentProfileData.data.user.updatedAt)}</p>
                       </div>
                     )}
                   </div>
@@ -731,17 +849,13 @@ export const StudentManagement: React.FC = () => {
                       <div>
                         <label className="block text-sm font-medium text-gray-700">Date of Birth</label>
                         <p className="mt-1 text-sm text-gray-900">
-                          {studentProfileData.data?.user?.studentProfile?.dob 
-                            ? new Date(studentProfileData.data.user.studentProfile.dob).toLocaleDateString() 
-                            : '-'}
+                          {formatDateDDMMYYYY(studentProfileData.data?.user?.studentProfile?.dob)}
                         </p>
                       </div>
                       <div>
                         <label className="block text-sm font-medium text-gray-700">Enrollment Date</label>
                         <p className="mt-1 text-sm text-gray-900">
-                          {studentProfileData.data?.user?.studentProfile?.enrollmentDate 
-                            ? new Date(studentProfileData.data.user.studentProfile.enrollmentDate).toLocaleDateString() 
-                            : '-'}
+                          {formatDateDDMMYYYY(studentProfileData.data?.user?.studentProfile?.enrollmentDate)}
                         </p>
                       </div>
                       <div>
@@ -766,23 +880,100 @@ export const StudentManagement: React.FC = () => {
                           {studentProfileData.data?.user?.studentProfile?.photoUrl || '-'}
                         </p>
                       </div>
-                      <div className="md:col-span-2">
-                        <label className="block text-sm font-medium text-gray-700">Address</label>
-                        <p className="mt-1 text-sm text-gray-900">
-                          {studentProfileData.data?.user?.studentProfile?.address || '-'}
-                        </p>
-                      </div>
+                    </div>
+                  ) : (
+                    <div className="text-center py-8 bg-gray-50 rounded-lg">
+                      <p className="text-gray-500">No student profile information available.</p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Contact & Address Information */}
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900 mb-4 border-b pb-2">Contact & Address Information</h3>
+                  {studentProfileData?.data?.user?.studentProfile ? (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {(() => {
+                        const documents = studentProfileData.data?.user?.studentProfile?.documents;
+                        const enrollmentMetadata = documents && typeof documents === 'object' && 'enrollmentMetadata' in documents
+                          ? (documents as any).enrollmentMetadata
+                          : null;
+                        const user = studentProfileData.data?.user;
+                        
+                        return (
+                          <>
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700">Phone Number</label>
+                              <p className="mt-1 text-sm text-gray-900">{user?.phone || '-'}</p>
+                            </div>
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700">WhatsApp Number</label>
+                              <p className="mt-1 text-sm text-gray-900">{enrollmentMetadata?.whatsappNumber || '-'}</p>
+                            </div>
+                            <div className="md:col-span-2">
+                              <label className="block text-sm font-medium text-gray-700">Local Address</label>
+                              <p className="mt-1 text-sm text-gray-900">
+                                {enrollmentMetadata?.localAddress || studentProfileData.data?.user?.studentProfile?.address || '-'}
+                              </p>
+                            </div>
+                            <div className="md:col-span-2">
+                              <label className="block text-sm font-medium text-gray-700">Permanent Address</label>
+                              <p className="mt-1 text-sm text-gray-900">{enrollmentMetadata?.permanentAddress || '-'}</p>
+                            </div>
+                            
+                            {/* Emergency Contact Information */}
+                            <div className="md:col-span-2 border-t pt-4 mt-4">
+                              <h4 className="text-md font-semibold text-gray-900 mb-3">Emergency Contact</h4>
+                            </div>
+                            {(() => {
+                              const emergencyContact = enrollmentMetadata?.emergencyContact;
+                              return (
+                                <>
+                                  <div>
+                                    <label className="block text-sm font-medium text-gray-700">Emergency Contact Number</label>
+                                    <p className="mt-1 text-sm text-gray-900">{emergencyContact?.number || '-'}</p>
+                                  </div>
+                                  <div>
+                                    <label className="block text-sm font-medium text-gray-700">Emergency Contact Name</label>
+                                    <p className="mt-1 text-sm text-gray-900">{emergencyContact?.name || '-'}</p>
+                                  </div>
+                                  <div>
+                                    <label className="block text-sm font-medium text-gray-700">Emergency Relation</label>
+                                    <p className="mt-1 text-sm text-gray-900">{emergencyContact?.relation || '-'}</p>
+                                  </div>
+                                </>
+                              );
+                            })()}
+                          </>
+                        );
+                      })()}
+                    </div>
+                  ) : (
+                    <div className="text-center py-8 bg-gray-50 rounded-lg">
+                      <p className="text-gray-500">No contact information available.</p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Software List */}
+                {studentProfileData?.data?.user?.studentProfile && (
+                  <div>
+                    <h3 className="text-lg font-semibold text-gray-900 mb-4 border-b pb-2">Software List</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div className="md:col-span-2">
                         <label className="block text-sm font-medium text-gray-700">Software List</label>
                         {(() => {
-                          const softwareList = studentProfileData?.data?.user?.studentProfile?.softwareList;
+                          const softwareList: unknown = studentProfileData?.data?.user?.studentProfile?.softwareList;
                           // Handle different data types: array, string, or null/undefined
                           let softwareArray: string[] = [];
                           if (Array.isArray(softwareList)) {
-                            softwareArray = softwareList;
-                          } else if (typeof softwareList === 'string' && softwareList.trim()) {
-                            // If it's a string, split by comma
-                            softwareArray = softwareList.split(',').map(s => s.trim()).filter(s => s.length > 0);
+                            softwareArray = softwareList as string[];
+                          } else if (softwareList && typeof softwareList === 'string') {
+                            const trimmed = softwareList.trim();
+                            if (trimmed) {
+                              // If it's a string, split by comma
+                              softwareArray = trimmed.split(',').map((s: string) => s.trim()).filter((s: string) => s.length > 0);
+                            }
                           }
                           
                           return softwareArray.length > 0 ? (
@@ -798,35 +989,217 @@ export const StudentManagement: React.FC = () => {
                           );
                         })()}
                       </div>
-                      {studentProfileData.data?.user?.studentProfile?.documents && Object.keys(studentProfileData.data.user.studentProfile.documents).length > 0 && (
-                        <div className="md:col-span-2">
-                          <label className="block text-sm font-medium text-gray-700 mb-2">Documents</label>
-                          <div className="bg-gray-50 rounded-lg p-3 border border-gray-200 max-h-60 overflow-y-auto">
-                            <pre className="text-xs text-gray-700 whitespace-pre-wrap">
-                              {JSON.stringify(studentProfileData.data.user.studentProfile.documents, null, 2)}
-                            </pre>
-                          </div>
-                        </div>
-                      )}
+                      {/* Course Information */}
+                      {(() => {
+                        const documents = studentProfileData.data?.user?.studentProfile?.documents;
+                        const enrollmentMetadata = documents && typeof documents === 'object' && 'enrollmentMetadata' in documents
+                          ? (documents as any).enrollmentMetadata
+                          : null;
+                        return (
+                          <>
+                            <div className="md:col-span-2 border-t pt-4 mt-4">
+                              <h4 className="text-md font-semibold text-gray-900 mb-3">Course Information</h4>
+                            </div>
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700">Course Name</label>
+                              <p className="mt-1 text-sm text-gray-900">{enrollmentMetadata?.courseName || '-'}</p>
+                            </div>
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700">Date of Admission</label>
+                              <p className="mt-1 text-sm text-gray-900">
+                                {enrollmentMetadata?.dateOfAdmission ? formatDateDDMMYYYY(enrollmentMetadata.dateOfAdmission) : '-'}
+                              </p>
+                            </div>
+                          </>
+                        );
+                      })()}
+                      
+                      {/* Payment Plan Information */}
+                      {(() => {
+                        let documents: Record<string, any> | undefined = studentProfileData.data?.user?.studentProfile?.documents;
+                        
+                        // Handle case where documents might be a string (JSON string from database)
+                        if (documents && typeof documents === 'string') {
+                          try {
+                            documents = JSON.parse(documents) as Record<string, any>;
+                          } catch (e) {
+                            console.error('Error parsing documents JSON:', e);
+                            documents = undefined;
+                          }
+                        }
+                        
+                        const enrollmentMetadata = documents && typeof documents === 'object' && 'enrollmentMetadata' in documents 
+                          ? (documents as any).enrollmentMetadata 
+                          : null;
+                        
+                        // Debug logging (remove in production if needed)
+                        if (process.env.NODE_ENV === 'development') {
+                          console.log('Payment Plan Debug:', {
+                            hasDocuments: !!documents,
+                            documentsType: typeof documents,
+                            hasEnrollmentMetadata: !!enrollmentMetadata,
+                            enrollmentMetadata
+                          });
+                        }
+                        
+                        return (
+                          <>
+                            <div className="md:col-span-2 border-t pt-4 mt-4">
+                              <h4 className="text-md font-semibold text-gray-900 mb-3">Payment Plan</h4>
+                            </div>
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700">Total Deal Amount (₹)</label>
+                              <p className="mt-1 text-sm text-gray-900">
+                                {enrollmentMetadata?.totalDeal !== undefined ? `₹${enrollmentMetadata.totalDeal}` : '-'}
+                              </p>
+                            </div>
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700">Booking Amount (₹)</label>
+                              <p className="mt-1 text-sm text-gray-900">
+                                {enrollmentMetadata?.bookingAmount !== undefined ? `₹${enrollmentMetadata.bookingAmount}` : '-'}
+                              </p>
+                            </div>
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700">Balance Amount (₹)</label>
+                              <p className="mt-1 text-sm text-gray-900">
+                                {enrollmentMetadata?.balanceAmount !== undefined ? `₹${enrollmentMetadata.balanceAmount}` : '-'}
+                              </p>
+                            </div>
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700">EMI Plan</label>
+                              <p className="mt-1">
+                                <span className={`px-2 py-1 rounded text-xs font-semibold ${
+                                  enrollmentMetadata?.emiPlan 
+                                    ? 'bg-green-100 text-green-800' 
+                                    : 'bg-gray-100 text-gray-800'
+                                }`}>
+                                  {enrollmentMetadata?.emiPlan ? 'Yes' : enrollmentMetadata?.emiPlan === false ? 'No' : '-'}
+                                </span>
+                              </p>
+                            </div>
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700">EMI Plan Date</label>
+                              <p className="mt-1 text-sm text-gray-900">
+                                {enrollmentMetadata?.emiPlanDate ? formatDateDDMMYYYY(enrollmentMetadata.emiPlanDate) : '-'}
+                              </p>
+                            </div>
+                          </>
+                        );
+                      })()}
+
+                      {/* Additional Information */}
+                      {(() => {
+                        const documents = studentProfileData.data?.user?.studentProfile?.documents;
+                        const enrollmentMetadata = documents && typeof documents === 'object' && 'enrollmentMetadata' in documents
+                          ? (documents as any).enrollmentMetadata
+                          : null;
+                        
+                        return (
+                          <>
+                            <div className="md:col-span-2 border-t pt-4 mt-4">
+                              <h4 className="text-md font-semibold text-gray-900 mb-3">Additional Information</h4>
+                            </div>
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700">Complimentary Software</label>
+                              <p className="mt-1 text-sm text-gray-900">{enrollmentMetadata?.complimentarySoftware || '-'}</p>
+                            </div>
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700">Complimentary Gift</label>
+                              <p className="mt-1 text-sm text-gray-900">{enrollmentMetadata?.complimentaryGift || '-'}</p>
+                            </div>
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700">Has Reference</label>
+                              <p className="mt-1">
+                                <span className={`px-2 py-1 rounded text-xs font-semibold ${
+                                  enrollmentMetadata?.hasReference
+                                    ? 'bg-green-100 text-green-800'
+                                    : 'bg-gray-100 text-gray-800'
+                                }`}>
+                                  {enrollmentMetadata?.hasReference !== undefined 
+                                    ? (enrollmentMetadata.hasReference ? 'Yes' : 'No') 
+                                    : '-'}
+                                </span>
+                              </p>
+                            </div>
+                            <div className="md:col-span-2">
+                              <label className="block text-sm font-medium text-gray-700">Reference Details</label>
+                              <p className="mt-1 text-sm text-gray-900 whitespace-pre-wrap">{enrollmentMetadata?.referenceDetails || '-'}</p>
+                            </div>
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700">Counselor Name</label>
+                              <p className="mt-1 text-sm text-gray-900">{enrollmentMetadata?.counselorName || '-'}</p>
+                            </div>
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700">Lead Source</label>
+                              <p className="mt-1 text-sm text-gray-900">{enrollmentMetadata?.leadSource || '-'}</p>
+                            </div>
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700">Walk-in Date</label>
+                              <p className="mt-1 text-sm text-gray-900">
+                                {enrollmentMetadata?.walkinDate ? formatDateDDMMYYYY(enrollmentMetadata.walkinDate) : '-'}
+                              </p>
+                            </div>
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700">Master Faculty</label>
+                              <p className="mt-1 text-sm text-gray-900">{enrollmentMetadata?.masterFaculty || '-'}</p>
+                            </div>
+                          </>
+                        );
+                      })()}
                       {studentProfileData.data?.user?.studentProfile?.createdAt && (
                         <div>
                           <label className="block text-sm font-medium text-gray-700">Profile Created</label>
-                          <p className="mt-1 text-sm text-gray-900">{new Date(studentProfileData.data.user.studentProfile.createdAt).toLocaleDateString()}</p>
+                          <p className="mt-1 text-sm text-gray-900">{formatDateDDMMYYYY(studentProfileData.data.user.studentProfile.createdAt)}</p>
                         </div>
                       )}
                       {studentProfileData.data?.user?.studentProfile?.updatedAt && (
                         <div>
                           <label className="block text-sm font-medium text-gray-700">Profile Updated</label>
-                          <p className="mt-1 text-sm text-gray-900">{new Date(studentProfileData.data.user.studentProfile.updatedAt).toLocaleDateString()}</p>
+                          <p className="mt-1 text-sm text-gray-900">{formatDateDDMMYYYY(studentProfileData.data.user.studentProfile.updatedAt)}</p>
                         </div>
                       )}
                     </div>
-                  ) : (
-                    <div className="text-center py-8 bg-gray-50 rounded-lg">
-                      <p className="text-gray-500">No student profile information available.</p>
+                  </div>
+                )}
+
+                {/* Batch Enrollments */}
+                {studentProfileData?.data?.user?.enrollments && studentProfileData.data.user.enrollments.length > 0 && (
+                  <div>
+                    <h3 className="text-lg font-semibold text-gray-900 mb-4 border-b pb-2">Batch Enrollments</h3>
+                    <div className="space-y-3">
+                      {studentProfileData.data.user.enrollments.map((enrollment: any) => (
+                        <div
+                          key={enrollment.id}
+                          className="p-4 border border-gray-200 rounded-lg bg-gray-50 hover:bg-gray-100 transition-colors"
+                        >
+                          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                            <div className="flex-1">
+                              <p className="text-lg font-semibold text-gray-900">
+                                {enrollment.batch?.title || `Batch #${enrollment.batchId || 'N/A'}`}
+                              </p>
+                              <p className="text-sm text-gray-600 mt-1">
+                                {enrollment.batch?.software ? `${enrollment.batch.software} · ` : ''}
+                                {enrollment.batch?.mode || 'Mode N/A'}
+                                {enrollment.enrollmentDate && ` · Enrolled: ${formatDateDDMMYYYY(enrollment.enrollmentDate)}`}
+                              </p>
+                            </div>
+                            <span
+                              className={`px-3 py-1 rounded-full text-sm font-semibold self-start sm:self-auto ${
+                                enrollment.status === 'active'
+                                  ? 'bg-green-100 text-green-700'
+                                  : enrollment.status === 'completed'
+                                  ? 'bg-blue-100 text-blue-700'
+                                  : 'bg-gray-100 text-gray-600'
+                              }`}
+                            >
+                              {enrollment.status || 'N/A'}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
                     </div>
-                  )}
-                </div>
+                  </div>
+                )}
 
                 {/* Software Completions */}
                 <div>
@@ -854,10 +1227,10 @@ export const StudentManagement: React.FC = () => {
                                 {completion.batch?.title || `Batch ${completion.batchId}`}
                               </td>
                               <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
-                                {new Date(completion.startDate).toLocaleDateString()}
+                                {formatDateDDMMYYYY(completion.startDate)}
                               </td>
                               <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
-                                {new Date(completion.endDate).toLocaleDateString()}
+                                {formatDateDDMMYYYY(completion.endDate)}
                               </td>
                               <td className="px-4 py-3 whitespace-nowrap">
                                 <span className={`px-2 py-1 rounded text-xs font-semibold ${
@@ -902,8 +1275,8 @@ export const StudentManagement: React.FC = () => {
 
       {/* Delete Confirmation Modal */}
       {isDeleteModalOpen && selectedStudent && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg p-4 md:p-6 max-w-md w-full max-h-[90vh] overflow-y-auto">
             <h2 className="text-2xl font-bold mb-4 text-red-600">Delete Student</h2>
             <p className="mb-4 text-gray-700">
               Are you sure you want to delete <strong>{selectedStudent.name}</strong>? This action cannot be undone.
@@ -932,8 +1305,8 @@ export const StudentManagement: React.FC = () => {
 
       {/* Bulk Upload Modal */}
       {isBulkUploadModalOpen && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg p-4 md:p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
             <h2 className="text-2xl font-bold mb-4">Bulk Student Enrollment</h2>
             
             {bulkUploadResult ? (
@@ -1030,7 +1403,349 @@ export const StudentManagement: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Orientation Modal */}
+      {isOrientationModalOpen && orientationStudentId && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col">
+            <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
+              <h2 className="text-xl font-bold text-gray-900">Student Orientation</h2>
+              <button
+                onClick={() => {
+                  setIsOrientationModalOpen(false);
+                  setOrientationStudentId(null);
+                  setActiveOrientationTab('english');
+                }}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-hidden flex flex-col">
+              {/* Tabs */}
+              <div className="border-b border-gray-200 flex">
+                <button
+                  onClick={() => setActiveOrientationTab('english')}
+                  className={`px-6 py-3 font-medium text-sm ${
+                    activeOrientationTab === 'english'
+                      ? 'text-orange-600 border-b-2 border-orange-600'
+                      : 'text-gray-600 hover:text-gray-900'
+                  }`}
+                >
+                  English
+                </button>
+                <button
+                  onClick={() => setActiveOrientationTab('gujarati')}
+                  className={`px-6 py-3 font-medium text-sm ${
+                    activeOrientationTab === 'gujarati'
+                      ? 'text-orange-600 border-b-2 border-orange-600'
+                      : 'text-gray-600 hover:text-gray-900'
+                  }`}
+                >
+                  Gujarati
+                </button>
+              </div>
+
+              {/* Orientation Content */}
+              <div className="flex-1 overflow-auto p-6 bg-white">
+                {activeOrientationTab === 'english' ? (
+                  <div className="max-w-4xl mx-auto prose prose-sm">
+                    <div className="text-center mb-6">
+                      <h1 className="text-2xl font-bold text-gray-900 mb-2">Student Orientation</h1>
+                      <p className="text-sm text-gray-600">601 Gala Empire, Opp. Doordarshan metro station, Drive-In Road, Ahmedabad 380052</p>
+                      <p className="text-sm text-gray-600">Helpdesk: 9033222499 | Technical Help: 9825308959</p>
+                    </div>
+
+                    <div className="space-y-6 text-gray-800">
+                      <section>
+                        <h2 className="text-xl font-bold text-gray-900 mb-4">Coaching & Practice</h2>
+                        <ol className="list-decimal list-inside space-y-3 ml-4">
+                          <li className="mb-3">
+                            <strong>3 days classroom coaching and 3 days lab practice is mandatory for every student</strong>
+                          </li>
+                          <li className="mb-3">
+                            The batch timing may change with new software
+                          </li>
+                          <li className="mb-3">
+                            If you have given commitment for special batch timing, plz do mention here
+                            <div className="border-b-2 border-gray-400 mt-2 mb-2 w-64"></div>
+                          </li>
+                          <li className="mb-3">
+                            The software practice is necessary in lab to complete assignments, for any reason if you are unable to come for practice at lab then mention here
+                            <div className="border-b-2 border-gray-400 mt-2 mb-2 w-64"></div>
+                          </li>
+                          <li className="mb-3">
+                            For any course, the ratio for coaching and practice is <strong>1:2</strong>, it means every classroom lecture you will have to make <strong>2 hours minimum practice</strong> and hence <strong>minimum 25 hours practice is compulsory at lab</strong>. For the best career <strong>monthly 50 hours practice is highly recommended</strong>.
+                          </li>
+                          <li className="mb-3">
+                            Student may bring their own laptop is desirable and if he/she couldn't arrange laptop then he/she may book the practice slot accordingly. Practice lab is open <strong>9:00 am to 7:00 pm from Monday to Saturday</strong>. Faculty will guide during practice as per their availability
+                          </li>
+                        </ol>
+                      </section>
+
+                      <section>
+                        <h2 className="text-xl font-bold text-gray-900 mb-4">Portfolio & Placement</h2>
+                        <ol className="list-decimal list-inside space-y-3 ml-4" start={7}>
+                          <li className="mb-3">
+                            During the study of software, the faculty will guide for portfolio (assignments) and such assignment will have to get approved by faculty at end of each software.
+                          </li>
+                          <li className="mb-3">
+                            The placement call will sole depend on the portfolio work and practice hours. <strong>The student without approved portfolio is not eligible for placement</strong>
+                          </li>
+                        </ol>
+                      </section>
+
+                      <section>
+                        <h2 className="text-xl font-bold text-gray-900 mb-4">Fees payment & monthly EMIs</h2>
+                        <ol className="list-decimal list-inside space-y-3 ml-4" start={9}>
+                          <li className="mb-3">
+                            The student who enrolled on EMI payment term has to deposits all PDCs (postdated cheques) and such cheques will be deposited in bank latest by <strong>10th of every month</strong> OR he has to pay monthly EMI between <strong>1st to 10th day of every month</strong>. Any payment after 10th day will be liable to late payment charges <strong>Rs. 50/- per day</strong>. Student will get GST paid receipt from A/C dept between <strong>15th to 20th day of every month</strong>. If any student get any exemption in payment date, plz mention here
+                            <div className="border-b-2 border-gray-400 mt-2 mb-2 w-64"></div>
+                            . All fees payment are including GST and non-refundable
+                          </li>
+                          <li className="mb-3">
+                            Each course and its payment is non-transferable. No course can be down-graded in value or duration but it can be up-graded to bigger course value/duration. Any up gradation is subject to approval and for that student needs to pay difference amount in advance
+                          </li>
+                          <li className="mb-3">
+                            The course progress will sole depend on the grasping ability of student, leaves, absenteeism and circumstances and it is no way related to payment made for the course. The payment made is no way connected and co-related with the course completion which please be noted
+                          </li>
+                          <li className="mb-3">
+                            Cheques bounce charges <strong>Rs. 350/-</strong>
+                          </li>
+                          <li className="mb-3">
+                            After the completion of 6 month only, if any student is not able to pay fees for any month then he has to pay <strong>Rs. 1200/- as penalty</strong> and it is not part of total payment. Student can be considered as dropped out in system in case of fail to payment and study will be paused till clearance of all due with activation charge
+                          </li>
+                          <li className="mb-3">
+                            Student will have to pay their monthly EMI during the long leave for whatever reason.
+                          </li>
+                        </ol>
+                      </section>
+
+                      <section>
+                        <h2 className="text-xl font-bold text-gray-900 mb-4">Student Orientation</h2>
+                        <ol className="list-decimal list-inside space-y-3 ml-4" start={15}>
+                          <li className="mb-3">
+                            Student will get backup for the lectures/study he/she missed during the approved leaves and there is no backup for leave without approval.
+                          </li>
+                          <li className="mb-3">
+                            If any student face any difficulty in understanding of any software then on special recommendation of faculty the entire software will get repeated without any extra cost
+                          </li>
+                          <li className="mb-3">
+                            Once you enrolled with us you are our lifetime member and as privilege you may visit us for any technical assistance or job placement in future and all such services are <strong>FREE FOREVER</strong>
+                          </li>
+                        </ol>
+                      </section>
+
+                      <section className="mt-8 p-4 bg-gray-50 rounded border border-gray-200">
+                        <p className="mb-4 text-sm">
+                          If you have given any special commitment by counselor then do mention here/ or leave blank
+                        </p>
+                        <div className="border-b-2 border-gray-400 mb-2"></div>
+                        <div className="border-b-2 border-gray-400 mb-2"></div>
+                        <div className="border-b-2 border-gray-400 mb-4"></div>
+                      </section>
+
+                      <section className="mt-8 space-y-4">
+                        <div className="flex gap-8">
+                          <div className="flex-1">
+                            <p className="mb-2"><strong>Student Name:</strong></p>
+                            <div className="border-b-2 border-gray-400 mb-4"></div>
+                          </div>
+                          <div className="flex-1">
+                            <p className="mb-2"><strong>Course:</strong></p>
+                            <div className="border-b-2 border-gray-400 mb-4"></div>
+                          </div>
+                        </div>
+                        <p className="mt-6 mb-4">
+                          I, hereby confirm that I got detailed understanding for all above rule & regulation of institute and I assure to follow the same.
+                        </p>
+                        <div className="mt-8">
+                          <p className="mb-2"><strong>Student Sign / Date</strong></p>
+                          <div className="border-b-2 border-gray-400 w-48"></div>
+                        </div>
+                      </section>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="max-w-4xl mx-auto prose prose-sm">
+                    <div className="text-center mb-6">
+                      <h1 className="text-2xl font-bold text-gray-900 mb-2">વિદ્યાર્થી ઓરિએન્ટેશન</h1>
+                      <p className="text-sm text-gray-600">401, Shilp Square B, Opp. Sales India, Drive-In Road, Ahmedabad 380052</p>
+                      <p className="text-sm text-gray-600">Helpdesk: 9033222499 | Technical Help: 9825308959</p>
+                    </div>
+
+                    <div className="space-y-6 text-gray-800">
+                      <section>
+                        <h2 className="text-xl font-bold text-gray-900 mb-4">Coaching & Practice</h2>
+                        <ol className="list-decimal list-inside space-y-3 ml-4">
+                          <li className="mb-3">
+                            <strong>દરેક વિદ્યાર્થી એ પોતાના કોર્સ માાં અઠિાવિયા માાં ૩ વદિર્ ક્લાર્ કોવ ાંગ અને ૩ વદિર્ પ્રેકટીર્ કરિાની રહેશે.</strong>
+                          </li>
+                          <li className="mb-3">
+                            બે નો ટાઈમ દરેક ર્ોફ્ટિેર િખતે બદલાઈ શકે છે.
+                          </li>
+                          <li className="mb-3">
+                            જો આપણે કોઈ ોક્કર્ ર્મયે બે આપિાની િાત ર્થઇ હોય તો અહીયાં ા જણાિિ ાં.
+                            <div className="border-b-2 border-gray-400 mt-2 mb-2 w-64"></div>
+                          </li>
+                          <li className="mb-3">
+                            લેબ માાં આિીને પ્રેકટીર્ કરિી જરૂરી છે. કોઈ ોક્કર્ કારણોર્ર જો લેબ માાં પ્રેકટીર્ ના ર્થઇ શકે એમ હોય તો અહીયાં ા સ્પષ્ટતા કરિી
+                            <div className="border-b-2 border-gray-400 mt-2 mb-2 w-64"></div>
+                          </li>
+                          <li className="mb-3">
+                            દરેક કોર્સ માટે <strong>૧:૨ નો પ્રેકટીર્ રેર્ીઓ જરૂરી છે</strong>. એક લેક્ ર ર્ામે <strong>૨ કલાક પ્રેકટીર્ વમવનમમ હોિી જરૂરી છે</strong>. એ મ જબ મવહના માાં <strong>25 કલાક પ્રેવક્ટર્ કરિી જરૂરી છે</strong>. પરાંત એક ર્ારી કારવકદી માટે મવહના માાં <strong>૫૦ કલાક પ્રેકટીર્ હોિી અવનિાયસ છે</strong>.
+                          </li>
+                          <li className="mb-3">
+                            પ્રેવક્ટર્ માટે વિદ્યાર્થી પોતાન ાં લેપટોપ લઈને આિે તે આિિકાયસ છે પણ જરૂરી નર્થી. પ્રેવક્ટર્ નો ટાઈમ સ્લોટ અગાઉ ર્થી બ કરિો જરૂરી છે. જેર્થી વ્યિસ્ર્થા જાળિી શકાય. પ્રેવક્ટર્ લેબ નો ટાઈમ ર્િારે <strong>૯ ર્થી ર્ાાંજે૭ ર્ ધી રહેશે</strong>. પ્રેવક્ટર્ દરમ્યાન ફેકલ્ટી ન ાં માગસદશસન એમના ફ્રી ટાઈમ મ જબ મળી શકશે.
+                          </li>
+                        </ol>
+                      </section>
+
+                      <section>
+                        <h2 className="text-xl font-bold text-gray-900 mb-4">Portfolio & Placement</h2>
+                        <ol className="list-decimal list-inside space-y-3 ml-4" start={7}>
+                          <li className="mb-3">
+                            દરેક ર્ોફ્ટિેર પૂરાં ર્થયા બાદ એક સ્ટાન્િિસ પોટસફોવલયો બનાિી ને ફેકલ્ટી પાર્ે ok કરાિિો જરૂરી છે. એક ર્ોફ્ટિેર બાદ બીજ ાં ર્ોફ્ટિેર ાલ  કરિા માટે પોટસફોવલયો િકસ પૂરાં કરિ ાં જરૂરી છે.
+                          </li>
+                          <li className="mb-3">
+                            <strong>સ્ટાન્િિસ પોટસફોવલયો િગર અને પ રા પ્રેકટીર્ કલાકો વર્િાય જોબ પ્લેર્મેન્ટ માટે કોઈ વિદ્યાર્થી ને મોકલી શકાશે નવહ.</strong>
+                          </li>
+                        </ol>
+                      </section>
+
+                      <section>
+                        <h2 className="text-xl font-bold text-gray-900 mb-4">Fees Payment & Monthly EMIs</h2>
+                        <ol className="list-decimal list-inside space-y-3 ml-4" start={9}>
+                          <li className="mb-3">
+                            જે વિદ્યાર્થીઓ એ ફીર્ પેમેન્ટ માટે EMI કરાિેલા છે એ તમામ વિદ્યાર્થીઓ એ નિા મવહના ની <strong>૧ ર્થી ૧૦ તારીખ ર્ ધી માાં ફીર્ પેમેન્ટ કરિ ાં જરૂરી છે</strong> તેના માટે PDC આપિા જરૂરી છે જે Institute દ્વારા <strong>૧૦ તારીખે બેંક વિપોવિટ કરિામાાં આિશે</strong>. ત્યાર બાદ <strong>Rs 50/- પ્રવત વદિર્ લેખે લેટ પેમેન્ટ ાજસર્સ લાગશે</strong> જેની દરેકે નોાંધ લેિી. દરેક લેટ પેમેન્ટ ને પહોાં મળશે. જો કોઈ વિદ્યાર્થી ને સ્પેશ્યલ કેર્ તરીકે ૧૦ તારીખ પછી પયમેન્ટ ની િાત ર્થયી હોય તો અહીયાં ા જણાિિ ાં
+                            <div className="border-b-2 border-gray-400 mt-2 mb-2 w-64"></div>
+                            ત્યારબાદ લેટ પેમેન્ટ ાજસર્સ લાગ  પિશે.
+                            <br />
+                            કોઈ પણ કોર્સ માટે ન ાં પેમેન્ટ GST ર્હીત ન ાં છે જેના માટે GST િળી પાકી receipt PDF copy માાં <strong>૧૫ ર્થી ૨૦ તારીખ દરમ્યાન મળી જશે</strong>. કોઈ પણ પ્રકાર ન ાં પેમેન્ટ પાછ ાં મળિા પાત્ર નર્થી.
+                          </li>
+                          <li className="mb-3">
+                            કોઈ પણ કોર્સ ન ાં પેમેન્ટ તબદીલી ને પાત્ર નર્થી. વિદ્યાર્થી એ જે કોર્સ માાં એિવમશન લીધ ાં હશે તે કોર્સ ને કોઈ બીજા નાના કોર્સ માાં તબદીલ કરી શકાશે નવહ પરાંત મોટા વકાંમત / ર્મયગાળા ના કોર્સ માાં તબદીલ કરી શકાશે આ તબદીલી મેનેજમેન્ટ ની રજામાંદી ર્થી ર્થઇ શકશે જેના માટે તફાિત ની રકમ એિિાન્ર્ માાં ભરિાની રહેશે.
+                          </li>
+                          <li className="mb-3">
+                            કોઈ પણ કોર્સ નો ર્મયગાળો એ વિદ્યાર્થી ની ર્મજશવિ / આિિત / ર્ાંજોગો ને આધારે િધારે ઓછો ર્થઇ શકશે એને ફીર્ ના EMI ર્ાર્થે ર્રખામણી કરી શકાશે નવહ. ફીર્ ના EMI એ ફીર્ પે કરિાની ર્ગિિતા માટે ની વ્યિસ્ર્થા છે માટે કોર્સ કેટલો ાલ્યો છે કે કેટલો પૂરો ર્થયો એની ર્ાર્થે ફીર્ ના EMI ને ર્રખામણી કરી શકાશે નવહ જેની દરેક વિદ્યાર્થીઓ એ નોાંધ લેિી.
+                          </li>
+                          <li className="mb-3">
+                            જો ફીર્ ન ાં પેમેન્ટ ેક ર્થી કરાય ાં હોય અને ેક બાઉન્ર્ ર્થાય તો એના અલગ ર્થી <strong>Rs ૩૫૦/- આપિાના રહેશે</strong>.
+                          </li>
+                          <li className="mb-3">
+                            કોઈ વિદ્યાર્થી જો પૂરો મવહનો ફીર્ ના આપી શકે તો એને <strong>Rs ૧૨૦૦/- પેનલ્ટી ાજસ ના ભરિાના રહેશે</strong> જે કોર્સ ાલ  કાયસ ના <strong>૬ મવહના પછી ર્થી જ ર્થઇ શકશે</strong>. ફીર્ પેમેન્ટ અર્થિા પેનલ્ટી ાજસર્સ ભયાસ િગર વિદ્યાર્થી વર્સ્ટમ માાં િરોપઆઉટ ર્થઇ શકે છે. કોઈ વિદ્યાર્થી પહેલા ૬ મવહના દરમ્યાન કોઈ એક મવહનો ફીર્ EMI ના આપે તો જે તે મવહના બાદ િરોપ આઉટ ગણાશે. અને એક્ટીિેશન ાજસર્સ ભયાસ બાદ ફરી ર્થી બે આપી શકાશે.
+                          </li>
+                          <li className="mb-3">
+                            કોર્સ દરમ્યાન ર્ાંજોગોિર્ાત લાાંબી રજા લેિાની ર્થશે તો ફીર્ ના EMI બાંધ કરી શકાશે નવહ. કોર્સ નો ર્મયગાળો લીધેલી રજા મ જબ િધી જશે.
+                          </li>
+                        </ol>
+                      </section>
+
+                      <section>
+                        <h2 className="text-xl font-bold text-gray-900 mb-4">Technical Help</h2>
+                        <ol className="list-decimal list-inside space-y-3 ml-4" start={15}>
+                          <li className="mb-3">
+                            દરેક વિદ્યાર્થી એ ફેકલ્ટી ની માંજૂરી ર્થી રજા લઇ શકાશે જેના માટે અલગ બેકઅપ શીખિિા માાં આિશે પણ માંજૂરી િગર ની રજા માટે બેકઅપ ની વ્યિસ્ર્થા ર્થઇ શકશે નવહ.
+                          </li>
+                          <li className="mb-3">
+                            કોઈ પણ વિદ્યાર્થી ને કોઈ ર્ોફ્ટિેર માાં િધારે મદદ ની જરૂર હોય તો એ ર્ોફ્ટિેર આખો કે અમ ક ટોવપક ફરી ર્થી જે ફેકલ્ટી ના ર્જેશન મ જબ કરિા માાં આિશે જેના માટે કોઈ એક્ર્ટરા પેમેન્ટ આપિાન ાં રહેત ાં નર્થી.
+                          </li>
+                          <li className="mb-3">
+                            એકિાર કોર્સ કયાસ બાદ <strong>Lifetime કોઈ પણ પ્રકાર ની Technical મદદ માટે આપ ક્યારેય પણ institute પર આિી શકો છો</strong>. જે અમારા તમામ વિધાર્થી માટે <strong>વનિઃશ લ્ક રહેશે</strong>.
+                          </li>
+                        </ol>
+                      </section>
+
+                      <section className="mt-8 p-4 bg-gray-50 rounded border border-gray-200">
+                        <p className="mb-4 text-sm">
+                          કોર્સ ના એિવમશન િખતે જો આપણે કોઈ ોક્કર્ પ્રકાર ન ાં કવમટમેન્ટ અપાય ાં હોય તો એ અહીયાં ા જણાિિ ાં.
+                        </p>
+                        <div className="border-b-2 border-gray-400 mb-2"></div>
+                        <div className="border-b-2 border-gray-400 mb-2"></div>
+                        <div className="border-b-2 border-gray-400 mb-4"></div>
+                      </section>
+
+                      <section className="mt-8 space-y-4">
+                        <div className="flex gap-8">
+                          <div className="flex-1">
+                            <p className="mb-2"><strong>નામ:</strong></p>
+                            <div className="border-b-2 border-gray-400 mb-4"></div>
+                          </div>
+                          <div className="flex-1">
+                            <p className="mb-2"><strong>કોર્સ ન ાં નામ:</strong></p>
+                            <div className="border-b-2 border-gray-400 mb-4"></div>
+                          </div>
+                        </div>
+                        <p className="mt-6 mb-4">
+                          મને ઉપર મ જબ તમામ વનયમો ની વિસ્તૃત જાણકારી આપિામાાં આિી છે અને મને તે બાંધનકતાસ છે.
+                        </p>
+                        <div className="mt-8">
+                          <p className="mb-2"><strong>વિદ્યાર્થી ની ર્હી / તારીખ</strong></p>
+                          <div className="border-b-2 border-gray-400 w-48"></div>
+                        </div>
+                      </section>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Footer with I Agree Button */}
+              <div className="px-6 py-4 border-t border-gray-200 bg-white">
+                {(() => {
+                  const status = orientationStatusMap[orientationStudentId];
+                  const englishAccepted = status?.english || false;
+                  const gujaratiAccepted = status?.gujarati || false;
+                  const currentAccepted =
+                    activeOrientationTab === 'english' ? englishAccepted : gujaratiAccepted;
+                  const isEligible = status?.isEligible || false;
+
+                  return (
+                    <div className="flex justify-between items-center">
+                      <div>
+                        {isEligible ? (
+                          <span className="text-green-600 font-semibold">
+                            ✓ Student is eligible (Orientation accepted)
+                          </span>
+                        ) : (
+                          <span className="text-yellow-600 font-semibold">
+                            ⏳ Pending approval - Please accept orientation
+                          </span>
+                        )}
+                      </div>
+                      <button
+                        onClick={() => {
+                          if (!currentAccepted) {
+                            acceptOrientationMutation.mutate({
+                              studentId: orientationStudentId,
+                              language:
+                                activeOrientationTab === 'english'
+                                  ? OrientationLanguage.ENGLISH
+                                  : OrientationLanguage.GUJARATI,
+                            });
+                          } else {
+                            alert('This orientation has already been accepted.');
+                          }
+                        }}
+                        disabled={currentAccepted || acceptOrientationMutation.isPending}
+                        className={`px-6 py-2 rounded-lg font-semibold transition-colors ${
+                          currentAccepted
+                            ? 'bg-gray-300 text-gray-600 cursor-not-allowed'
+                            : acceptOrientationMutation.isPending
+                            ? 'bg-orange-400 text-white cursor-wait'
+                            : 'bg-orange-600 text-white hover:bg-orange-700'
+                        }`}
+                      >
+                        {currentAccepted ? '✓ Accepted' : acceptOrientationMutation.isPending ? 'Processing...' : 'I Agree'}
+                      </button>
+                    </div>
+                  );
+                })()}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </Layout>
   );
 };
-

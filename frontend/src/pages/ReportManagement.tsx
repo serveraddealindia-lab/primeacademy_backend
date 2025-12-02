@@ -5,6 +5,7 @@ import { reportAPI } from '../api/report.api';
 import { batchAPI } from '../api/batch.api';
 import { facultyAPI } from '../api/faculty.api';
 import { attendanceReportAPI } from '../api/attendanceReport.api';
+import { formatDateDDMMYYYY } from '../utils/dateUtils';
 
 export const ReportManagement: React.FC = () => {
   const [activeReport, setActiveReport] = useState<
@@ -159,16 +160,16 @@ export const ReportManagement: React.FC = () => {
 
   return (
     <Layout>
-      <div className="max-w-7xl mx-auto">
+      <div className="max-w-7xl mx-auto p-4 md:p-6">
         <div className="bg-white shadow-xl rounded-lg overflow-hidden">
-          <div className="bg-gradient-to-r from-orange-600 to-orange-500 px-8 py-6">
+          <div className="bg-gradient-to-r from-orange-600 to-orange-500 px-4 md:px-8 py-4 md:py-6">
             <div>
-              <h1 className="text-3xl font-bold text-white">Reports</h1>
-              <p className="mt-2 text-orange-100">View reports</p>
+              <h1 className="text-2xl md:text-3xl font-bold text-white">Reports</h1>
+              <p className="mt-2 text-sm md:text-base text-orange-100">View reports</p>
             </div>
           </div>
 
-          <div className="p-6">
+          <div className="p-4 md:p-6">
             <div className="mb-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-8 gap-4">
               <button
                 onClick={() => setActiveReport('all-analysis')}
@@ -275,7 +276,7 @@ export const ReportManagement: React.FC = () => {
                             <td className="px-6 py-4 whitespace-nowrap">{student.name}</td>
                             <td className="px-6 py-4 whitespace-nowrap">{student.email}</td>
                             <td className="px-6 py-4 whitespace-nowrap">{student.phone || '-'}</td>
-                            <td className="px-6 py-4 whitespace-nowrap">{new Date(student.createdAt).toLocaleDateString()}</td>
+                            <td className="px-6 py-4 whitespace-nowrap">{formatDateDDMMYYYY(student.createdAt)}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -405,7 +406,7 @@ export const ReportManagement: React.FC = () => {
                             <tr key={payment.id} className="hover:bg-gray-50">
                               <td className="px-6 py-4 whitespace-nowrap">{payment.student.name}</td>
                               <td className="px-6 py-4 whitespace-nowrap">₹{payment.amount.toFixed(2)}</td>
-                              <td className="px-6 py-4 whitespace-nowrap">{new Date(payment.dueDate).toLocaleDateString()}</td>
+                              <td className="px-6 py-4 whitespace-nowrap">{formatDateDDMMYYYY(payment.dueDate)}</td>
                               <td className="px-6 py-4 whitespace-nowrap">
                                 <span className={`px-2 py-1 rounded text-xs font-semibold ${
                                   payment.isOverdue ? 'bg-red-100 text-red-800' : 'bg-yellow-100 text-yellow-800'
@@ -680,7 +681,7 @@ export const ReportManagement: React.FC = () => {
                           {facultyAttendanceData.rows.map((row) => (
                             <tr key={row.sessionId} className="hover:bg-gray-50">
                               <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                {new Date(row.date).toLocaleDateString()}
+                                {formatDateDDMMYYYY(row.date)}
                               </td>
                               <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{row.batchTitle}</td>
                               <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{row.facultyName}</td>
@@ -865,7 +866,7 @@ export const ReportManagement: React.FC = () => {
                           {punchSummaryData.rows.map((row, idx) => (
                             <tr key={`${row.userName}-${row.date}-${idx}`} className="hover:bg-gray-50">
                               <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                {new Date(row.date).toLocaleDateString()}
+                                {formatDateDDMMYYYY(row.date)}
                               </td>
                               <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{row.userName}</td>
                               <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{row.role}</td>

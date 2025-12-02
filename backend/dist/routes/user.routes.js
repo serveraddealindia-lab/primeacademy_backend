@@ -54,5 +54,7 @@ router.get('/:id', auth_middleware_1.verifyTokenMiddleware, userController.getUs
 router.put('/:id', auth_middleware_1.verifyTokenMiddleware, userController.updateUser);
 // DELETE /api/users/:id - Delete user (Admin/SuperAdmin only)
 router.delete('/:id', auth_middleware_1.verifyTokenMiddleware, (0, auth_middleware_1.checkRole)(User_1.UserRole.ADMIN, User_1.UserRole.SUPERADMIN), userController.deleteUser);
+// GET /api/users/modules/list - Get list of available modules
+router.get('/modules/list', auth_middleware_1.verifyTokenMiddleware, userController.getModulesList);
 exports.default = router;
 //# sourceMappingURL=user.routes.js.map

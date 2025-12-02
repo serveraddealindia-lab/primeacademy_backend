@@ -5,7 +5,7 @@ export interface StudentProfileAttributes {
     userId: number;
     dob: Date | null;
     address: string | null;
-    documents: Record<string, any> | null;
+    documents: Record<string, unknown> | null;
     photoUrl: string | null;
     softwareList: string[] | null;
     enrollmentDate: Date | null;
@@ -20,7 +20,7 @@ declare class StudentProfile extends Model<StudentProfileAttributes, StudentProf
     userId: number;
     dob: Date | null;
     address: string | null;
-    documents: Record<string, any> | null;
+    documents: Record<string, unknown> | null;
     photoUrl: string | null;
     softwareList: string[] | null;
     enrollmentDate: Date | null;

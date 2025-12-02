@@ -1,0 +1,55 @@
+QUICK DIAGNOSTIC - Copy and paste these commands:
+
+===========================================
+STEP 1: Check Backend Logs (MOST IMPORTANT!)
+===========================================
+pm2 logs primeacademy-backend --lines 100
+
+(Look for error messages - this will tell you what's wrong!)
+
+===========================================
+STEP 2: Check if Backend File Exists
+===========================================
+ls -la /var/www/primeacademy/backend/dist/index.js
+
+(If missing, run: cd /var/www/primeacademy/backend && npm run build)
+
+===========================================
+STEP 3: Check What's Using Port 3000
+===========================================
+lsof -i :3000
+
+(If something else is using it, kill that process)
+
+===========================================
+STEP 4: Try Manual Start to See Errors
+===========================================
+cd /var/www/primeacademy/backend
+node dist/index.js
+
+(This will show errors directly - Press Ctrl+C to stop)
+
+===========================================
+STEP 5: If Database Error - Check Tables
+===========================================
+mysql -u primeacademy_user -p primeacademy_db -e "SHOW TABLES LIKE 'student_orientations';"
+mysql -u primeacademy_user -p primeacademy_db -e "SHOW COLUMNS FROM certificates LIKE '%declaration%';"
+
+(If these return empty, SQL script wasn't executed - run it again)
+
+===========================================
+STEP 6: Restart Backend Properly
+===========================================
+pm2 delete primeacademy-backend
+cd /var/www/primeacademy/backend
+pm2 start dist/index.js --name primeacademy-backend
+pm2 save
+pm2 logs primeacademy-backend --lines 50
+
+===========================================
+STEP 7: Test Again
+===========================================
+sleep 5
+curl http://localhost:3000/api/health
+
+

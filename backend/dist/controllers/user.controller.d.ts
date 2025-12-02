@@ -85,4 +85,5 @@ export declare const loginAsUser: (req: AuthRequest & {
         id: string;
     };
 }, res: Response) => Promise<void>;
+export declare const getModulesList: (req: AuthRequest, res: Response) => Promise<void>;
 //# sourceMappingURL=user.controller.d.ts.map

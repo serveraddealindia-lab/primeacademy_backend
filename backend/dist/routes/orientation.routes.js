@@ -36,10 +36,13 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
 const orientationController = __importStar(require("../controllers/orientation.controller"));
 const auth_middleware_1 = require("../middleware/auth.middleware");
+const User_1 = require("../models/User");
 const router = (0, express_1.Router)();
-// POST /orientation/acknowledge → acknowledge orientation (no auth required - students may not be logged in yet)
-router.post('/acknowledge', orientationController.acknowledgeOrientation);
-// GET /orientation/:id/status → get orientation status (auth required)
-router.get('/:id/status', auth_middleware_1.verifyTokenMiddleware, orientationController.getOrientationStatus);
+// All routes require authentication - allow all authenticated users (students, admins, etc.)
+// Students can view and accept their own orientation
+// Admins can view and manage any student's orientation
+router.get('/:studentId', (0, auth_middleware_1.requireAuth)([User_1.UserRole.STUDENT, User_1.UserRole.ADMIN, User_1.UserRole.SUPERADMIN]), orientationController.getStudentOrientation);
+router.post('/:studentId/accept', (0, auth_middleware_1.requireAuth)([User_1.UserRole.STUDENT, User_1.UserRole.ADMIN, User_1.UserRole.SUPERADMIN]), orientationController.acceptOrientation);
+router.get('/bulk/status', (0, auth_middleware_1.requireAuth)([User_1.UserRole.ADMIN, User_1.UserRole.SUPERADMIN]), orientationController.getBulkOrientationStatus);
 exports.default = router;
 //# sourceMappingURL=orientation.routes.js.map

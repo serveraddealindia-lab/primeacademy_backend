@@ -62,9 +62,17 @@ const upload = (0, multer_1.default)({
         }
     },
 });
-// POST /students/bulk-enroll → bulk enroll students from Excel (admin only)
+// POST /students/enroll → Create student user, profile, and enrollment in one call
+router.post('/enroll', auth_middleware_1.verifyTokenMiddleware, (0, auth_middleware_1.checkRole)(User_1.UserRole.ADMIN, User_1.UserRole.SUPERADMIN), studentController.completeEnrollment);
+// POST /students/create-dummy → Create a dummy student with all details (for testing)
+router.post('/create-dummy', auth_middleware_1.verifyTokenMiddleware, (0, auth_middleware_1.checkRole)(User_1.UserRole.ADMIN, User_1.UserRole.SUPERADMIN), studentController.createDummyStudent);
+// POST /students/bulk-enroll → Bulk enroll students from Excel (admin only)
 router.post('/bulk-enroll', auth_middleware_1.verifyTokenMiddleware, (0, auth_middleware_1.checkRole)(User_1.UserRole.ADMIN, User_1.UserRole.SUPERADMIN), upload.single('file'), studentController.bulkEnrollStudents);
-// GET /students/template → download enrollment template (admin only)
+// GET /students/template → Download enrollment template (admin only)
 router.get('/template', auth_middleware_1.verifyTokenMiddleware, (0, auth_middleware_1.checkRole)(User_1.UserRole.ADMIN, User_1.UserRole.SUPERADMIN), studentController.downloadEnrollmentTemplate);
+// POST /students/create-three-dummy → Create 3 dummy students with different scenarios
+router.post('/create-three-dummy', auth_middleware_1.verifyTokenMiddleware, (0, auth_middleware_1.checkRole)(User_1.UserRole.ADMIN, User_1.UserRole.SUPERADMIN), studentController.createThreeDummyStudents);
+// GET /students/all-software → Get all unique software from batches and profiles
+router.get('/all-software', auth_middleware_1.verifyTokenMiddleware, studentController.getAllSoftware);
 exports.default = router;
 //# sourceMappingURL=student.routes.js.map

@@ -3,7 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.approvePortfolio = exports.uploadPortfolio = void 0;
+exports.approvePortfolio = exports.uploadPortfolio = exports.getStudentPortfolio = exports.getAllPortfolios = void 0;
 const models_1 = __importDefault(require("../models"));
 const Portfolio_1 = require("../models/Portfolio");
 const User_1 = require("../models/User");
@@ -23,6 +23,179 @@ const isValidYoutubeUrl = (url) => {
     const youtubeRegex = /^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\/.+$/;
     return youtubeRegex.test(url);
 };
+// GET /portfolios - Get all portfolios (with filters)
+const getAllPortfolios = async (req, res) => {
+    try {
+        if (!req.user) {
+            res.status(401).json({
+                status: 'error',
+                message: 'Authentication required',
+            });
+            return;
+        }
+        const { studentId, batchId, status } = req.query;
+        const where = {};
+        if (studentId)
+            where.studentId = parseInt(studentId, 10);
+        if (batchId)
+            where.batchId = parseInt(batchId, 10);
+        if (status)
+            where.status = status;
+        // If faculty, only show portfolios for batches they're assigned to
+        if (req.user.role === User_1.UserRole.FACULTY) {
+            const facultyAssignments = await models_1.default.BatchFacultyAssignment.findAll({
+                where: { facultyId: req.user.userId },
+                attributes: ['batchId'],
+            });
+            const assignedBatchIds = facultyAssignments.map((a) => a.batchId);
+            if (assignedBatchIds.length === 0) {
+                res.status(200).json({
+                    status: 'success',
+                    data: {
+                        portfolios: [],
+                    },
+                });
+                return;
+            }
+            where.batchId = assignedBatchIds;
+        }
+        const portfolios = await models_1.default.Portfolio.findAll({
+            where,
+            include: [
+                {
+                    model: models_1.default.User,
+                    as: 'student',
+                    attributes: ['id', 'name', 'email'],
+                },
+                {
+                    model: models_1.default.Batch,
+                    as: 'batch',
+                    attributes: ['id', 'title', 'software'],
+                },
+                {
+                    model: models_1.default.User,
+                    as: 'approver',
+                    attributes: ['id', 'name', 'email'],
+                },
+            ],
+            order: [['createdAt', 'DESC']],
+        });
+        res.status(200).json({
+            status: 'success',
+            data: {
+                portfolios,
+            },
+        });
+    }
+    catch (error) {
+        logger_1.logger.error('Get all portfolios error:', error);
+        res.status(500).json({
+            status: 'error',
+            message: 'Internal server error while fetching portfolios',
+        });
+    }
+};
+exports.getAllPortfolios = getAllPortfolios;
+// GET /students/:id/portfolio - Get student portfolio
+const getStudentPortfolio = async (req, res) => {
+    try {
+        if (!req.user) {
+            res.status(401).json({
+                status: 'error',
+                message: 'Authentication required',
+            });
+            return;
+        }
+        const studentId = parseInt(req.params.id, 10);
+        if (isNaN(studentId)) {
+            res.status(400).json({
+                status: 'error',
+                message: 'Invalid student ID',
+            });
+            return;
+        }
+        // Check if user is the student, admin, or faculty assigned to student's batches
+        if (req.user.userId !== studentId && req.user.role !== User_1.UserRole.ADMIN && req.user.role !== User_1.UserRole.SUPERADMIN) {
+            if (req.user.role === User_1.UserRole.FACULTY) {
+                // Check if faculty is assigned to any batch that this student is enrolled in
+                const enrollments = await models_1.default.Enrollment.findAll({
+                    where: { studentId },
+                    include: [
+                        {
+                            model: models_1.default.Batch,
+                            as: 'batch',
+                            include: [
+                                {
+                                    model: models_1.default.BatchFacultyAssignment,
+                                    as: 'facultyAssignments',
+                                    where: { facultyId: req.user.userId },
+                                    required: true,
+                                },
+                            ],
+                        },
+                    ],
+                });
+                if (enrollments.length === 0) {
+                    res.status(403).json({
+                        status: 'error',
+                        message: 'You can only view portfolios for students in your assigned batches',
+                    });
+                    return;
+                }
+            }
+            else {
+                res.status(403).json({
+                    status: 'error',
+                    message: 'You can only view your own portfolio unless you are an admin or faculty',
+                });
+                return;
+            }
+        }
+        const portfolio = await models_1.default.Portfolio.findOne({
+            where: { studentId },
+            include: [
+                {
+                    model: models_1.default.User,
+                    as: 'student',
+                    attributes: ['id', 'name', 'email'],
+                },
+                {
+                    model: models_1.default.Batch,
+                    as: 'batch',
+                    attributes: ['id', 'title', 'software'],
+                },
+                {
+                    model: models_1.default.User,
+                    as: 'approver',
+                    attributes: ['id', 'name', 'email'],
+                },
+            ],
+            order: [['createdAt', 'DESC']],
+        });
+        if (!portfolio) {
+            res.status(404).json({
+                status: 'error',
+                message: 'Portfolio not found',
+            });
+            return;
+        }
+        res.status(200).json({
+            status: 'success',
+            data: {
+                portfolio,
+            },
+        });
+    }
+    catch (error) {
+        logger_1.logger.error('Get student portfolio error:', error);
+        res.status(500).json({
+            status: 'error',
+            message: 'Internal server error while fetching portfolio',
+        });
+    }
+};
+exports.getStudentPortfolio = getStudentPortfolio;
+// POST /students/:id/portfolio - Upload/Update portfolio
 const uploadPortfolio = async (req, res) => {
     try {
         if (!req.user) {
@@ -180,6 +353,7 @@ const uploadPortfolio = async (req, res) => {
     }
 };
 exports.uploadPortfolio = uploadPortfolio;
+// POST /portfolio/:id/approve - Approve/Reject portfolio
 const approvePortfolio = async (req, res) => {
     try {
         if (!req.user) {
@@ -198,18 +372,11 @@ const approvePortfolio = async (req, res) => {
             });
             return;
         }
-        // Check if user is admin or superadmin (Admin/SuperAdmin only)
-        if (req.user.role !== User_1.UserRole.ADMIN && req.user.role !== User_1.UserRole.SUPERADMIN) {
+        // Check if user is admin, superadmin, or faculty assigned to the batch
+        if (req.user.role !== User_1.UserRole.ADMIN && req.user.role !== User_1.UserRole.SUPERADMIN && req.user.role !== User_1.UserRole.FACULTY) {
             res.status(403).json({
                 status: 'error',
-                message: 'Only admins or superadmins can approve portfolios',
-            });
-            return;
-        }
-        if (typeof approve !== 'boolean') {
-            res.status(400).json({
-                status: 'error',
-                message: 'approve field is required and must be a boolean',
+                message: 'Only admins, superadmins, or faculty can approve portfolios',
             });
             return;
         }
@@ -219,6 +386,29 @@ const approvePortfolio = async (req, res) => {
             res.status(404).json({
                 status: 'error',
                 message: 'Portfolio not found',
+            });
+            return;
+        }
+        // If faculty, check if they're assigned to this batch
+        if (req.user.role === User_1.UserRole.FACULTY) {
+            const assignment = await models_1.default.BatchFacultyAssignment.findOne({
+                where: {
+                    batchId: portfolio.batchId,
+                    facultyId: req.user.userId,
+                },
+            });
+            if (!assignment) {
+                res.status(403).json({
+                    status: 'error',
+                    message: 'You can only approve portfolios for batches you are assigned to',
+                });
+                return;
+            }
+        }
+        if (typeof approve !== 'boolean') {
+            res.status(400).json({
+                status: 'error',
+                message: 'approve field is required and must be a boolean',
             });
             return;
         }

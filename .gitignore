@@ -1,36 +1,123 @@
-# dependencies
+# Dependencies
 node_modules/
-
-# production build
-dist/
-build/
-
-# environment files
-.env
-.env.local
-.env.*.local
-
-# logs
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+package-lock.json
+yarn.lock
 
-# misc
+# Environment variables
+.env
+.env.local
+.env.production
+.env.development
+.env.test
+*.env
+
+# Build outputs
+dist/
+build/
+*.tsbuildinfo
+.next/
+out/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
 .DS_Store
 
-# certificates directory (generated PDFs)
-backend/certificates/
+# OS
+Thumbs.db
+desktop.ini
+.directory
 
-# uploaded files
-backend/uploads/
-frontend/dist.zip
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
 
-# database dumps
+# Uploads and generated files (keep structure, ignore content)
+backend/uploads/**/*
+!backend/uploads/**/.gitkeep
+backend/uploads/.gitkeep
+backend/orientations/*.pdf
+backend/receipts/*.pdf
+backend/certificates/*.pdf
+
+# Build outputs (should not be in root repo)
+backend/dist/
+frontend/dist/
+
+# Database
 *.sql
-!backend/create_database_tables.sql
-!backend/fix_image_upload_columns.sql
-!backend/fix_image_upload_columns_simple.sql
-!backend/update_payment_transactions.sql
+*.db
+*.sqlite
+*.sqlite3
 
-# temporary files
-frontend/..prev_*
+# Temporary files
+tmp/
+temp/
+*.tmp
+.cache/
+
+# Testing
+coverage/
+.nyc_output/
+*.lcov
+
+# TypeScript
+*.tsbuildinfo
+
+# Optional npm cache directory
+.npm
+
+# Optional eslint cache
+.eslintcache
+
+# Optional REPL history
+.node_repl_history
+
+# Output of 'npm pack'
+*.tgz
+
+# Yarn Integrity file
+.yarn-integrity
+
+# parcel-bundler cache
+.parcel-cache
+
+# Next.js
+.next
+out
+
+# Nuxt.js
+.nuxt
+dist
+
+# Gatsby
+.cache/
+public
+
+# Storybook build outputs
+.out
+.storybook-out
+
+# Temporary folders
+tmp/
+temp/
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?

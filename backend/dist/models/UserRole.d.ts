@@ -16,6 +16,8 @@ declare class UserRole extends Model<UserRoleAttributes, UserRoleCreationAttribu
     roleId: number;
     readonly createdAt: Date;
     readonly updatedAt: Date;
+    role?: Role;
+    user?: User;
     getUser: BelongsToGetAssociationMixin<User>;
     getRole: BelongsToGetAssociationMixin<Role>;
     static associations: {

@@ -1,0 +1,52 @@
+QUICK STEPS - Set MySQL Password to Prime@89:
+
+===========================================
+STEP 1: Connect as Root
+===========================================
+mysql -u root -p
+
+(Enter root MySQL password)
+
+OR try:
+sudo mysql -u root
+
+===========================================
+STEP 2: Reset Password in MySQL
+===========================================
+Once connected, paste these commands:
+
+ALTER USER 'primeacademy_user'@'localhost' IDENTIFIED BY 'Prime@89';
+GRANT ALL PRIVILEGES ON primeacademy_db.* TO 'primeacademy_user'@'localhost';
+FLUSH PRIVILEGES;
+EXIT;
+
+===========================================
+STEP 3: Test Connection
+===========================================
+mysql -u primeacademy_user -p'Prime@89' primeacademy_db -e "SELECT 1;"
+
+(Should return: 1)
+
+===========================================
+STEP 4: Execute SQL Script
+===========================================
+# Find backend
+find / -type d -name "backend" 2>/dev/null | grep -i prime
+
+# Execute SQL
+mysql -u primeacademy_user -p'Prime@89' primeacademy_db < /tmp/fix_all.sql
+
+===========================================
+ONE-LINE COMMAND (if root works):
+===========================================
+mysql -u root -p << 'EOF'
+ALTER USER 'primeacademy_user'@'localhost' IDENTIFIED BY 'Prime@89';
+GRANT ALL PRIVILEGES ON primeacademy_db.* TO 'primeacademy_user'@'localhost';
+FLUSH PRIVILEGES;
+EXIT;
+EOF
+
+Then test:
+mysql -u primeacademy_user -p'Prime@89' primeacademy_db -e "SELECT 1;"
+
+

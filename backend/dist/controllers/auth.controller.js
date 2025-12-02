@@ -12,7 +12,6 @@ const logger_1 = require("../utils/logger");
 const register = async (req, res) => {
     try {
         const { name, email, phone, role, password } = req.body;
-        // Validation
         if (!name || !email || !role || !password) {
             res.status(400).json({
                 status: 'error',
@@ -20,15 +19,13 @@ const register = async (req, res) => {
             });
             return;
         }
-        // Validate role
         if (!Object.values(User_1.UserRole).includes(role)) {
             res.status(400).json({
                 status: 'error',
-                message: 'Invalid role. Allowed roles: ' + Object.values(User_1.UserRole).join(', '),
+                message: `Invalid role. Allowed roles: ${Object.values(User_1.UserRole).join(', ')}`,
             });
             return;
         }
-        // Validate password strength (minimum 6 characters)
         if (password.length < 6) {
             res.status(400).json({
                 status: 'error',
@@ -36,7 +33,6 @@ const register = async (req, res) => {
             });
             return;
         }
-        // Check if user already exists
         const existingUser = await models_1.default.User.findOne({ where: { email } });
         if (existingUser) {
             res.status(409).json({
@@ -45,10 +41,8 @@ const register = async (req, res) => {
             });
             return;
         }
-        // Hash password
         const saltRounds = 10;
         const passwordHash = await bcrypt_1.default.hash(password, saltRounds);
-        // Create user
         const user = await models_1.default.User.create({
             name,
             email,
@@ -57,13 +51,11 @@ const register = async (req, res) => {
             passwordHash,
             isActive: true,
         });
-        // Generate token
         const token = (0, jwt_1.generateToken)({
             userId: user.id,
             email: user.email,
             role: user.role,
         });
-        // Return user data (without password hash)
         res.status(201).json({
             status: 'success',
             message: 'User registered successfully',
@@ -94,7 +86,6 @@ exports.register = register;
 const login = async (req, res) => {
     try {
         const { email, password } = req.body;
-        // Validation
         if (!email || !password) {
             res.status(400).json({
                 status: 'error',
@@ -102,7 +93,6 @@ const login = async (req, res) => {
             });
             return;
         }
-        // Find user
         const user = await models_1.default.User.findOne({ where: { email } });
         if (!user) {
             res.status(401).json({
@@ -111,7 +101,6 @@ const login = async (req, res) => {
             });
             return;
         }
-        // Check if user is active
         if (!user.isActive) {
             res.status(401).json({
                 status: 'error',
@@ -119,7 +108,6 @@ const login = async (req, res) => {
             });
             return;
         }
-        // Verify password
         const isPasswordValid = await bcrypt_1.default.compare(password, user.passwordHash);
         if (!isPasswordValid) {
             res.status(401).json({
@@ -128,13 +116,11 @@ const login = async (req, res) => {
             });
             return;
         }
-        // Generate token
         const token = (0, jwt_1.generateToken)({
             userId: user.id,
             email: user.email,
             role: user.role,
         });
-        // Return user data (without password hash)
         res.status(200).json({
             status: 'success',
             message: 'Login successful',
@@ -216,7 +202,6 @@ const impersonateUser = async (req, res) => {
             });
             return;
         }
-        // Only superadmin can impersonate
         if (req.user.role !== User_1.UserRole.SUPERADMIN) {
             res.status(403).json({
                 status: 'error',
@@ -232,7 +217,6 @@ const impersonateUser = async (req, res) => {
             });
             return;
         }
-        // Prevent impersonating another superadmin
         const targetUser = await models_1.default.User.findByPk(targetUserId);
         if (!targetUser) {
             res.status(404).json({
@@ -248,7 +232,6 @@ const impersonateUser = async (req, res) => {
             });
             return;
         }
-        // Check if user is active
         if (!targetUser.isActive) {
             res.status(400).json({
                 status: 'error',
@@ -256,7 +239,6 @@ const impersonateUser = async (req, res) => {
             });
             return;
         }
-        // Get original user data
         const originalUserData = await models_1.default.User.findByPk(req.user.userId, {
             attributes: { exclude: ['passwordHash'] },
         });
@@ -267,19 +249,16 @@ const impersonateUser = async (req, res) => {
             });
             return;
         }
-        // Generate token for target user
         const token = (0, jwt_1.generateToken)({
             userId: targetUser.id,
             email: targetUser.email,
             role: targetUser.role,
         });
-        // Generate token for original user (to restore later)
         const originalToken = (0, jwt_1.generateToken)({
             userId: originalUserData.id,
             email: originalUserData.email,
             role: originalUserData.role,
         });
-        // Return token and user data
         res.status(200).json({
             status: 'success',
             message: 'Impersonation successful',
@@ -304,7 +283,7 @@ const impersonateUser = async (req, res) => {
                     avatarUrl: originalUserData.avatarUrl,
                     isActive: originalUserData.isActive,
                 },
-                originalToken, // Include original token for restoration
+                originalToken,
             },
         });
     }

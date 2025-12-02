@@ -3,8 +3,9 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { Layout } from '../components/Layout';
 import { batchAPI, Batch } from '../api/batch.api';
+import { formatDateDDMMYYYY } from '../utils/dateUtils';
 
-const DAYS_OF_WEEK = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+// const DAYS_OF_WEEK = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
 export const BatchDetails: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -30,8 +31,8 @@ export const BatchDetails: React.FC = () => {
       ['Batch', 'Software', batch.software || '-'],
       ['Batch', 'Mode', batch.mode],
       ['Batch', 'Status', batch.status || '-'],
-      ['Batch', 'Start Date', new Date(batch.startDate).toLocaleDateString()],
-      ['Batch', 'End Date', new Date(batch.endDate).toLocaleDateString()],
+      ['Batch', 'Start Date', formatDateDDMMYYYY(batch.startDate)],
+      ['Batch', 'End Date', formatDateDDMMYYYY(batch.endDate)],
       ['Batch', 'Max Capacity', batch.maxCapacity?.toString() || '-'],
     ];
 
@@ -159,11 +160,11 @@ export const BatchDetails: React.FC = () => {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm text-gray-700">
                   <div>
                     <p className="text-xs uppercase text-gray-500">Start Date</p>
-                    <p className="font-medium">{new Date(batch.startDate).toLocaleDateString()}</p>
+                    <p className="font-medium">{formatDateDDMMYYYY(batch.startDate)}</p>
                   </div>
                   <div>
                     <p className="text-xs uppercase text-gray-500">End Date</p>
-                    <p className="font-medium">{new Date(batch.endDate).toLocaleDateString()}</p>
+                    <p className="font-medium">{formatDateDDMMYYYY(batch.endDate)}</p>
                   </div>
                   <div>
                     <p className="text-xs uppercase text-gray-500">Software</p>

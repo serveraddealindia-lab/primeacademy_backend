@@ -6,6 +6,7 @@ import { Layout } from '../components/Layout';
 import { facultyAPI, FacultyUser } from '../api/faculty.api';
 import { userAPI } from '../api/user.api';
 import { uploadAPI } from '../api/upload.api';
+import { getImageUrl } from '../utils/imageUtils';
 
 export const FacultyManagement: React.FC = () => {
   const { user } = useAuth();
@@ -40,7 +41,7 @@ export const FacultyManagement: React.FC = () => {
   const updateUserImageMutation = useMutation({
     mutationFn: ({ userId, avatarUrl }: { userId: number; avatarUrl: string }) =>
       userAPI.updateUser(userId, { avatarUrl }),
-    onSuccess: (data, variables) => {
+    onSuccess: (_data, variables) => {
       // Invalidate and refetch faculty list
       queryClient.invalidateQueries({ queryKey: ['faculty'] });
       queryClient.invalidateQueries({ queryKey: ['users'] });
@@ -155,18 +156,18 @@ export const FacultyManagement: React.FC = () => {
 
   return (
     <Layout>
-      <div className="max-w-7xl mx-auto">
+      <div className="max-w-7xl mx-auto p-4 md:p-6">
         <div className="bg-white shadow-xl rounded-lg overflow-hidden">
-          <div className="bg-gradient-to-r from-orange-600 to-orange-500 px-8 py-6">
-            <div className="flex justify-between items-center">
+          <div className="bg-gradient-to-r from-orange-600 to-orange-500 px-4 md:px-8 py-4 md:py-6">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
               <div>
-                <h1 className="text-3xl font-bold text-white">Faculty Management</h1>
-                <p className="mt-2 text-orange-100">Manage faculty members</p>
+                <h1 className="text-2xl md:text-3xl font-bold text-white">Faculty Management</h1>
+                <p className="mt-2 text-sm md:text-base text-orange-100">Manage faculty members</p>
               </div>
               {(user?.role === 'admin' || user?.role === 'superadmin') && (
                 <button
                   onClick={() => window.location.href = '/faculty/register'}
-                  className="px-4 py-2 bg-white text-orange-600 rounded-lg font-semibold hover:bg-orange-50 transition-colors"
+                  className="px-4 py-2 bg-white text-orange-600 rounded-lg font-semibold hover:bg-orange-50 transition-colors text-sm md:text-base whitespace-nowrap"
                 >
                   + New Faculty Registration
                 </button>
@@ -174,7 +175,7 @@ export const FacultyManagement: React.FC = () => {
             </div>
           </div>
 
-          <div className="p-6">
+          <div className="p-4 md:p-6">
             {faculty.length === 0 ? (
               <div className="text-center py-12">
                 <p className="text-gray-500 text-lg">No faculty members found</p>
@@ -188,12 +189,13 @@ export const FacultyManagement: React.FC = () => {
                         <div className="flex-shrink-0">
                           {facultyMember.avatarUrl ? (
                             <img
-                              src={`${facultyMember.avatarUrl}?t=${Date.now()}`}
+                              src={getImageUrl(facultyMember.avatarUrl) || ''}
                               alt={facultyMember.name}
                               className="h-16 w-16 rounded-full object-cover border-2 border-orange-200"
+                              crossOrigin="anonymous"
                               key={facultyMember.avatarUrl}
                               onError={(e) => {
-                                (e.target as HTMLImageElement).src = 'https://ui-avatars.com/api/?name=' + encodeURIComponent(facultyMember.name) + '&background=orange&color=fff';
+                                (e.target as HTMLImageElement).src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjQiIGhlaWdodD0iNjQiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHJlY3Qgd2lkdGg9IjEwMCUiIGhlaWdodD0iMTAwJSIgZmlsbD0iI2ZmOTUwMCIvPjx0ZXh0IHg9IjUwJSIgeT0iNTAlIiBmb250LWZhbWlseT0iQXJpYWwsIHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMjQiIGZpbGw9IiNmZmYiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGR5PSIuM2VtIj57e2ZhY3VsdHlNZW1iZXIubmFtZS5jaGFyQXQoMCl9fTwvdGV4dD48L3N2Zz4=';
                               }}
                             />
                           ) : (
@@ -276,7 +278,7 @@ export const FacultyManagement: React.FC = () => {
       {/* Delete Confirmation Modal */}
       {isDeleteModalOpen && selectedFaculty && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+          <div className="bg-white rounded-lg p-4 md:p-6 max-w-md w-full mx-4 max-h-[90vh] overflow-y-auto">
             <h2 className="text-2xl font-bold mb-4 text-red-600">Delete Faculty</h2>
             <p className="mb-4 text-gray-700">
               Are you sure you want to delete <strong>{selectedFaculty.name}</strong>? This action cannot be undone.
@@ -306,7 +308,7 @@ export const FacultyManagement: React.FC = () => {
       {/* Image Upload Modal */}
       {isImageModalOpen && selectedFaculty && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+          <div className="bg-white rounded-lg p-4 md:p-6 max-w-md w-full mx-4 max-h-[90vh] overflow-y-auto">
             <h2 className="text-2xl font-bold mb-4">Update Faculty Photo</h2>
             <div className="mb-4">
               <p className="text-sm text-gray-600 mb-2">
@@ -322,10 +324,14 @@ export const FacultyManagement: React.FC = () => {
                   />
                 ) : selectedFaculty?.avatarUrl ? (
                   <img
-                    src={`${selectedFaculty.avatarUrl}?t=${Date.now()}`}
+                    src={getImageUrl(selectedFaculty.avatarUrl) || ''}
                     alt="Current"
                     className="h-32 w-32 rounded-full object-cover border-4 border-orange-500"
+                    crossOrigin="anonymous"
                     key={selectedFaculty.avatarUrl}
+                    onError={(e) => {
+                      (e.target as HTMLImageElement).src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTI4IiBoZWlnaHQ9IjEyOCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZmY5NTAwIi8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtZmFtaWx5PSJBcmlhbCwgc2Fucy1zZXJpZiIgZm9udC1zaXplPSI0OCIgZmlsbD0iI2ZmZiIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZHk9Ii4zZW0iPnt7c2VsZWN0ZWRGYWN1bHR5Lm5hbWUuY2hhckF0KDApfX08L3RleHQ+PC9zdmc+';
+                    }}
                   />
                 ) : (
                   <div className="h-32 w-32 rounded-full bg-gray-200 flex items-center justify-center">

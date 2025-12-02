@@ -38,11 +38,9 @@ const employeeController = __importStar(require("../controllers/employee.control
 const auth_middleware_1 = require("../middleware/auth.middleware");
 const User_1 = require("../models/User");
 const router = (0, express_1.Router)();
-// POST /employees → create employee profile (admin/superadmin only)
+// GET /api/employees/:userId - Get employee profile
+router.get('/:userId', auth_middleware_1.verifyTokenMiddleware, employeeController.getEmployeeProfile);
+// POST /api/employees - Create employee profile (Admin/SuperAdmin only)
 router.post('/', auth_middleware_1.verifyTokenMiddleware, (0, auth_middleware_1.checkRole)(User_1.UserRole.ADMIN, User_1.UserRole.SUPERADMIN), employeeController.createEmployeeProfile);
-// GET /employees/:id → get employee profile
-router.get('/:id', auth_middleware_1.verifyTokenMiddleware, employeeController.getEmployeeProfile);
-// PUT /employees/:id → update employee profile
-router.put('/:id', auth_middleware_1.verifyTokenMiddleware, (0, auth_middleware_1.checkRole)(User_1.UserRole.ADMIN, User_1.UserRole.SUPERADMIN), employeeController.updateEmployeeProfile);
 exports.default = router;
 //# sourceMappingURL=employee.routes.js.map

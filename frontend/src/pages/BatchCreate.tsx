@@ -138,6 +138,19 @@ export const BatchCreate: React.FC = () => {
       return;
     }
 
+    // Get at least one faculty ID for the temporary batch
+    let tempFacultyIds: number[] = [];
+    if (selectedFaculty.length > 0) {
+      // Use selected faculty if available
+      tempFacultyIds = selectedFaculty;
+    } else if (facultyData?.data?.faculty && facultyData.data.faculty.length > 0) {
+      // Use the first available faculty
+      tempFacultyIds = [facultyData.data.faculty[0].id];
+    } else {
+      alert('Please select at least one faculty member first, or ensure faculty data is loaded');
+      return;
+    }
+
     // Create a temporary batch to get suggestions
     try {
       const tempData: CreateBatchRequest = {
@@ -147,6 +160,7 @@ export const BatchCreate: React.FC = () => {
         startDate,
         endDate: formData.get('endDate') as string || startDate,
         maxCapacity: 100,
+        facultyIds: tempFacultyIds,
       };
       
       const tempBatch = await batchAPI.createBatch(tempData);
@@ -228,7 +242,7 @@ export const BatchCreate: React.FC = () => {
             </div>
           </div>
 
-          <div className="p-8">
+          <div className="p-8 max-h-[calc(100vh-12rem)] overflow-y-auto">
             <form onSubmit={handleCreateBatch} className="space-y-6">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="md:col-span-2">

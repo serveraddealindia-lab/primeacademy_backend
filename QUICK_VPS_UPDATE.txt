@@ -1,0 +1,29 @@
+QUICK VPS UPDATE GUIDE
+======================
+
+STEP 1: Push to GitHub (Local)
+-------------------------------
+cd frontend
+git add src/pages/StudentManagement.tsx
+git commit -m "Fix student view display"
+git push origin main
+
+STEP 2: Update VPS (SSH)
+-------------------------
+ssh root@your-vps-ip
+
+cd /var/www/primeacademy_frontend
+git pull origin main
+npm install
+npm run build
+pm2 restart primeacademy-frontend
+
+STEP 3: Verify
+--------------
+- Open website
+- Go to Student Management
+- Click "View" on any student
+- Check: dates, emergency contact, payment plan, total count
+
+DONE! ✅
+

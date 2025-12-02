@@ -48,8 +48,8 @@ router.post('/', auth_middleware_1.verifyTokenMiddleware, (0, auth_middleware_1.
 // IMPORTANT: More specific routes must come before generic :id routes
 // GET /batches/:id/candidates/suggest → suggest eligible students
 router.get('/:id/candidates/suggest', auth_middleware_1.verifyTokenMiddleware, batchController.suggestCandidates);
-// GET /batches/:id/enrollments → get batch enrollments
-router.get('/:id/enrollments', auth_middleware_1.verifyTokenMiddleware, batchController.getBatchEnrollments);
+// GET /batches/:id/enrollments → get batch enrollments (faculty can view enrollments for their assigned batches)
+router.get('/:id/enrollments', auth_middleware_1.verifyTokenMiddleware, (0, auth_middleware_1.checkRole)(User_1.UserRole.ADMIN, User_1.UserRole.SUPERADMIN, User_1.UserRole.FACULTY), batchController.getBatchEnrollments);
 // PUT /batches/:id/faculty → assign faculty to batch
 router.put('/:id/faculty', auth_middleware_1.verifyTokenMiddleware, (0, auth_middleware_1.checkRole)(User_1.UserRole.ADMIN, User_1.UserRole.SUPERADMIN), batchController.assignFacultyToBatch);
 // Generic routes for single batch operations (must come after specific routes)

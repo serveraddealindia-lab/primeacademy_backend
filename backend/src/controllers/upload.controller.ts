@@ -3,12 +3,10 @@ import multer from 'multer';
 import path from 'path';
 import { existsSync, mkdirSync } from 'fs';
 import { randomUUID } from 'crypto';
-import { fileURLToPath } from 'url';
 import { AuthRequest } from '../middleware/auth.middleware';
 import { logger } from '../utils/logger';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+// __dirname is available in CommonJS
 
 const uploadsRoot = path.join(__dirname, '../../uploads');
 const generalUploadDir = process.env.UPLOAD_DIR
@@ -99,7 +97,14 @@ export const uploadFiles = async (
       const relativePath = path.relative(uploadsRoot, file.path);
       // Convert to URL-friendly path (forward slashes)
       const urlPath = relativePath.replace(/\\/g, '/');
+      // Use relative URL that will work with the static middleware
       const url = `/uploads/${urlPath}`;
+      
+      logger.info(`File uploaded: ${file.originalname}`);
+      logger.info(`File saved to: ${file.path}`);
+      logger.info(`Relative path: ${relativePath}`);
+      logger.info(`URL path: ${urlPath}`);
+      logger.info(`Final URL: ${url}`);
       
       return {
         originalName: file.originalname,
@@ -107,6 +112,7 @@ export const uploadFiles = async (
         size: file.size,
         mimetype: file.mimetype,
         url: url,
+        path: file.path, // For debugging
       };
     });
 

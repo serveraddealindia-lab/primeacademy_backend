@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { Layout } from '../components/Layout';
 import { attendanceAPI, PunchInRequest, PunchOutRequest } from '../api/attendance.api';
 import { sessionAPI, FacultyBatch, StudentAttendanceEntry, AttendanceOption, SessionSummary } from '../api/session.api';
+import { formatDateDDMMYYYY } from '../utils/dateUtils';
 
 type AttendanceState = Record<number, AttendanceOption>;
 const ATTENDANCE_OPTIONS: AttendanceOption[] = ['present', 'absent', 'late'];
@@ -856,7 +857,7 @@ export const UnifiedAttendance: React.FC = () => {
                               <div className="flex justify-between items-start mb-3">
                                 <div>
                                   <p className="font-semibold text-gray-900">
-                                    {new Date(session.date).toLocaleDateString()}
+                                    {formatDateDDMMYYYY(session.date)}
                                   </p>
                                   <p className="text-sm text-gray-600">
                                     {session.topic && `Topic: ${session.topic}`}
@@ -1173,7 +1174,7 @@ export const UnifiedAttendance: React.FC = () => {
                 {/* Break Reason Modal */}
                 {showBreakReasonModal && (
                   <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-                    <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+                    <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4 max-h-[90vh] overflow-y-auto">
                       <h3 className="text-xl font-bold mb-4">Start Break</h3>
                       <div className="mb-4">
                         <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -1290,7 +1291,7 @@ export const UnifiedAttendance: React.FC = () => {
                           return (
                             <tr key={punch.id} className="hover:bg-gray-50">
                               <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                {new Date(punch.date).toLocaleDateString()}
+                                {formatDateDDMMYYYY(punch.date)}
                               </td>
                               <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                                 {punch.punchInAt ? new Date(punch.punchInAt).toLocaleTimeString() : '-'}

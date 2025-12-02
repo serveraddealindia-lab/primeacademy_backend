@@ -1,12 +1,10 @@
 import { SequelizeStorage, Umzug } from 'umzug';
 import path from 'path';
 import fs from 'fs';
-import { fileURLToPath } from 'url';
 import sequelize from '../config/database';
 import { logger } from './logger';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+// __dirname is available in CommonJS
 
 const resolveMigrationsPath = (): { path: string; usesTsFiles: boolean } => {
   const distPath = path.join(__dirname, '../migrations');

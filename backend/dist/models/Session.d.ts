@@ -1,6 +1,7 @@
 import { Model, Optional, BelongsToGetAssociationMixin, HasManyGetAssociationsMixin, Association } from 'sequelize';
 import Batch from './Batch';
 import User from './User';
+import Attendance from './Attendance';
 export declare enum SessionStatus {
     SCHEDULED = "scheduled",
     ONGOING = "ongoing",
@@ -39,11 +40,11 @@ declare class Session extends Model<SessionAttributes, SessionCreationAttributes
     readonly updatedAt: Date;
     getBatch: BelongsToGetAssociationMixin<Batch>;
     getFaculty: BelongsToGetAssociationMixin<User>;
-    getAttendances: HasManyGetAssociationsMixin<any>;
+    getAttendances: HasManyGetAssociationsMixin<Attendance>;
     static associations: {
         batch: Association<Session, Batch>;
         faculty: Association<Session, User>;
-        attendances: Association<Session, any>;
+        attendances: Association<Session, Attendance>;
     };
 }
 export default Session;

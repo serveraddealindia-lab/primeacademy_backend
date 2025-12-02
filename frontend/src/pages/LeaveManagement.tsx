@@ -7,6 +7,7 @@ import { employeeLeaveAPI, CreateEmployeeLeaveRequest } from '../api/employeeLea
 import { facultyLeaveAPI, CreateFacultyLeaveRequest } from '../api/facultyLeave.api';
 import { batchAPI } from '../api/batch.api';
 import { userAPI } from '../api/user.api';
+import { formatDateDDMMYYYY } from '../utils/dateUtils';
 
 type LeaveType = 'student' | 'employee' | 'faculty';
 
@@ -239,12 +240,12 @@ export const LeaveManagement: React.FC = () => {
 
   return (
     <Layout>
-      <div className="max-w-7xl mx-auto">
+      <div className="max-w-7xl mx-auto p-4 md:p-6">
         <div className="bg-white shadow-xl rounded-lg overflow-hidden">
-          <div className="bg-gradient-to-r from-orange-600 to-orange-500 px-8 py-6">
-            <div className="flex justify-between items-center">
+          <div className="bg-gradient-to-r from-orange-600 to-orange-500 px-4 md:px-8 py-4 md:py-6">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
               <div>
-                <h1 className="text-3xl font-bold text-white">Leave Management</h1>
+                <h1 className="text-2xl md:text-3xl font-bold text-white">Leave Management</h1>
                 <p className="mt-2 text-orange-100">Manage leave requests for all users</p>
               </div>
               {canCreateLeave() && (
@@ -396,10 +397,10 @@ export const LeaveManagement: React.FC = () => {
                           </td>
                         )}
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                          {new Date(leave.startDate).toLocaleDateString()}
+                          {formatDateDDMMYYYY(leave.startDate)}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                          {new Date(leave.endDate).toLocaleDateString()}
+                          {formatDateDDMMYYYY(leave.endDate)}
                         </td>
                         <td className="px-6 py-4 text-sm text-gray-500">
                           {leave.reason || '-'}
@@ -432,7 +433,7 @@ export const LeaveManagement: React.FC = () => {
                         {canApproveLeave() && leave.status !== LeaveStatus.PENDING && (
                           <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                             {leave.approver?.name && `By ${leave.approver.name}`}
-                            {leave.approvedAt && ` on ${new Date(leave.approvedAt).toLocaleDateString()}`}
+                            {leave.approvedAt && ` on ${formatDateDDMMYYYY(leave.approvedAt)}`}
                           </td>
                         )}
                       </tr>
@@ -448,7 +449,7 @@ export const LeaveManagement: React.FC = () => {
       {/* Create Leave Modal */}
       {isCreateModalOpen && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4 max-h-[90vh] overflow-y-auto">
+          <div className="bg-white rounded-lg p-4 md:p-6 max-w-md w-full mx-4 max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-2xl font-bold">Request Leave</h2>
               <button
@@ -588,7 +589,7 @@ export const LeaveManagement: React.FC = () => {
       {/* Approve/Reject Modal */}
       {isApproveModalOpen && selectedLeave && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+          <div className="bg-white rounded-lg p-4 md:p-6 max-w-md w-full mx-4 max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-2xl font-bold">
                 {selectedLeave.status === LeaveStatus.PENDING ? 'Approve/Reject Leave' : 'Leave Details'}

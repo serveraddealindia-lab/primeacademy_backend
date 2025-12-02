@@ -38,7 +38,6 @@ const authController = __importStar(require("../controllers/auth.controller"));
 const auth_middleware_1 = require("../middleware/auth.middleware");
 const logger_1 = require("../utils/logger");
 const router = (0, express_1.Router)();
-// Log route registration (development only)
 if (process.env.NODE_ENV === 'development') {
     logger_1.logger.info('Registering auth routes...');
 }
@@ -46,7 +45,6 @@ router.post('/register', authController.register);
 router.post('/login', authController.login);
 router.get('/me', auth_middleware_1.verifyTokenMiddleware, authController.getMe);
 router.post('/impersonate/:userId', auth_middleware_1.verifyTokenMiddleware, authController.impersonateUser);
-// Log impersonate route registration
 if (process.env.NODE_ENV === 'development') {
     logger_1.logger.info('Impersonate route registered: POST /impersonate/:userId');
 }

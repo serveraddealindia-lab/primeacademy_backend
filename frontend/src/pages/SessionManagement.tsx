@@ -6,6 +6,7 @@ import { sessionAPI, Session, CreateSessionRequest } from '../api/session.api';
 import { batchAPI } from '../api/batch.api';
 import { facultyAPI } from '../api/faculty.api';
 import { attendanceAPI } from '../api/attendance.api';
+import { formatDateDDMMYYYY } from '../utils/dateUtils';
 
 export const SessionManagement: React.FC = () => {
   const { user } = useAuth();
@@ -262,7 +263,7 @@ export const SessionManagement: React.FC = () => {
                     {sessions.map((session) => (
                       <tr key={session.id} className="hover:bg-gray-50">
                         <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="text-sm text-gray-900">{new Date(session.date).toLocaleDateString()}</div>
+                          <div className="text-sm text-gray-900">{formatDateDDMMYYYY(session.date)}</div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
                           <div className="text-sm text-gray-500">{session.startTime} - {session.endTime}</div>
@@ -451,7 +452,7 @@ export const SessionManagement: React.FC = () => {
               <div>
                 <h2 className="text-2xl font-bold">Session Attendance</h2>
                 <p className="text-sm text-gray-600 mt-1">
-                  {selectedSession.batch?.title} - {new Date(selectedSession.date).toLocaleDateString()}
+                  {selectedSession.batch?.title} - {formatDateDDMMYYYY(selectedSession.date)}
                 </p>
               </div>
               <button

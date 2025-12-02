@@ -38,13 +38,11 @@ const paymentController = __importStar(require("../controllers/payment.controlle
 const auth_middleware_1 = require("../middleware/auth.middleware");
 const User_1 = require("../models/User");
 const router = (0, express_1.Router)();
-// GET /payments → list all payments (admin only)
-router.get('/', auth_middleware_1.verifyTokenMiddleware, (0, auth_middleware_1.checkRole)(User_1.UserRole.ADMIN, User_1.UserRole.SUPERADMIN), paymentController.getAllPayments);
-// POST /payments → create payment transaction (admin only)
-router.post('/', auth_middleware_1.verifyTokenMiddleware, (0, auth_middleware_1.checkRole)(User_1.UserRole.ADMIN, User_1.UserRole.SUPERADMIN), paymentController.createPayment);
-// POST /payments/:id/pay → record payment/receipt (admin only)
-router.post('/:id/pay', auth_middleware_1.verifyTokenMiddleware, (0, auth_middleware_1.checkRole)(User_1.UserRole.ADMIN, User_1.UserRole.SUPERADMIN), paymentController.recordPayment);
-// GET /payments/students/:id/payments → list all payments for a student
-router.get('/students/:id/payments', auth_middleware_1.verifyTokenMiddleware, paymentController.getStudentPayments);
+const adminOnly = (0, auth_middleware_1.requireAuth)([User_1.UserRole.ADMIN, User_1.UserRole.SUPERADMIN]);
+router.get('/', adminOnly, paymentController.getPayments);
+router.get('/:paymentId', adminOnly, paymentController.getPaymentById);
+router.get('/:paymentId/receipt', adminOnly, paymentController.downloadReceipt);
+router.post('/', adminOnly, paymentController.createPayment);
+router.put('/:paymentId', adminOnly, paymentController.updatePayment);
 exports.default = router;
 //# sourceMappingURL=payment.routes.js.map

@@ -11,6 +11,10 @@ router.get('/students/:studentId/details', requireSuperAdmin, attendanceReportCo
 router.get('/faculty', requireSuperAdmin, attendanceReportController.getFacultyAttendanceReport);
 router.get('/students', requireSuperAdmin, attendanceReportController.getStudentAttendanceReport);
 router.get('/punches', requireSuperAdmin, attendanceReportController.getPunchSummaryReport);
+router.get('/students-without-batch', requireSuperAdmin, attendanceReportController.getStudentsWithoutBatch);
+router.get('/students-enrolled-batch-not-started', requireSuperAdmin, attendanceReportController.getStudentsEnrolledBatchNotStarted);
+router.get('/students-multiple-courses-conflict', requireSuperAdmin, attendanceReportController.getStudentsMultipleCoursesConflict);
+router.get('/students-on-leave-pending-batches', requireSuperAdmin, attendanceReportController.getStudentsOnLeavePendingBatches);
 
 export default router;
 
