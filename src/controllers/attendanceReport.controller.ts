@@ -393,6 +393,21 @@ export const getStudentDetails = async (req: AuthRequest, res: Response): Promis
 
     const studentJson = student.toJSON() as any;
 
+    // Log for debugging
+    logger.info(`Student details for ID ${studentId}:`, {
+      hasProfile: !!studentJson.studentProfile,
+      dob: studentJson.studentProfile?.dob,
+      hasDocuments: !!studentJson.studentProfile?.documents,
+      documentsType: typeof studentJson.studentProfile?.documents,
+      documentsKeys: studentJson.studentProfile?.documents && typeof studentJson.studentProfile?.documents === 'object' 
+        ? Object.keys(studentJson.studentProfile?.documents) 
+        : 'N/A',
+      enrollmentMetadata: (studentJson.studentProfile?.documents as any)?.enrollmentMetadata 
+        ? Object.keys((studentJson.studentProfile?.documents as any).enrollmentMetadata)
+        : 'N/A',
+      emergencyContact: (studentJson.studentProfile?.documents as any)?.enrollmentMetadata?.emergencyContact,
+    });
+
     res.status(200).json({
       status: 'success',
       data: {

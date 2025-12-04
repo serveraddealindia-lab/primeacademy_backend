@@ -359,7 +359,7 @@ export const createCertificate = async (req: AuthRequest, res: Response): Promis
       monthOfCompletion,
       certificateNumber: finalCertificateNumber,
       pdfUrl,
-      issuedBy: req.user.userId,
+      issuedBy: req.user.userId || req.user.id,
       issuedAt: new Date(),
       studentDeclarationAccepted: studentDeclarationAccepted === true,
       studentDeclarationDate: studentDeclarationAccepted === true ? new Date() : undefined,
@@ -368,8 +368,8 @@ export const createCertificate = async (req: AuthRequest, res: Response): Promis
     // Fetch with associations
     const certificateWithDetails = await db.Certificate.findByPk(certificate.id, {
       include: [
-        { model: db.User, as: 'student', attributes: ['id', 'name', 'email'] },
-        { model: db.User, as: 'issuer', attributes: ['id', 'name', 'email'] },
+        { model: db.User, as: 'student', attributes: ['id', 'name', 'email'], required: false },
+        { model: db.User, as: 'issuer', attributes: ['id', 'name', 'email'], required: false },
       ],
     });
 
