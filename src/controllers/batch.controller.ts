@@ -309,7 +309,7 @@ export const suggestCandidates = async (req: AuthRequest, res: Response): Promis
           model: db.StudentProfile,
           as: 'studentProfile',
           required: false, // Changed to false to include students without profiles
-          attributes: ['id', 'softwareList'],
+          attributes: ['id', 'softwareList', 'pendingBatches', 'currentBatches', 'finishedBatches'],
         },
       ],
       attributes: ['id', 'name', 'email', 'phone'],
@@ -323,13 +323,57 @@ export const suggestCandidates = async (req: AuthRequest, res: Response): Promis
       logger.info(`Sample student: id=${sampleStudent.id}, name=${sampleStudent.name}, hasProfile=${!!sampleStudent.studentProfile}, softwareList=${JSON.stringify(sampleStudent.studentProfile?.softwareList)}`);
     }
 
-    // Filter students who have selected at least one matching software
+    // Filter students who have matching software in their PENDING batches
+    // Only suggest students from pending batches (not finished or current)
     const studentsWithMatchingSoftware = allStudents.filter((student) => {
-      let softwareList = student.studentProfile?.softwareList;
+      const profile = student.studentProfile;
       
-      // Log for debugging
+      // Check pending batches first (primary filter)
+      let pendingBatchesList = profile?.pendingBatches;
+      
+      // Handle case where pendingBatches might be a JSON string
+      if (pendingBatchesList && typeof pendingBatchesList === 'string') {
+        try {
+          pendingBatchesList = JSON.parse(pendingBatchesList);
+        } catch (e) {
+          logger.warn(`Student ${student.id} (${student.name}): Failed to parse pendingBatches as JSON`);
+          pendingBatchesList = null;
+        }
+      }
+      
+      // If student has pending batches, check if any match
+      if (pendingBatchesList && Array.isArray(pendingBatchesList) && pendingBatchesList.length > 0) {
+        const normalizedPendingBatches = pendingBatchesList
+          .map((s: any) => String(s).trim().toLowerCase())
+          .filter((s: string) => s.length > 0);
+
+        const matches = batchSoftwareList.some((batchSoftware: string) =>
+          normalizedPendingBatches.some((pendingSoftware: string) => {
+            // Exact match
+            if (pendingSoftware === batchSoftware) {
+              logger.info(`✓ Pending batch match: Student ${student.id} (${student.name}) has "${pendingSoftware}" in pending batches matching "${batchSoftware}"`);
+              return true;
+            }
+            // Partial match
+            if (pendingSoftware.includes(batchSoftware) || batchSoftware.includes(pendingSoftware)) {
+              logger.info(`✓ Pending batch partial match: Student ${student.id} (${student.name}) has "${pendingSoftware}" in pending batches matching "${batchSoftware}"`);
+              return true;
+            }
+            return false;
+          })
+        );
+        
+        if (matches) {
+          return true; // Found match in pending batches
+        }
+      }
+      
+      // Fallback: If no pending batches, check softwareList (for backward compatibility)
+      // But log a warning that this student should have pending batches
+      let softwareList = profile?.softwareList;
+      
       if (!softwareList) {
-        logger.debug(`Student ${student.id} (${student.name}): No softwareList in profile`);
+        logger.debug(`Student ${student.id} (${student.name}): No softwareList or pendingBatches in profile`);
         return false;
       }
       
@@ -344,7 +388,7 @@ export const suggestCandidates = async (req: AuthRequest, res: Response): Promis
       }
       
       if (!Array.isArray(softwareList)) {
-        logger.debug(`Student ${student.id} (${student.name}): softwareList is not an array: ${typeof softwareList}, value: ${JSON.stringify(softwareList)}`);
+        logger.debug(`Student ${student.id} (${student.name}): softwareList is not an array: ${typeof softwareList}`);
         return false;
       }
       
@@ -364,12 +408,12 @@ export const suggestCandidates = async (req: AuthRequest, res: Response): Promis
         normalizedStudentSoftware.some((studentSoftware: string) => {
           // Exact match
           if (studentSoftware === batchSoftware) {
-            logger.info(`✓ Exact match: Student ${student.id} (${student.name}) has "${studentSoftware}" matching batch software "${batchSoftware}"`);
+            logger.info(`✓ SoftwareList match (fallback): Student ${student.id} (${student.name}) has "${studentSoftware}" matching batch software "${batchSoftware}" (Note: Should use pendingBatches)`);
             return true;
           }
           // Partial match (student software contains batch software or vice versa)
           if (studentSoftware.includes(batchSoftware) || batchSoftware.includes(studentSoftware)) {
-            logger.info(`✓ Partial match: Student ${student.id} (${student.name}) has "${studentSoftware}" matching batch software "${batchSoftware}"`);
+            logger.info(`✓ SoftwareList partial match (fallback): Student ${student.id} (${student.name}) has "${studentSoftware}" matching batch software "${batchSoftware}" (Note: Should use pendingBatches)`);
             return true;
           }
           return false;

@@ -224,6 +224,16 @@ export const completeEnrollment = async (
 
     // Create student profile if StudentProfile model exists
     if (db.StudentProfile) {
+      // Parse batch status fields if provided
+      const parseBatchList = (value: any): string[] | null => {
+        if (!value || value === '') return null;
+        if (Array.isArray(value)) return value.filter((s: string) => s.trim().length > 0);
+        if (typeof value === 'string') {
+          return value.split(',').map((s: string) => s.trim()).filter((s: string) => s.length > 0);
+        }
+        return null;
+      };
+
       const profileData: any = {
         userId: user.id,
         dob: dateOfAdmission ? new Date(dateOfAdmission) : null,
@@ -231,6 +241,9 @@ export const completeEnrollment = async (
         softwareList: softwaresIncluded ? softwaresIncluded.split(',').map((s: string) => s.trim()).filter((s: string) => s) : null,
         enrollmentDate: dateOfAdmission ? new Date(dateOfAdmission) : new Date(),
         status: 'active',
+        finishedBatches: req.body.finishedBatches ? parseBatchList(req.body.finishedBatches) : null,
+        currentBatches: req.body.currentBatches ? parseBatchList(req.body.currentBatches) : null,
+        pendingBatches: req.body.pendingBatches ? parseBatchList(req.body.pendingBatches) : null,
       };
 
       // Store additional fields in documents.enrollmentMetadata (matching bulk upload structure)
@@ -774,6 +787,20 @@ export const bulkEnrollStudents = async (req: AuthRequest, res: Response): Promi
           ? row.softwaresIncluded.split(',').map((s: string) => s.trim()).filter((s: string) => s.length > 0)
           : [];
 
+        // Parse batch status fields (comma-separated software names)
+        const parseBatchList = (value: any): string[] | null => {
+          if (!value || value === '') return null;
+          if (Array.isArray(value)) return value.filter((s: string) => s.trim().length > 0);
+          if (typeof value === 'string') {
+            return value.split(',').map((s: string) => s.trim()).filter((s: string) => s.length > 0);
+          }
+          return null;
+        };
+
+        const finishedBatches = parseBatchList(row.finishedBatches || row.finished_batches);
+        const currentBatches = parseBatchList(row.currentBatches || row.current_batches);
+        const pendingBatches = parseBatchList(row.pendingBatches || row.pending_batches);
+
         // Create student profile
         if (db.StudentProfile) {
           const profileData = {
@@ -787,6 +814,9 @@ export const bulkEnrollStudents = async (req: AuthRequest, res: Response): Promi
             photoUrl: null,
             enrollmentDate: parsedDateOfAdmission, // Use properly parsed date
             status: 'active',
+            finishedBatches: finishedBatches && finishedBatches.length > 0 ? finishedBatches : null,
+            currentBatches: currentBatches && currentBatches.length > 0 ? currentBatches : null,
+            pendingBatches: pendingBatches && pendingBatches.length > 0 ? pendingBatches : null,
           };
 
           logger.info(`Row ${rowNumber}: Creating student profile with dob: ${parsedDob ? parsedDob.toISOString().split('T')[0] : 'null'}, emergencyContact: ${enrollmentMetadata.emergencyContact ? JSON.stringify(enrollmentMetadata.emergencyContact) : 'null'}`);
@@ -874,6 +904,11 @@ export const downloadEnrollmentTemplate = async (req: AuthRequest, res: Response
         // Course Information
         courseName: 'Graphic Design',
         softwaresIncluded: 'Photoshop, Illustrator, InDesign',
+        
+        // Batch Status (comma-separated software names)
+        finishedBatches: 'Photoshop, Illustrator', // Software from completed batches
+        currentBatches: 'InDesign', // Software from currently active batches
+        pendingBatches: 'After Effects, Premiere Pro', // Software from upcoming/pending batches (used for suggestions)
         
         // Financial Details
         totalDeal: 50000,
