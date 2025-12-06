@@ -285,7 +285,14 @@ export const suggestCandidates = async (req: AuthRequest, res: Response): Promis
       return;
     }
 
-    const batchSoftware = batch.software.toLowerCase();
+    // Handle comma-separated software (e.g., "Photoshop, Illustrator")
+    const batchSoftwareList = batch.software
+      .split(',')
+      .map((s: string) => s.trim().toLowerCase())
+      .filter((s: string) => s.length > 0);
+    
+    logger.info(`Suggest candidates for batch ${batchId}: software=${batch.software}, softwareList=${JSON.stringify(batchSoftwareList)}`);
+    
     const batchStartDate = new Date(batch.startDate);
     const batchEndDate = new Date(batch.endDate);
     const today = new Date();
@@ -301,24 +308,166 @@ export const suggestCandidates = async (req: AuthRequest, res: Response): Promis
         {
           model: db.StudentProfile,
           as: 'studentProfile',
-          required: true,
+          required: false, // Changed to false to include students without profiles
           attributes: ['id', 'softwareList'],
         },
       ],
       attributes: ['id', 'name', 'email', 'phone'],
     });
 
-    // Filter students who have selected the matching software
+    logger.info(`Found ${allStudents.length} active students`);
+
+    // Log sample student data for debugging
+    if (allStudents.length > 0) {
+      const sampleStudent = allStudents[0];
+      logger.info(`Sample student: id=${sampleStudent.id}, name=${sampleStudent.name}, hasProfile=${!!sampleStudent.studentProfile}, softwareList=${JSON.stringify(sampleStudent.studentProfile?.softwareList)}`);
+    }
+
+    // Filter students who have selected at least one matching software
     const studentsWithMatchingSoftware = allStudents.filter((student) => {
-      const softwareList = student.studentProfile?.softwareList;
-      if (!softwareList || !Array.isArray(softwareList)) {
+      let softwareList = student.studentProfile?.softwareList;
+      
+      // Log for debugging
+      if (!softwareList) {
+        logger.debug(`Student ${student.id} (${student.name}): No softwareList in profile`);
         return false;
       }
-      return softwareList.some((s: string) => s.toLowerCase() === batchSoftware);
+      
+      // Handle case where softwareList might be a JSON string
+      if (typeof softwareList === 'string') {
+        try {
+          softwareList = JSON.parse(softwareList);
+        } catch (e) {
+          logger.warn(`Student ${student.id} (${student.name}): Failed to parse softwareList as JSON: ${softwareList}`);
+          return false;
+        }
+      }
+      
+      if (!Array.isArray(softwareList)) {
+        logger.debug(`Student ${student.id} (${student.name}): softwareList is not an array: ${typeof softwareList}, value: ${JSON.stringify(softwareList)}`);
+        return false;
+      }
+      
+      if (softwareList.length === 0) {
+        logger.debug(`Student ${student.id} (${student.name}): softwareList is empty`);
+        return false;
+      }
+
+      // Normalize student software list (trim and lowercase)
+      const normalizedStudentSoftware = softwareList
+        .map((s: any) => String(s).trim().toLowerCase())
+        .filter((s: string) => s.length > 0);
+
+      // Check if any batch software matches any student software
+      // Use flexible matching: exact match or contains match
+      const matches = batchSoftwareList.some((batchSoftware: string) =>
+        normalizedStudentSoftware.some((studentSoftware: string) => {
+          // Exact match
+          if (studentSoftware === batchSoftware) {
+            logger.info(`✓ Exact match: Student ${student.id} (${student.name}) has "${studentSoftware}" matching batch software "${batchSoftware}"`);
+            return true;
+          }
+          // Partial match (student software contains batch software or vice versa)
+          if (studentSoftware.includes(batchSoftware) || batchSoftware.includes(studentSoftware)) {
+            logger.info(`✓ Partial match: Student ${student.id} (${student.name}) has "${studentSoftware}" matching batch software "${batchSoftware}"`);
+            return true;
+          }
+          return false;
+        })
+      );
+      
+      if (!matches) {
+        logger.debug(`Student ${student.id} (${student.name}): No match. Student has: [${normalizedStudentSoftware.join(', ')}], Batch needs: [${batchSoftwareList.join(', ')}]`);
+      }
+      
+      return matches;
     });
 
+    logger.info(`Found ${studentsWithMatchingSoftware.length} students with matching software out of ${allStudents.length} total students`);
+
+    // Fallback: Also check students enrolled in batches with matching software
+    // This helps find students who might have software through batch enrollment
+    const batchesWithMatchingSoftware = await db.Batch.findAll({
+      where: {
+        software: {
+          [Op.not]: null,
+        },
+      },
+      attributes: ['id', 'software'],
+    });
+
+    const batchIdsWithMatchingSoftware = batchesWithMatchingSoftware
+      .filter((b) => {
+        if (!b.software) return false;
+        const otherBatchSoftwareList = b.software
+          .split(',')
+          .map((s: string) => s.trim().toLowerCase())
+          .filter((s: string) => s.length > 0);
+        // Check if any software in this batch matches any software in the target batch
+        return otherBatchSoftwareList.some((otherSoftware: string) =>
+          batchSoftwareList.some((targetSoftware: string) =>
+            otherSoftware === targetSoftware || 
+            otherSoftware.includes(targetSoftware) || 
+            targetSoftware.includes(otherSoftware)
+          )
+        );
+      })
+      .map((b) => b.id);
+
+    // Get students enrolled in batches with matching software
+    let additionalStudentIds: number[] = [];
+    if (batchIdsWithMatchingSoftware.length > 0) {
+      const enrollments = await db.Enrollment.findAll({
+        where: {
+          batchId: { [Op.in]: batchIdsWithMatchingSoftware },
+          status: 'active',
+        },
+        include: [
+          {
+            model: db.User,
+            as: 'student',
+            where: {
+              role: UserRole.STUDENT,
+              isActive: true,
+            },
+            attributes: ['id'],
+            required: true,
+          },
+        ],
+        attributes: ['studentId'],
+      });
+      additionalStudentIds = enrollments.map((e) => e.studentId);
+      logger.info(`Found ${additionalStudentIds.length} additional students through batch enrollments`);
+    }
+
+    // Combine students from profile software and batch enrollments
+    const allCandidateStudentIds = new Set([
+      ...studentsWithMatchingSoftware.map((s) => s.id),
+      ...additionalStudentIds,
+    ]);
+
+    // Get full student data for all candidates
+    const allCandidateStudents = await db.User.findAll({
+      where: {
+        id: { [Op.in]: Array.from(allCandidateStudentIds) },
+        role: UserRole.STUDENT,
+        isActive: true,
+      },
+      include: [
+        {
+          model: db.StudentProfile,
+          as: 'studentProfile',
+          required: false,
+          attributes: ['id', 'softwareList'],
+        },
+      ],
+      attributes: ['id', 'name', 'email', 'phone'],
+    });
+
+    logger.info(`Total candidate students: ${allCandidateStudents.length} (${studentsWithMatchingSoftware.length} from profile, ${additionalStudentIds.length} from enrollments)`);
+
     // Get payment transactions for all candidate students
-    const studentIds = studentsWithMatchingSoftware.map((s) => s.id);
+    const studentIds = allCandidateStudents.map((s) => s.id);
     const payments =
       studentIds.length > 0
         ? await db.PaymentTransaction.findAll({
@@ -332,10 +481,26 @@ export const suggestCandidates = async (req: AuthRequest, res: Response): Promis
           })
         : [];
 
-    const disqualifiedStudentIds = new Set(payments.map((payment) => payment.studentId));
-    const eligibleStudents = studentsWithMatchingSoftware.filter(
-      (student) => !disqualifiedStudentIds.has(student.id)
+    // Get orientation status for all candidate students (get all orientations, not just accepted)
+    const orientations = studentIds.length > 0
+      ? await db.StudentOrientation.findAll({
+          where: {
+            studentId: { [Op.in]: studentIds },
+          },
+          attributes: ['studentId', 'accepted'],
+        })
+      : [];
+
+    // Students are eligible if they have at least one accepted orientation
+    const eligibleStudentIds = new Set(
+      orientations.filter((o) => o.accepted).map((o) => o.studentId)
     );
+
+    const disqualifiedStudentIds = new Set(payments.map((payment) => payment.studentId));
+    
+    // Show ALL students with matching software (don't filter by orientation or fees here)
+    // We'll mark their status in the response instead
+    const eligibleStudents = allCandidateStudents;
 
     // Get all enrollments for candidate students to check for conflicts
     const existingEnrollments = await db.Enrollment.findAll({
@@ -416,12 +581,17 @@ export const suggestCandidates = async (req: AuthRequest, res: Response): Promis
       });
 
       const isBusy = conflictingEnrollments.length > 0 || conflictingSessions.length > 0;
+      const hasOrientation = eligibleStudentIds.has(studentId);
 
       // Determine candidate status
       let status = 'available';
       let statusMessage = 'Available for enrollment';
 
-      if (hasOverdueFees) {
+      // Check orientation first - if no orientation, mark as not eligible
+      if (!hasOrientation) {
+        status = 'no_orientation';
+        statusMessage = 'Orientation not accepted';
+      } else if (hasOverdueFees) {
         status = 'fees_overdue';
         statusMessage = `Fees overdue (₹${totalOverdueAmount.toFixed(2)})`;
       } else if (isBusy) {
@@ -437,7 +607,7 @@ export const suggestCandidates = async (req: AuthRequest, res: Response): Promis
       }
 
       return {
-        id: student.id,
+        studentId: student.id,
         name: student.name,
         email: student.email,
         phone: student.phone || '-',
@@ -448,21 +618,23 @@ export const suggestCandidates = async (req: AuthRequest, res: Response): Promis
         conflictingBatches: conflictingEnrollments
           .map((enrollment) => (enrollment as any).batch)
           .filter((enrollmentBatch): enrollmentBatch is { id: number; title: string; startDate: Date; endDate: Date } => !!enrollmentBatch)
-          .map((enrollmentBatch) => ({
-            id: enrollmentBatch.id,
-            title: enrollmentBatch.title,
-            startDate: enrollmentBatch.startDate,
-            endDate: enrollmentBatch.endDate,
-          })),
-        conflictingSessionsCount: conflictingSessions.length,
+          .map((enrollmentBatch) => enrollmentBatch.title),
+        conflictingSessions: conflictingSessions.length > 0 ? [`${conflictingSessions.length} session(s)`] : [],
       };
     });
 
-    // Sort candidates: available first, then busy, then fees_overdue
-    const statusOrder: { [key: string]: number } = { available: 1, busy: 2, fees_overdue: 3 };
+    // Sort candidates: available first, then no_orientation, then busy, then fees_overdue
+    const statusOrder: { [key: string]: number } = { 
+      available: 1, 
+      no_orientation: 2, 
+      busy: 3, 
+      fees_overdue: 4 
+    };
     candidates.sort((a, b) => {
       return (statusOrder[a.status] || 99) - (statusOrder[b.status] || 99);
     });
+
+    logger.info(`Returning ${candidates.length} candidates for batch ${batchId}`);
 
     res.status(200).json({
       status: 'success',
@@ -479,6 +651,7 @@ export const suggestCandidates = async (req: AuthRequest, res: Response): Promis
         totalCount: candidates.length,
         summary: {
           available: candidates.filter((c) => c.status === 'available').length,
+          noOrientation: candidates.filter((c) => c.status === 'no_orientation').length,
           busy: candidates.filter((c) => c.status === 'busy').length,
           feesOverdue: candidates.filter((c) => c.status === 'fees_overdue').length,
         },
