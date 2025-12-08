@@ -393,6 +393,54 @@ export const getStudentDetails = async (req: AuthRequest, res: Response): Promis
 
     const studentJson = student.toJSON() as any;
 
+    // Calculate balance from payments and update studentProfile documents if needed
+    if (studentJson.studentProfile?.documents) {
+      let documents = studentJson.studentProfile.documents;
+      if (typeof documents === 'string') {
+        try {
+          documents = JSON.parse(documents);
+        } catch (e) {
+          logger.warn(`Failed to parse documents JSON for student ${studentId}:`, e);
+          documents = null;
+        }
+      }
+      
+      const metadata = documents?.enrollmentMetadata;
+      if (metadata && metadata.totalDeal !== undefined && metadata.totalDeal !== null) {
+        // Get all payments for this student
+        const payments = await db.PaymentTransaction.findAll({
+          where: {
+            studentId: studentId,
+          },
+          attributes: ['paidAmount', 'status'],
+        });
+        
+        // Calculate total paid amount
+        const totalPaid = payments.reduce((sum, payment: any) => {
+          if (payment.status === 'paid' || payment.status === 'partial') {
+            return sum + (payment.paidAmount || 0);
+          }
+          return sum;
+        }, 0);
+        
+        // Calculate balance: totalDeal - bookingAmount - totalPaid
+        const totalDeal = Number(metadata.totalDeal);
+        const bookingAmount = Number(metadata.bookingAmount || 0);
+        const calculatedBalance = Math.max(0, totalDeal - bookingAmount - totalPaid);
+        
+        // Update the documents with calculated balance
+        if (documents && typeof documents === 'object') {
+          documents.enrollmentMetadata = {
+            ...metadata,
+            balanceAmount: calculatedBalance,
+          };
+          studentJson.studentProfile.documents = documents;
+        }
+        
+        logger.info(`Updated student ${studentId} balance: totalDeal=${totalDeal}, bookingAmount=${bookingAmount}, totalPaid=${totalPaid}, balance=${calculatedBalance}`);
+      }
+    }
+
     // Log for debugging
     logger.info(`Student details for ID ${studentId}:`, {
       hasProfile: !!studentJson.studentProfile,
@@ -1044,6 +1092,349 @@ export const getStudentsOnLeavePendingBatches = async (req: AuthRequest, res: Re
   }
 };
 
+// GET /attendance-reports/students-wise → Get students filtered by various criteria
+export const getStudentsWise = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    if (!req.user) {
+      res.status(401).json({
+        status: 'error',
+        message: 'Authentication required',
+      });
+      return;
+    }
+
+    if (req.user.role !== UserRole.ADMIN && req.user.role !== UserRole.SUPERADMIN) {
+      res.status(403).json({
+        status: 'error',
+        message: 'Only admins can view this report',
+      });
+      return;
+    }
+
+    const { filterType, batchId, courseId, software, paymentStatus, startDate, endDate } = req.query;
+
+    // Build date range filter
+    const dateWhere: any = {};
+    if (startDate) {
+      const start = new Date(startDate as string);
+      start.setHours(0, 0, 0, 0);
+      dateWhere[Op.gte] = start;
+    }
+    if (endDate) {
+      const end = new Date(endDate as string);
+      end.setHours(23, 59, 59, 999);
+      dateWhere[Op.lte] = end;
+    }
+
+    let students: any[] = [];
+
+    switch (filterType) {
+      case 'studentwise':
+        // Get all students within date range (based on createdAt)
+        const studentWhere: any = {
+          role: UserRole.STUDENT,
+          isActive: true,
+        };
+        if (Object.keys(dateWhere).length > 0) {
+          studentWhere.createdAt = dateWhere;
+        }
+        students = await db.User.findAll({
+          where: studentWhere,
+          attributes: ['id', 'name', 'email', 'phone', 'avatarUrl', 'createdAt'],
+          include: [
+            {
+              model: db.StudentProfile,
+              as: 'studentProfile',
+              required: false,
+              attributes: ['id', 'softwareList', 'status'],
+            },
+            {
+              model: db.Enrollment,
+              as: 'enrollments',
+              required: false,
+              include: [
+                {
+                  model: db.Batch,
+                  as: 'batch',
+                  attributes: ['id', 'title', 'software', 'mode', 'startDate', 'endDate', 'status'],
+                },
+              ],
+            },
+          ],
+          order: [['createdAt', 'DESC']],
+        });
+        break;
+
+      case 'batchwise':
+        // Get students enrolled in specific batch within date range
+        if (!batchId) {
+          res.status(400).json({
+            status: 'error',
+            message: 'batchId is required for batchwise filter',
+          });
+          return;
+        }
+        const enrollmentWhere: any = {
+          batchId: parseInt(batchId as string, 10),
+          status: 'active',
+        };
+        if (Object.keys(dateWhere).length > 0) {
+          enrollmentWhere.enrollmentDate = dateWhere;
+        }
+        const enrollments = await db.Enrollment.findAll({
+          where: enrollmentWhere,
+          include: [
+            {
+              model: db.User,
+              as: 'student',
+              attributes: ['id', 'name', 'email', 'phone', 'avatarUrl', 'createdAt'],
+              where: {
+                role: UserRole.STUDENT,
+                isActive: true,
+              },
+              required: true,
+              include: [
+                {
+                  model: db.StudentProfile,
+                  as: 'studentProfile',
+                  required: false,
+                  attributes: ['id', 'softwareList', 'status'],
+                },
+              ],
+            },
+            {
+              model: db.Batch,
+              as: 'batch',
+              attributes: ['id', 'title', 'software', 'mode', 'startDate', 'endDate', 'status'],
+            },
+          ],
+          order: [['enrollmentDate', 'DESC']],
+        });
+        students = enrollments.map((enrollment: any) => ({
+          ...enrollment.student.toJSON(),
+          enrollmentDate: enrollment.enrollmentDate,
+          batch: enrollment.batch,
+        }));
+        break;
+
+      case 'coursewise':
+        // Get students by course (using batch software as course identifier)
+        // For now, we'll use software field from batches as course
+        const courseEnrollments = await db.Enrollment.findAll({
+          where: {
+            status: 'active',
+            ...(Object.keys(dateWhere).length > 0 ? { enrollmentDate: dateWhere } : {}),
+          },
+          include: [
+            {
+              model: db.User,
+              as: 'student',
+              attributes: ['id', 'name', 'email', 'phone', 'avatarUrl', 'createdAt'],
+              where: {
+                role: UserRole.STUDENT,
+                isActive: true,
+              },
+              required: true,
+              include: [
+                {
+                  model: db.StudentProfile,
+                  as: 'studentProfile',
+                  required: false,
+                  attributes: ['id', 'softwareList', 'status'],
+                },
+              ],
+            },
+            {
+              model: db.Batch,
+              as: 'batch',
+              attributes: ['id', 'title', 'software', 'mode', 'startDate', 'endDate', 'status'],
+              ...(courseId ? { where: { id: parseInt(courseId as string, 10) } } : {}),
+              required: true,
+            },
+          ],
+          order: [['enrollmentDate', 'DESC']],
+        });
+        // Deduplicate students
+        const studentMap = new Map();
+        courseEnrollments.forEach((enrollment: any) => {
+          if (enrollment.student) {
+            const studentId = enrollment.student.id;
+            if (!studentMap.has(studentId)) {
+              studentMap.set(studentId, {
+                ...enrollment.student.toJSON(),
+                batches: [],
+              });
+            }
+            studentMap.get(studentId).batches.push(enrollment.batch);
+          }
+        });
+        students = Array.from(studentMap.values());
+        break;
+
+      case 'softwarewise':
+        // Get students by software
+        if (!software) {
+          res.status(400).json({
+            status: 'error',
+            message: 'software is required for softwarewise filter',
+          });
+          return;
+        }
+        const softwareName = (software as string).toLowerCase();
+        const allStudentsForSoftware = await db.User.findAll({
+          where: {
+            role: UserRole.STUDENT,
+            isActive: true,
+            ...(Object.keys(dateWhere).length > 0 ? { createdAt: dateWhere } : {}),
+          },
+          attributes: ['id', 'name', 'email', 'phone', 'avatarUrl', 'createdAt'],
+          include: [
+            {
+              model: db.StudentProfile,
+              as: 'studentProfile',
+              required: false,
+              attributes: ['id', 'softwareList', 'status'],
+            },
+            {
+              model: db.Enrollment,
+              as: 'enrollments',
+              required: false,
+              include: [
+                {
+                  model: db.Batch,
+                  as: 'batch',
+                  attributes: ['id', 'title', 'software', 'mode', 'startDate', 'endDate', 'status'],
+                },
+              ],
+            },
+          ],
+          order: [['createdAt', 'DESC']],
+        });
+        // Filter by software in profile or batch
+        students = allStudentsForSoftware.filter((student: any) => {
+          const profileSoftware = (student.studentProfile?.softwareList || []).map((s: string) => s.toLowerCase());
+          const batchSoftware = (student.enrollments || [])
+            .map((e: any) => e.batch?.software?.toLowerCase() || '')
+            .filter((s: string) => s.length > 0);
+          return (
+            profileSoftware.some((s: string) => s.includes(softwareName)) ||
+            batchSoftware.some((s: string) => s.includes(softwareName))
+          );
+        });
+        break;
+
+      case 'paymentwise':
+        // Get students by payment status
+        const paymentWhere: any = {};
+        if (paymentStatus) {
+          paymentWhere.status = paymentStatus;
+        }
+        if (Object.keys(dateWhere).length > 0) {
+          paymentWhere.dueDate = dateWhere;
+        }
+        const payments = await db.PaymentTransaction.findAll({
+          where: paymentWhere,
+          include: [
+            {
+              model: db.User,
+              as: 'student',
+              attributes: ['id', 'name', 'email', 'phone', 'avatarUrl', 'createdAt'],
+              where: {
+                role: UserRole.STUDENT,
+                isActive: true,
+              },
+              required: true,
+              include: [
+                {
+                  model: db.StudentProfile,
+                  as: 'studentProfile',
+                  required: false,
+                  attributes: ['id', 'softwareList', 'status'],
+                },
+              ],
+            },
+            {
+              model: db.Enrollment,
+              as: 'enrollment',
+              include: [
+                {
+                  model: db.Batch,
+                  as: 'batch',
+                  attributes: ['id', 'title', 'software', 'mode', 'startDate', 'endDate', 'status'],
+                },
+              ],
+            },
+          ],
+          order: [['dueDate', 'DESC']],
+        });
+        // Deduplicate students
+        const paymentStudentMap = new Map();
+        payments.forEach((payment: any) => {
+          if (payment.student) {
+            const studentId = payment.student.id;
+            if (!paymentStudentMap.has(studentId)) {
+              paymentStudentMap.set(studentId, {
+                ...payment.student.toJSON(),
+                payments: [],
+                batches: [],
+              });
+            }
+            const studentData = paymentStudentMap.get(studentId);
+            if (payment.enrollment?.batch) {
+              studentData.batches.push(payment.enrollment.batch);
+            }
+            studentData.payments.push({
+              id: payment.id,
+              amount: payment.amount,
+              status: payment.status,
+              dueDate: payment.dueDate,
+              paidDate: payment.paidDate,
+            });
+          }
+        });
+        students = Array.from(paymentStudentMap.values());
+        break;
+
+      default:
+        res.status(400).json({
+          status: 'error',
+          message: 'Invalid filterType. Allowed values: studentwise, batchwise, coursewise, softwarewise, paymentwise',
+        });
+        return;
+    }
+
+    // Format response
+    const formattedStudents = students.map((student: any) => ({
+      id: student.id,
+      name: student.name,
+      email: student.email,
+      phone: student.phone,
+      avatarUrl: student.avatarUrl,
+      createdAt: student.createdAt,
+      softwareList: student.studentProfile?.softwareList || [],
+      profileStatus: student.studentProfile?.status || null,
+      batches: student.batches || student.enrollments?.map((e: any) => e.batch).filter(Boolean) || [],
+      enrollmentDate: student.enrollmentDate || null,
+      payments: student.payments || [],
+    }));
+
+    res.status(200).json({
+      status: 'success',
+      data: {
+        students: formattedStudents,
+        totalCount: formattedStudents.length,
+        filterType,
+      },
+    });
+  } catch (error) {
+    logger.error('Get students wise error:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Internal server error while fetching students',
+    });
+  }
+};
+
 export default {
   getAllStudents,
   getStudentDetails,
@@ -1054,6 +1445,7 @@ export default {
   getStudentsEnrolledBatchNotStarted,
   getStudentsMultipleCoursesConflict,
   getStudentsOnLeavePendingBatches,
+  getStudentsWise,
 };
 
 

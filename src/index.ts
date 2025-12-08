@@ -266,6 +266,39 @@ app.use('/receipts', (req, res, next) => {
   dotfiles: 'ignore',
 }));
 
+// Also serve receipts through /api/receipts/ for frontend compatibility
+app.use('/api/receipts', (req, res, next) => {
+  const origin = req.headers.origin;
+  const allowedOrigins = process.env.FRONTEND_URL?.split(',').map((o) => o.trim()) || [
+    'http://localhost:5173',
+    'http://crm.prashantthakar.com',
+  ];
+  
+  if (origin && allowedOrigins.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+  } else {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+  }
+  
+  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  
+  if (req.method === 'OPTIONS') {
+    res.sendStatus(200);
+    return;
+  }
+  
+  next();
+}, express.static(receiptsStaticPath, {
+  setHeaders: (res, _filePath) => {
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Cache-Control', 'public, max-age=31536000');
+  },
+  index: false,
+  dotfiles: 'ignore',
+}));
+
 // Serve certificate PDFs statically (must be before API routes to avoid conflicts)
 // This allows direct access to PDF files via /certificates/filename.pdf
 // Use the same path calculation as certificate controller

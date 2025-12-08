@@ -318,12 +318,21 @@ export const completeEnrollment = async (
           return;
         }
 
+        // Prepare paymentPlan from enrollment metadata
+        const paymentPlan: any = {};
+        if (totalDeal !== undefined) paymentPlan.totalDeal = totalDeal;
+        if (bookingAmount !== undefined) paymentPlan.bookingAmount = bookingAmount;
+        if (balanceAmount !== undefined) paymentPlan.balanceAmount = balanceAmount;
+        if (emiPlan !== undefined) paymentPlan.emiPlan = emiPlan;
+        if (emiPlanDate) paymentPlan.emiPlanDate = emiPlanDate;
+
         enrollment = await db.Enrollment.create(
           {
             studentId: user.id,
             batchId,
             enrollmentDate: dateOfAdmission ? new Date(dateOfAdmission) : new Date(),
             status: 'active',
+            paymentPlan: Object.keys(paymentPlan).length > 0 ? paymentPlan : null,
           },
           { transaction }
         );
