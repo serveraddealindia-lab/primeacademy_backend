@@ -29,3 +29,5 @@ SELECT User, Host FROM mysql.user WHERE User = 'primeacademy_user';
 
 
 
+
+

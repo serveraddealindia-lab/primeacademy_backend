@@ -36,6 +36,7 @@ import enrollmentRoutes from './routes/enrollment.routes';
 import studentRoutes from './routes/student.routes';
 import certificateRoutes from './routes/certificate.routes';
 import biometricRoutes from './routes/biometric.routes';
+import studentSoftwareProgressRoutes from './routes/studentSoftwareProgress.routes';
 import { notFoundHandler, errorHandler } from './middleware/error.middleware';
 import { logger } from './utils/logger';
 
@@ -458,6 +459,7 @@ app.use('/api/students', studentRoutes);
 // Certificate API routes (must be after static file serving)
 app.use('/api/certificates', certificateRoutes);
 app.use('/api/biometric', biometricRoutes);
+app.use('/api/student-software-progress', studentSoftwareProgressRoutes);
 
 // Debug: Log registered student routes (development only)
 // if (process.env.NODE_ENV === 'development') {

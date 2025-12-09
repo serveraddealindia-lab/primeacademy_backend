@@ -15,7 +15,6 @@ router.get('/students-without-batch', requireSuperAdmin, attendanceReportControl
 router.get('/students-enrolled-batch-not-started', requireSuperAdmin, attendanceReportController.getStudentsEnrolledBatchNotStarted);
 router.get('/students-multiple-courses-conflict', requireSuperAdmin, attendanceReportController.getStudentsMultipleCoursesConflict);
 router.get('/students-on-leave-pending-batches', requireSuperAdmin, attendanceReportController.getStudentsOnLeavePendingBatches);
-router.get('/students-wise', requireSuperAdmin, attendanceReportController.getStudentsWise);
 
 export default router;
 
