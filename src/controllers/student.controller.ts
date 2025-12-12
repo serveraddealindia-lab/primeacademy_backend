@@ -653,6 +653,7 @@ export const bulkEnrollStudents = async (req: AuthRequest, res: Response): Promi
     }
 
     if (!req.file) {
+      logger.error('Bulk enrollment: No file received');
       res.status(400).json({
         status: 'error',
         message: 'Excel file is required',
@@ -660,11 +661,24 @@ export const bulkEnrollStudents = async (req: AuthRequest, res: Response): Promi
       return;
     }
 
+    logger.info(`Bulk enrollment: File received - name: ${req.file.originalname}, size: ${req.file.size}, mimetype: ${req.file.mimetype}`);
+
     // Parse Excel file with date parsing enabled
-    const workbook = XLSX.read(req.file.buffer, { 
-      type: 'buffer',
-      cellDates: true, // Parse dates automatically as Date objects
-    });
+    let workbook;
+    try {
+      workbook = XLSX.read(req.file.buffer, { 
+        type: 'buffer',
+        cellDates: true, // Parse dates automatically as Date objects
+      });
+      logger.info(`Bulk enrollment: Excel file parsed successfully - sheets: ${workbook.SheetNames.join(', ')}`);
+    } catch (parseError: any) {
+      logger.error('Bulk enrollment: Failed to parse Excel file:', parseError);
+      res.status(400).json({
+        status: 'error',
+        message: `Failed to parse Excel file: ${parseError.message}`,
+      });
+      return;
+    }
     const sheetName = workbook.SheetNames[0];
     const worksheet = workbook.Sheets[sheetName];
     
@@ -843,7 +857,14 @@ export const bulkEnrollStudents = async (req: AuthRequest, res: Response): Promi
           balanceAmount: row.balanceAmount ? (typeof row.balanceAmount === 'string' ? parseFloat(row.balanceAmount) : row.balanceAmount) : null,
           emiPlan: parseBoolean(row.emiPlan),
           emiPlanDate: row.emiPlanDate ? (parseExcelDate(row.emiPlanDate)?.toISOString().split('T')[0] || null) : null,
-          emiInstallments: row.emiInstallments ? (typeof row.emiInstallments === 'string' ? JSON.parse(row.emiInstallments) : row.emiInstallments) : null,
+          emiInstallments: row.emiInstallments ? (typeof row.emiInstallments === 'string' ? (() => {
+            try {
+              return JSON.parse(row.emiInstallments);
+            } catch (e) {
+              logger.warn(`Row ${rowNumber}: Failed to parse emiInstallments JSON: ${row.emiInstallments}`);
+              return null;
+            }
+          })() : (Array.isArray(row.emiInstallments) ? row.emiInstallments : null)) : null,
           complimentarySoftware: row.complimentarySoftware || null,
           complimentaryGift: row.complimentaryGift || null,
           hasReference: parseBoolean(row.hasReference),
@@ -911,6 +932,7 @@ export const bulkEnrollStudents = async (req: AuthRequest, res: Response): Promi
       } catch (error: any) {
         await transaction.rollback();
         logger.error(`Error processing row ${rowNumber}:`, error);
+        logger.error(`Row ${rowNumber} error stack:`, error.stack);
         result.failed++;
         result.errors.push({
           row: rowNumber,
@@ -927,10 +949,11 @@ export const bulkEnrollStudents = async (req: AuthRequest, res: Response): Promi
     });
   } catch (error: any) {
     logger.error('Bulk enrollment error:', error);
+    logger.error('Bulk enrollment error stack:', error.stack);
     res.status(500).json({
       status: 'error',
       message: 'Internal server error while processing bulk enrollment',
-      error: error.message,
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Please check server logs for details',
     });
   }
 };
