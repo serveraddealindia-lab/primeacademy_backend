@@ -334,7 +334,7 @@ export const startSession = async (req: AuthRequest, res: Response): Promise<voi
         facultyId: req.user.userId,
         date: todayDateString(),
         actualEndAt: null,
-        actualStartAt: { [db.Sequelize.Op.ne]: null },
+        actualStartAt: { [Op.ne]: null },
       },
       include: [
         {
@@ -348,7 +348,7 @@ export const startSession = async (req: AuthRequest, res: Response): Promise<voi
     if (anyActiveSession) {
       res.status(400).json({
         status: 'error',
-        message: `You already have an active session running for batch "${anyActiveSession.batch?.title || 'Unknown'}" (Batch #${anyActiveSession.batchId}). Please end that session before starting a new one.`,
+        message: `You already have an active session running for batch "${(anyActiveSession as any).batch?.title || 'Unknown'}" (Batch #${anyActiveSession.batchId}). Please end that session before starting a new one.`,
       });
       return;
     }

@@ -414,7 +414,7 @@ export const getEnrollmentById = async (req: AuthRequest, res: Response): Promis
     }
 
     // Enrich enrollment with fees from studentProfile if paymentPlan is empty
-    const enrollmentJson = enrollment.toJSON();
+    const enrollmentJson = enrollment.toJSON() as any;
     if (!enrollmentJson.paymentPlan || Object.keys(enrollmentJson.paymentPlan).length === 0) {
       let studentProfile = enrollmentJson.student?.studentProfile;
       
@@ -590,7 +590,7 @@ export const updateEnrollment = async (req: AuthRequest & { body: UpdateEnrollme
     // If paymentPlan is not provided, try to sync from studentProfile
     let finalPaymentPlan = paymentPlan;
     if (paymentPlan === undefined) {
-      const enrollmentJson = enrollment.toJSON();
+      const enrollmentJson = enrollment.toJSON() as any;
       const studentProfile = enrollmentJson.student?.studentProfile;
       if (studentProfile?.documents) {
         // Handle documents as string (JSON) or object
@@ -656,7 +656,7 @@ export const updateEnrollment = async (req: AuthRequest & { body: UpdateEnrollme
     });
 
     // Enrich with fees if needed
-    const enrollmentJson = updatedEnrollment?.toJSON();
+    const enrollmentJson = updatedEnrollment?.toJSON() as any;
     if (enrollmentJson && (!enrollmentJson.paymentPlan || Object.keys(enrollmentJson.paymentPlan).length === 0)) {
       const studentProfile = enrollmentJson.student?.studentProfile;
       if (studentProfile?.documents) {

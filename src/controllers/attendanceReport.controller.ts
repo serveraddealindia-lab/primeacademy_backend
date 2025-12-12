@@ -536,8 +536,8 @@ export const getStudentsWithoutBatch = async (req: AuthRequest, res: Response): 
         },
       ],
       order: [['createdAt', 'DESC']],
-      distinct: true, // Prevent duplicate students when multiple enrollments exist
-    });
+      // Note: distinct is handled by filtering in JavaScript to avoid Sequelize type issues
+    } as any);
 
     // Filter students with no active enrollments in active batches
     // A student is considered "without batch" if:

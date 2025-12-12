@@ -359,7 +359,7 @@ export const createCertificate = async (req: AuthRequest, res: Response): Promis
       monthOfCompletion,
       certificateNumber: finalCertificateNumber,
       pdfUrl,
-      issuedBy: req.user.userId || req.user.id,
+      issuedBy: req.user.userId,
       issuedAt: new Date(),
       studentDeclarationAccepted: studentDeclarationAccepted === true,
       studentDeclarationDate: studentDeclarationAccepted === true ? new Date() : undefined,

@@ -114,7 +114,7 @@ const updatePaymentPlanBalance = async (studentId: number, enrollmentId?: number
             }
             
             if (documents && typeof documents === 'object' && documents.enrollmentMetadata) {
-              documents.enrollmentMetadata.balanceAmount = Math.max(0, newBalance);
+              (documents.enrollmentMetadata as any).balanceAmount = Math.max(0, newBalance);
               await db.StudentProfile.update(
                 { documents },
                 { where: { id: studentProfile.id } }
@@ -149,13 +149,13 @@ const updatePaymentPlanBalance = async (studentId: number, enrollmentId?: number
         }
         
         if (documents && typeof documents === 'object' && documents.enrollmentMetadata) {
-          const metadata = documents.enrollmentMetadata;
+          const metadata = documents.enrollmentMetadata as any;
           const totalDeal = metadata.totalDeal !== undefined && metadata.totalDeal !== null ? Number(metadata.totalDeal) : null;
           const bookingAmount = metadata.bookingAmount !== undefined && metadata.bookingAmount !== null ? Number(metadata.bookingAmount) : 0;
           
           if (totalDeal !== null && totalDeal !== undefined) {
             const newBalance = totalDeal - bookingAmount - totalPaid;
-            documents.enrollmentMetadata.balanceAmount = Math.max(0, newBalance);
+            (documents.enrollmentMetadata as any).balanceAmount = Math.max(0, newBalance);
             
             await db.StudentProfile.update(
               { documents },
