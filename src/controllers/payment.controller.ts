@@ -149,13 +149,14 @@ const updatePaymentPlanBalance = async (studentId: number, enrollmentId?: number
         }
         
         if (documents && typeof documents === 'object' && documents.enrollmentMetadata) {
-          const metadata = documents.enrollmentMetadata as any;
-          const totalDeal = metadata.totalDeal !== undefined && metadata.totalDeal !== null ? Number(metadata.totalDeal) : null;
-          const bookingAmount = metadata.bookingAmount !== undefined && metadata.bookingAmount !== null ? Number(metadata.bookingAmount) : 0;
+          const metadata: any = documents.enrollmentMetadata as any;
+          const totalDeal = metadata?.totalDeal !== undefined && metadata?.totalDeal !== null ? Number(metadata.totalDeal) : null;
+          const bookingAmount = metadata?.bookingAmount !== undefined && metadata?.bookingAmount !== null ? Number(metadata.bookingAmount) : 0;
           
           if (totalDeal !== null && totalDeal !== undefined) {
             const newBalance = totalDeal - bookingAmount - totalPaid;
-            (documents.enrollmentMetadata as any).balanceAmount = Math.max(0, newBalance);
+            const enrollmentMetadata: any = documents.enrollmentMetadata as any;
+            enrollmentMetadata.balanceAmount = Math.max(0, newBalance);
             
             await db.StudentProfile.update(
               { documents },

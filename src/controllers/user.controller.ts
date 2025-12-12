@@ -124,13 +124,13 @@ export const getAllUsers = async (
       // Try without includes if query fails
       if (includeOptions.length > 0) {
         logger.info('Retrying query without includes...');
-        const simpleQueryOptions: any = {
+        const simpleQueryOptions = {
           where,
           attributes: { exclude: ['passwordHash'] },
           limit: limitNum,
           offset,
           order: [['createdAt', 'DESC']] as any,
-        };
+        } as any;
         const result = await db.User.findAndCountAll(simpleQueryOptions);
         count = result.count;
         users = result.rows;
