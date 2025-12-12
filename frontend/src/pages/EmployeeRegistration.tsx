@@ -395,7 +395,23 @@ export const EmployeeRegistration: React.FC = () => {
 
           {/* Steps 2-6: Profile Information */}
           {currentStep > 1 && (
-            <form onSubmit={handleSubmit}>
+            <form onSubmit={(e) => {
+              e.preventDefault();
+              // Only submit when explicitly clicking the submit button
+              // This prevents accidental form submission via Enter key
+            }} onKeyDown={(e) => {
+              // Prevent form submission when Enter is pressed anywhere in the form
+              if (e.key === 'Enter') {
+                const target = e.target as HTMLElement;
+                // Allow Enter in textareas
+                if (target.tagName === 'TEXTAREA') {
+                  return;
+                }
+                // Prevent Enter in all other cases
+                e.preventDefault();
+                e.stopPropagation();
+              }
+            }}>
               <div className="p-8">
                 {/* Step 2: Personal Information */}
                 {currentStep === 2 && (
@@ -825,6 +841,12 @@ export const EmployeeRegistration: React.FC = () => {
                               value={doc}
                               checked={formData.documents.includes(doc)}
                               onChange={(e) => handleDocumentChange(doc, e.target.checked)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                }
+                              }}
                               className="mr-2"
                             />
                             <span>{doc}</span>
@@ -852,6 +874,12 @@ export const EmployeeRegistration: React.FC = () => {
                             defaultValue={new Date().toISOString().split('T')[0]}
                             className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
                             readOnly
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                e.stopPropagation();
+                              }
+                            }}
                           />
                         </div>
                       </div>
@@ -879,7 +907,21 @@ export const EmployeeRegistration: React.FC = () => {
                     </button>
                   ) : (
                     <button
-                      type="submit"
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        // Explicitly call handleSubmit
+                        const form = e.currentTarget.closest('form');
+                        if (form) {
+                          const syntheticEvent = {
+                            preventDefault: () => {},
+                            currentTarget: form,
+                            target: form,
+                          } as unknown as React.FormEvent<HTMLFormElement>;
+                          handleSubmit(syntheticEvent);
+                        }
+                      }}
                       disabled={createEmployeeProfileMutation.isPending}
                       className="px-6 py-2 bg-orange-600 text-white rounded-lg font-semibold hover:bg-orange-700 transition-colors disabled:opacity-50"
                     >

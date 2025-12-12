@@ -10,7 +10,6 @@ import { softwareCompletionAPI } from '../api/softwareCompletion.api';
 import { userAPI } from '../api/user.api';
 import { getImageUrl } from '../utils/imageUtils';
 import { orientationAPI, OrientationLanguage } from '../api/orientation.api';
-import { formatDateDDMMYYYY } from '../utils/dateUtils';
 
 export const StudentManagement: React.FC = () => {
   const { user } = useAuth();
@@ -282,6 +281,20 @@ export const StudentManagement: React.FC = () => {
   const totalStudents = studentsData?.data.totalCount || students.length;
   const batches = batchesData?.data || [];
 
+  // Format date to dd/mm/yyyy
+  const formatDateDDMMYYYY = (date: string | Date | null | undefined): string => {
+    if (!date) return '-';
+    try {
+      const d = typeof date === 'string' ? new Date(date) : date;
+      if (isNaN(d.getTime())) return '-';
+      const day = String(d.getDate()).padStart(2, '0');
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const year = d.getFullYear();
+      return `${day}/${month}/${year}`;
+    } catch {
+      return '-';
+    }
+  };
 
   const handleEnrollStudent = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -330,38 +343,38 @@ export const StudentManagement: React.FC = () => {
 
   return (
     <Layout>
-      <div className="max-w-7xl mx-auto p-4 md:p-6">
+      <div className="max-w-7xl mx-auto">
         <div className="bg-white shadow-xl rounded-lg overflow-hidden">
-          <div className="bg-gradient-to-r from-orange-600 to-orange-500 px-4 md:px-8 py-4 md:py-6">
-            <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
+          <div className="bg-gradient-to-r from-orange-600 to-orange-500 px-8 py-6">
+            <div className="flex justify-between items-center">
               <div>
-                <h1 className="text-2xl md:text-3xl font-bold text-white">Student Management</h1>
-                <p className="mt-2 text-sm md:text-base text-orange-100">Manage students and enrollments</p>
-                <p className="mt-1 text-orange-200 text-xs md:text-sm font-semibold">Total Students: {totalStudents}</p>
+                <h1 className="text-3xl font-bold text-white">Student Management</h1>
+                <p className="mt-2 text-orange-100">Manage students and enrollments</p>
+                <p className="mt-1 text-orange-200 text-sm font-semibold">Total Students: {totalStudents}</p>
               </div>
               {(user?.role === 'admin' || user?.role === 'superadmin') && (
-                <div className="flex flex-wrap gap-2 md:gap-3 w-full lg:w-auto">
+                <div className="flex gap-3">
                   <button
                     onClick={() => navigate('/students/enroll')}
-                    className="flex-1 lg:flex-none px-3 md:px-4 py-2 text-sm md:text-base bg-white text-orange-600 rounded-lg font-semibold hover:bg-orange-50 transition-colors"
+                    className="px-4 py-2 bg-white text-orange-600 rounded-lg font-semibold hover:bg-orange-50 transition-colors"
                   >
                     + New Enrollment
                   </button>
                   <button
                     onClick={() => setIsEnrollmentModalOpen(true)}
-                    className="flex-1 lg:flex-none px-3 md:px-4 py-2 text-sm md:text-base bg-orange-700 text-white rounded-lg font-semibold hover:bg-orange-800 transition-colors"
+                    className="px-4 py-2 bg-orange-700 text-white rounded-lg font-semibold hover:bg-orange-800 transition-colors"
                   >
-                    Enroll Existing
+                    Enroll Existing Student
                   </button>
                   <button
                     onClick={handleDownloadTemplate}
-                    className="flex-1 lg:flex-none px-3 md:px-4 py-2 text-sm md:text-base bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700 transition-colors"
+                    className="px-4 py-2 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700 transition-colors"
                   >
-                    📥 Template
+                    📥 Download Template
                   </button>
                   <button
                     onClick={() => setIsBulkUploadModalOpen(true)}
-                    className="flex-1 lg:flex-none px-3 md:px-4 py-2 text-sm md:text-base bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition-colors"
+                    className="px-4 py-2 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition-colors"
                   >
                     📤 Bulk Upload
                   </button>
@@ -370,51 +383,45 @@ export const StudentManagement: React.FC = () => {
             </div>
           </div>
 
-          <div className="p-4 md:p-6">
+          <div className="p-6">
             {students.length === 0 ? (
               <div className="text-center py-12">
                 <p className="text-gray-500 text-lg">No students found</p>
               </div>
             ) : (
-              <div className="overflow-x-auto -mx-4 md:mx-0">
+              <div className="overflow-x-auto">
                 <table className="min-w-full divide-y divide-gray-200">
                   <thead className="bg-gray-50">
                     <tr>
-                      <th className="px-3 md:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        S.No
-                      </th>
-                      <th className="px-3 md:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                         Photo
                       </th>
-                      <th className="px-3 md:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                         Name
                       </th>
-                      <th className="px-3 md:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden md:table-cell">
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                         Email
                       </th>
-                      <th className="px-3 md:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden lg:table-cell">
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                         Phone
                       </th>
-                      <th className="px-3 md:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden lg:table-cell">
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                         Joined Date
                       </th>
-                      <th className="px-3 md:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                         Orientation
                       </th>
                       {(user?.role === 'admin' || user?.role === 'superadmin') && (
-                        <th className="px-3 md:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                           Actions
                         </th>
                       )}
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
-                    {students.map((student, index) => (
+                    {students.map((student) => (
                       <tr key={student.id} className="hover:bg-gray-50">
-                        <td className="px-3 md:px-6 py-4 whitespace-nowrap">
-                          <div className="text-sm font-medium text-gray-900">{index + 1}</div>
-                        </td>
-                        <td className="px-3 md:px-6 py-4 whitespace-nowrap">
+                        <td className="px-6 py-4 whitespace-nowrap">
                           <div className="flex items-center">
                             {student.avatarUrl ? (
                               <img
@@ -433,23 +440,21 @@ export const StudentManagement: React.FC = () => {
                             )}
                           </div>
                         </td>
-                        <td className="px-3 md:px-6 py-4 whitespace-nowrap">
+                        <td className="px-6 py-4 whitespace-nowrap">
                           <div className="text-sm font-medium text-gray-900">{student.name}</div>
-                          <div className="text-xs text-gray-500 md:hidden mt-1">{student.email}</div>
-                          <div className="text-xs text-gray-500 lg:hidden mt-1">{student.phone || '-'}</div>
                         </td>
-                        <td className="px-3 md:px-6 py-4 whitespace-nowrap hidden md:table-cell">
+                        <td className="px-6 py-4 whitespace-nowrap">
                           <div className="text-sm text-gray-500">{student.email}</div>
                         </td>
-                        <td className="px-3 md:px-6 py-4 whitespace-nowrap hidden lg:table-cell">
+                        <td className="px-6 py-4 whitespace-nowrap">
                           <div className="text-sm text-gray-500">{student.phone || '-'}</div>
                         </td>
-                        <td className="px-3 md:px-6 py-4 whitespace-nowrap hidden lg:table-cell">
+                        <td className="px-6 py-4 whitespace-nowrap">
                           <div className="text-sm text-gray-500">
-                            {formatDateDDMMYYYY(student.createdAt)}
+                            {student.createdAt ? new Date(student.createdAt).toLocaleDateString() : '-'}
                           </div>
                         </td>
-                        <td className="px-3 md:px-6 py-4 whitespace-nowrap">
+                        <td className="px-6 py-4 whitespace-nowrap">
                           {(() => {
                             const status = orientationStatusMap[student.id];
                             const isEligible = status?.isEligible || false;
@@ -478,8 +483,8 @@ export const StudentManagement: React.FC = () => {
                             );
                           })()}
                         </td>
-                        <td className="px-3 md:px-6 py-4 whitespace-nowrap text-sm font-medium">
-                          <div className="flex flex-wrap gap-1 md:gap-2">
+                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                          <div className="flex gap-2">
                             <button
                               onClick={() => handleView(student)}
                               className="text-blue-600 hover:text-blue-900"
@@ -532,8 +537,8 @@ export const StudentManagement: React.FC = () => {
 
       {/* Enrollment Modal */}
       {isEnrollmentModalOpen && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg p-4 md:p-6 max-w-md w-full max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4 max-h-[90vh] overflow-y-auto">
             <h2 className="text-2xl font-bold mb-4">Enroll Student in Batch</h2>
             <form onSubmit={handleEnrollStudent}>
               <div className="mb-4">
@@ -612,8 +617,8 @@ export const StudentManagement: React.FC = () => {
 
       {/* Image Upload Modal */}
       {isImageModalOpen && selectedStudent && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg p-4 md:p-6 max-w-md w-full max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
             <h2 className="text-2xl font-bold mb-4">Update Student Photo</h2>
             <div className="mb-4">
               <p className="text-sm text-gray-600 mb-2">
@@ -675,8 +680,8 @@ export const StudentManagement: React.FC = () => {
 
       {/* View Student Modal */}
       {isViewModalOpen && selectedStudent && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg p-4 md:p-6 max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-2xl font-bold">Student Profile</h2>
               <button
@@ -804,18 +809,6 @@ export const StudentManagement: React.FC = () => {
                       <label className="block text-sm font-medium text-gray-700">Phone</label>
                       <p className="mt-1 text-sm text-gray-900">{studentProfileData?.data?.user?.phone || selectedStudent?.phone || '-'}</p>
                     </div>
-                    {(() => {
-                      const documents = studentProfileData?.data?.user?.studentProfile?.documents;
-                      const enrollmentMetadata = documents && typeof documents === 'object' && 'enrollmentMetadata' in documents
-                        ? (documents as any).enrollmentMetadata
-                        : null;
-                      return (
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700">WhatsApp Number</label>
-                          <p className="mt-1 text-sm text-gray-900">{enrollmentMetadata?.whatsappNumber || '-'}</p>
-                        </div>
-                      );
-                    })()}
                     <div>
                       <label className="block text-sm font-medium text-gray-700">Status</label>
                       <p className="mt-1">
@@ -829,13 +822,13 @@ export const StudentManagement: React.FC = () => {
                     {(studentProfileData?.data?.user?.createdAt || selectedStudent?.createdAt) && (
                       <div>
                         <label className="block text-sm font-medium text-gray-700">Joined Date</label>
-                        <p className="mt-1 text-sm text-gray-900">{formatDateDDMMYYYY(studentProfileData?.data?.user?.createdAt || selectedStudent?.createdAt)}</p>
+                        <p className="mt-1 text-sm text-gray-900">{new Date(studentProfileData?.data?.user?.createdAt || selectedStudent?.createdAt || '').toLocaleDateString()}</p>
                       </div>
                     )}
                     {studentProfileData?.data?.user?.updatedAt && (
                       <div>
                         <label className="block text-sm font-medium text-gray-700">Last Updated</label>
-                        <p className="mt-1 text-sm text-gray-900">{formatDateDDMMYYYY(studentProfileData.data.user.updatedAt)}</p>
+                        <p className="mt-1 text-sm text-gray-900">{new Date(studentProfileData.data.user.updatedAt).toLocaleDateString()}</p>
                       </div>
                     )}
                   </div>
@@ -880,86 +873,12 @@ export const StudentManagement: React.FC = () => {
                           {studentProfileData.data?.user?.studentProfile?.photoUrl || '-'}
                         </p>
                       </div>
-                    </div>
-                  ) : (
-                    <div className="text-center py-8 bg-gray-50 rounded-lg">
-                      <p className="text-gray-500">No student profile information available.</p>
-                    </div>
-                  )}
-                </div>
-
-                {/* Contact & Address Information */}
-                <div>
-                  <h3 className="text-lg font-semibold text-gray-900 mb-4 border-b pb-2">Contact & Address Information</h3>
-                  {studentProfileData?.data?.user?.studentProfile ? (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {(() => {
-                        const documents = studentProfileData.data?.user?.studentProfile?.documents;
-                        const enrollmentMetadata = documents && typeof documents === 'object' && 'enrollmentMetadata' in documents
-                          ? (documents as any).enrollmentMetadata
-                          : null;
-                        const user = studentProfileData.data?.user;
-                        
-                        return (
-                          <>
-                            <div>
-                              <label className="block text-sm font-medium text-gray-700">Phone Number</label>
-                              <p className="mt-1 text-sm text-gray-900">{user?.phone || '-'}</p>
-                            </div>
-                            <div>
-                              <label className="block text-sm font-medium text-gray-700">WhatsApp Number</label>
-                              <p className="mt-1 text-sm text-gray-900">{enrollmentMetadata?.whatsappNumber || '-'}</p>
-                            </div>
-                            <div className="md:col-span-2">
-                              <label className="block text-sm font-medium text-gray-700">Local Address</label>
-                              <p className="mt-1 text-sm text-gray-900">
-                                {enrollmentMetadata?.localAddress || studentProfileData.data?.user?.studentProfile?.address || '-'}
-                              </p>
-                            </div>
-                            <div className="md:col-span-2">
-                              <label className="block text-sm font-medium text-gray-700">Permanent Address</label>
-                              <p className="mt-1 text-sm text-gray-900">{enrollmentMetadata?.permanentAddress || '-'}</p>
-                            </div>
-                            
-                            {/* Emergency Contact Information */}
-                            <div className="md:col-span-2 border-t pt-4 mt-4">
-                              <h4 className="text-md font-semibold text-gray-900 mb-3">Emergency Contact</h4>
-                            </div>
-                            {(() => {
-                              const emergencyContact = enrollmentMetadata?.emergencyContact;
-                              return (
-                                <>
-                                  <div>
-                                    <label className="block text-sm font-medium text-gray-700">Emergency Contact Number</label>
-                                    <p className="mt-1 text-sm text-gray-900">{emergencyContact?.number || '-'}</p>
-                                  </div>
-                                  <div>
-                                    <label className="block text-sm font-medium text-gray-700">Emergency Contact Name</label>
-                                    <p className="mt-1 text-sm text-gray-900">{emergencyContact?.name || '-'}</p>
-                                  </div>
-                                  <div>
-                                    <label className="block text-sm font-medium text-gray-700">Emergency Relation</label>
-                                    <p className="mt-1 text-sm text-gray-900">{emergencyContact?.relation || '-'}</p>
-                                  </div>
-                                </>
-                              );
-                            })()}
-                          </>
-                        );
-                      })()}
-                    </div>
-                  ) : (
-                    <div className="text-center py-8 bg-gray-50 rounded-lg">
-                      <p className="text-gray-500">No contact information available.</p>
-                    </div>
-                  )}
-                </div>
-
-                {/* Software List */}
-                {studentProfileData?.data?.user?.studentProfile && (
-                  <div>
-                    <h3 className="text-lg font-semibold text-gray-900 mb-4 border-b pb-2">Software List</h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="md:col-span-2">
+                        <label className="block text-sm font-medium text-gray-700">Address</label>
+                        <p className="mt-1 text-sm text-gray-900">
+                          {studentProfileData.data?.user?.studentProfile?.address || '-'}
+                        </p>
+                      </div>
                       <div className="md:col-span-2">
                         <label className="block text-sm font-medium text-gray-700">Software List</label>
                         {(() => {
@@ -989,217 +908,179 @@ export const StudentManagement: React.FC = () => {
                           );
                         })()}
                       </div>
-                      {/* Course Information */}
+                      {/* Emergency Contact Information */}
                       {(() => {
                         const documents = studentProfileData.data?.user?.studentProfile?.documents;
-                        const enrollmentMetadata = documents && typeof documents === 'object' && 'enrollmentMetadata' in documents
-                          ? (documents as any).enrollmentMetadata
+                        const enrollmentMetadata = documents && typeof documents === 'object' && 'enrollmentMetadata' in documents 
+                          ? (documents as any).enrollmentMetadata 
                           : null;
-                        return (
-                          <>
-                            <div className="md:col-span-2 border-t pt-4 mt-4">
-                              <h4 className="text-md font-semibold text-gray-900 mb-3">Course Information</h4>
-                            </div>
-                            <div>
-                              <label className="block text-sm font-medium text-gray-700">Course Name</label>
-                              <p className="mt-1 text-sm text-gray-900">{enrollmentMetadata?.courseName || '-'}</p>
-                            </div>
-                            <div>
-                              <label className="block text-sm font-medium text-gray-700">Date of Admission</label>
-                              <p className="mt-1 text-sm text-gray-900">
-                                {enrollmentMetadata?.dateOfAdmission ? formatDateDDMMYYYY(enrollmentMetadata.dateOfAdmission) : '-'}
-                              </p>
-                            </div>
-                          </>
-                        );
+                        const emergencyContact = enrollmentMetadata?.emergencyContact;
+                        
+                        if (emergencyContact) {
+                          return (
+                            <>
+                              <div className="md:col-span-2 border-t pt-4 mt-4">
+                                <h4 className="text-md font-semibold text-gray-900 mb-3">Emergency Contact</h4>
+                              </div>
+                              <div>
+                                <label className="block text-sm font-medium text-gray-700">Emergency Contact Number</label>
+                                <p className="mt-1 text-sm text-gray-900">{emergencyContact.number || '-'}</p>
+                              </div>
+                              <div>
+                                <label className="block text-sm font-medium text-gray-700">Emergency Contact Name</label>
+                                <p className="mt-1 text-sm text-gray-900">{emergencyContact.name || '-'}</p>
+                              </div>
+                              <div>
+                                <label className="block text-sm font-medium text-gray-700">Emergency Relation</label>
+                                <p className="mt-1 text-sm text-gray-900">{emergencyContact.relation || '-'}</p>
+                              </div>
+                            </>
+                          );
+                        }
+                        return null;
                       })()}
                       
                       {/* Payment Plan Information */}
                       {(() => {
-                        let documents: Record<string, any> | undefined = studentProfileData.data?.user?.studentProfile?.documents;
-                        
-                        // Handle case where documents might be a string (JSON string from database)
-                        if (documents && typeof documents === 'string') {
-                          try {
-                            documents = JSON.parse(documents) as Record<string, any>;
-                          } catch (e) {
-                            console.error('Error parsing documents JSON:', e);
-                            documents = undefined;
-                          }
-                        }
-                        
+                        const documents = studentProfileData.data?.user?.studentProfile?.documents;
                         const enrollmentMetadata = documents && typeof documents === 'object' && 'enrollmentMetadata' in documents 
                           ? (documents as any).enrollmentMetadata 
                           : null;
                         
-                        // Debug logging (remove in production if needed)
-                        if (process.env.NODE_ENV === 'development') {
-                          console.log('Payment Plan Debug:', {
-                            hasDocuments: !!documents,
-                            documentsType: typeof documents,
-                            hasEnrollmentMetadata: !!enrollmentMetadata,
-                            enrollmentMetadata
-                          });
+                        if (enrollmentMetadata && (enrollmentMetadata.emiPlan !== undefined || enrollmentMetadata.totalDeal !== undefined)) {
+                          return (
+                            <>
+                              <div className="md:col-span-2 border-t pt-4 mt-4">
+                                <h4 className="text-md font-semibold text-gray-900 mb-3">Payment Plan</h4>
+                              </div>
+                              {enrollmentMetadata.totalDeal !== undefined && (
+                                <div>
+                                  <label className="block text-sm font-medium text-gray-700">Total Deal</label>
+                                  <p className="mt-1 text-sm text-gray-900">₹{enrollmentMetadata.totalDeal || '-'}</p>
+                                </div>
+                              )}
+                              {enrollmentMetadata.bookingAmount !== undefined && (
+                                <div>
+                                  <label className="block text-sm font-medium text-gray-700">Booking Amount</label>
+                                  <p className="mt-1 text-sm text-gray-900">₹{enrollmentMetadata.bookingAmount || '-'}</p>
+                                </div>
+                              )}
+                              {enrollmentMetadata.balanceAmount !== undefined && (
+                                <div>
+                                  <label className="block text-sm font-medium text-gray-700">Balance Amount</label>
+                                  <p className="mt-1 text-sm text-gray-900">₹{enrollmentMetadata.balanceAmount || '-'}</p>
+                                </div>
+                              )}
+                              <div>
+                                <label className="block text-sm font-medium text-gray-700">EMI Plan</label>
+                                <p className="mt-1">
+                                  <span className={`px-2 py-1 rounded text-xs font-semibold ${
+                                    enrollmentMetadata.emiPlan 
+                                      ? 'bg-green-100 text-green-800' 
+                                      : 'bg-gray-100 text-gray-800'
+                                  }`}>
+                                    {enrollmentMetadata.emiPlan ? 'Yes' : 'No'}
+                                  </span>
+                                </p>
+                              </div>
+                              {enrollmentMetadata.emiPlanDate && (
+                                <div>
+                                  <label className="block text-sm font-medium text-gray-700">EMI Plan Date</label>
+                                  <p className="mt-1 text-sm text-gray-900">{formatDateDDMMYYYY(enrollmentMetadata.emiPlanDate)}</p>
+                                </div>
+                              )}
+                              {enrollmentMetadata.emiInstallments && Array.isArray(enrollmentMetadata.emiInstallments) && enrollmentMetadata.emiInstallments.length > 0 && (
+                                <div className="col-span-2">
+                                  <label className="block text-sm font-medium text-gray-700 mb-2">EMI Installments</label>
+                                  <div className="overflow-x-auto">
+                                    <table className="min-w-full divide-y divide-gray-200 border border-gray-300">
+                                      <thead className="bg-gray-50">
+                                        <tr>
+                                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-700 uppercase">Month</th>
+                                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-700 uppercase">Amount (₹)</th>
+                                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-700 uppercase">Due Date</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody className="bg-white divide-y divide-gray-200">
+                                        {enrollmentMetadata.emiInstallments.map((installment: any, index: number) => (
+                                          <tr key={index}>
+                                            <td className="px-4 py-2 text-sm text-gray-900">{installment.month}</td>
+                                            <td className="px-4 py-2 text-sm text-gray-900">₹{Number(installment.amount).toFixed(2)}</td>
+                                            <td className="px-4 py-2 text-sm text-gray-900">
+                                              {installment.dueDate ? formatDateDDMMYYYY(installment.dueDate) : '-'}
+                                            </td>
+                                          </tr>
+                                        ))}
+                                      </tbody>
+                                    </table>
+                                  </div>
+                                </div>
+                              )}
+                              {enrollmentMetadata.enrollmentDocuments && Array.isArray(enrollmentMetadata.enrollmentDocuments) && enrollmentMetadata.enrollmentDocuments.length > 0 && (
+                                <div className="col-span-2">
+                                  <label className="block text-sm font-medium text-gray-700 mb-2">Enrollment Documents</label>
+                                  <div className="space-y-2">
+                                    {enrollmentMetadata.enrollmentDocuments.map((docUrl: string, index: number) => {
+                                      const fileName = docUrl.split('/').pop() || 'Document';
+                                      const isImage = docUrl.toLowerCase().match(/\.(jpg|jpeg|png|gif)$/);
+                                      const isPdf = docUrl.toLowerCase().endsWith('.pdf');
+                                      return (
+                                        <div
+                                          key={index}
+                                          className="flex items-center justify-between p-3 bg-gray-50 border border-gray-200 rounded-md"
+                                        >
+                                          <div className="flex items-center space-x-3 flex-1 min-w-0">
+                                            <div className="flex-shrink-0">
+                                              {isPdf ? (
+                                                <span className="text-2xl">📄</span>
+                                              ) : isImage ? (
+                                                <span className="text-2xl">🖼️</span>
+                                              ) : (
+                                                <span className="text-2xl">📎</span>
+                                              )}
+                                            </div>
+                                            <div className="flex-1 min-w-0">
+                                              <p className="text-sm font-medium text-gray-900 truncate">{fileName}</p>
+                                            </div>
+                                          </div>
+                                          <a
+                                            href={getImageUrl(docUrl) || docUrl}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="px-3 py-1 text-sm text-blue-600 hover:text-blue-800 border border-blue-300 rounded hover:bg-blue-50"
+                                          >
+                                            View
+                                          </a>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              )}
+                            </>
+                          );
                         }
-                        
-                        return (
-                          <>
-                            <div className="md:col-span-2 border-t pt-4 mt-4">
-                              <h4 className="text-md font-semibold text-gray-900 mb-3">Payment Plan</h4>
-                            </div>
-                            <div>
-                              <label className="block text-sm font-medium text-gray-700">Total Deal Amount (₹)</label>
-                              <p className="mt-1 text-sm text-gray-900">
-                                {enrollmentMetadata?.totalDeal !== undefined ? `₹${enrollmentMetadata.totalDeal}` : '-'}
-                              </p>
-                            </div>
-                            <div>
-                              <label className="block text-sm font-medium text-gray-700">Booking Amount (₹)</label>
-                              <p className="mt-1 text-sm text-gray-900">
-                                {enrollmentMetadata?.bookingAmount !== undefined ? `₹${enrollmentMetadata.bookingAmount}` : '-'}
-                              </p>
-                            </div>
-                            <div>
-                              <label className="block text-sm font-medium text-gray-700">Balance Amount (₹)</label>
-                              <p className="mt-1 text-sm text-gray-900">
-                                {enrollmentMetadata?.balanceAmount !== undefined ? `₹${enrollmentMetadata.balanceAmount}` : '-'}
-                              </p>
-                            </div>
-                            <div>
-                              <label className="block text-sm font-medium text-gray-700">EMI Plan</label>
-                              <p className="mt-1">
-                                <span className={`px-2 py-1 rounded text-xs font-semibold ${
-                                  enrollmentMetadata?.emiPlan 
-                                    ? 'bg-green-100 text-green-800' 
-                                    : 'bg-gray-100 text-gray-800'
-                                }`}>
-                                  {enrollmentMetadata?.emiPlan ? 'Yes' : enrollmentMetadata?.emiPlan === false ? 'No' : '-'}
-                                </span>
-                              </p>
-                            </div>
-                            <div>
-                              <label className="block text-sm font-medium text-gray-700">EMI Plan Date</label>
-                              <p className="mt-1 text-sm text-gray-900">
-                                {enrollmentMetadata?.emiPlanDate ? formatDateDDMMYYYY(enrollmentMetadata.emiPlanDate) : '-'}
-                              </p>
-                            </div>
-                          </>
-                        );
-                      })()}
-
-                      {/* Additional Information */}
-                      {(() => {
-                        const documents = studentProfileData.data?.user?.studentProfile?.documents;
-                        const enrollmentMetadata = documents && typeof documents === 'object' && 'enrollmentMetadata' in documents
-                          ? (documents as any).enrollmentMetadata
-                          : null;
-                        
-                        return (
-                          <>
-                            <div className="md:col-span-2 border-t pt-4 mt-4">
-                              <h4 className="text-md font-semibold text-gray-900 mb-3">Additional Information</h4>
-                            </div>
-                            <div>
-                              <label className="block text-sm font-medium text-gray-700">Complimentary Software</label>
-                              <p className="mt-1 text-sm text-gray-900">{enrollmentMetadata?.complimentarySoftware || '-'}</p>
-                            </div>
-                            <div>
-                              <label className="block text-sm font-medium text-gray-700">Complimentary Gift</label>
-                              <p className="mt-1 text-sm text-gray-900">{enrollmentMetadata?.complimentaryGift || '-'}</p>
-                            </div>
-                            <div>
-                              <label className="block text-sm font-medium text-gray-700">Has Reference</label>
-                              <p className="mt-1">
-                                <span className={`px-2 py-1 rounded text-xs font-semibold ${
-                                  enrollmentMetadata?.hasReference
-                                    ? 'bg-green-100 text-green-800'
-                                    : 'bg-gray-100 text-gray-800'
-                                }`}>
-                                  {enrollmentMetadata?.hasReference !== undefined 
-                                    ? (enrollmentMetadata.hasReference ? 'Yes' : 'No') 
-                                    : '-'}
-                                </span>
-                              </p>
-                            </div>
-                            <div className="md:col-span-2">
-                              <label className="block text-sm font-medium text-gray-700">Reference Details</label>
-                              <p className="mt-1 text-sm text-gray-900 whitespace-pre-wrap">{enrollmentMetadata?.referenceDetails || '-'}</p>
-                            </div>
-                            <div>
-                              <label className="block text-sm font-medium text-gray-700">Counselor Name</label>
-                              <p className="mt-1 text-sm text-gray-900">{enrollmentMetadata?.counselorName || '-'}</p>
-                            </div>
-                            <div>
-                              <label className="block text-sm font-medium text-gray-700">Lead Source</label>
-                              <p className="mt-1 text-sm text-gray-900">{enrollmentMetadata?.leadSource || '-'}</p>
-                            </div>
-                            <div>
-                              <label className="block text-sm font-medium text-gray-700">Walk-in Date</label>
-                              <p className="mt-1 text-sm text-gray-900">
-                                {enrollmentMetadata?.walkinDate ? formatDateDDMMYYYY(enrollmentMetadata.walkinDate) : '-'}
-                              </p>
-                            </div>
-                            <div>
-                              <label className="block text-sm font-medium text-gray-700">Master Faculty</label>
-                              <p className="mt-1 text-sm text-gray-900">{enrollmentMetadata?.masterFaculty || '-'}</p>
-                            </div>
-                          </>
-                        );
+                        return null;
                       })()}
                       {studentProfileData.data?.user?.studentProfile?.createdAt && (
                         <div>
                           <label className="block text-sm font-medium text-gray-700">Profile Created</label>
-                          <p className="mt-1 text-sm text-gray-900">{formatDateDDMMYYYY(studentProfileData.data.user.studentProfile.createdAt)}</p>
+                          <p className="mt-1 text-sm text-gray-900">{new Date(studentProfileData.data.user.studentProfile.createdAt).toLocaleDateString()}</p>
                         </div>
                       )}
                       {studentProfileData.data?.user?.studentProfile?.updatedAt && (
                         <div>
                           <label className="block text-sm font-medium text-gray-700">Profile Updated</label>
-                          <p className="mt-1 text-sm text-gray-900">{formatDateDDMMYYYY(studentProfileData.data.user.studentProfile.updatedAt)}</p>
+                          <p className="mt-1 text-sm text-gray-900">{new Date(studentProfileData.data.user.studentProfile.updatedAt).toLocaleDateString()}</p>
                         </div>
                       )}
                     </div>
-                  </div>
-                )}
-
-                {/* Batch Enrollments */}
-                {studentProfileData?.data?.user?.enrollments && studentProfileData.data.user.enrollments.length > 0 && (
-                  <div>
-                    <h3 className="text-lg font-semibold text-gray-900 mb-4 border-b pb-2">Batch Enrollments</h3>
-                    <div className="space-y-3">
-                      {studentProfileData.data.user.enrollments.map((enrollment: any) => (
-                        <div
-                          key={enrollment.id}
-                          className="p-4 border border-gray-200 rounded-lg bg-gray-50 hover:bg-gray-100 transition-colors"
-                        >
-                          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                            <div className="flex-1">
-                              <p className="text-lg font-semibold text-gray-900">
-                                {enrollment.batch?.title || `Batch #${enrollment.batchId || 'N/A'}`}
-                              </p>
-                              <p className="text-sm text-gray-600 mt-1">
-                                {enrollment.batch?.software ? `${enrollment.batch.software} · ` : ''}
-                                {enrollment.batch?.mode || 'Mode N/A'}
-                                {enrollment.enrollmentDate && ` · Enrolled: ${formatDateDDMMYYYY(enrollment.enrollmentDate)}`}
-                              </p>
-                            </div>
-                            <span
-                              className={`px-3 py-1 rounded-full text-sm font-semibold self-start sm:self-auto ${
-                                enrollment.status === 'active'
-                                  ? 'bg-green-100 text-green-700'
-                                  : enrollment.status === 'completed'
-                                  ? 'bg-blue-100 text-blue-700'
-                                  : 'bg-gray-100 text-gray-600'
-                              }`}
-                            >
-                              {enrollment.status || 'N/A'}
-                            </span>
-                          </div>
-                        </div>
-                      ))}
+                  ) : (
+                    <div className="text-center py-8 bg-gray-50 rounded-lg">
+                      <p className="text-gray-500">No student profile information available.</p>
                     </div>
-                  </div>
-                )}
+                  )}
+                </div>
 
                 {/* Software Completions */}
                 <div>
@@ -1227,10 +1108,10 @@ export const StudentManagement: React.FC = () => {
                                 {completion.batch?.title || `Batch ${completion.batchId}`}
                               </td>
                               <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
-                                {formatDateDDMMYYYY(completion.startDate)}
+                                {new Date(completion.startDate).toLocaleDateString()}
                               </td>
                               <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
-                                {formatDateDDMMYYYY(completion.endDate)}
+                                {new Date(completion.endDate).toLocaleDateString()}
                               </td>
                               <td className="px-4 py-3 whitespace-nowrap">
                                 <span className={`px-2 py-1 rounded text-xs font-semibold ${
@@ -1275,8 +1156,8 @@ export const StudentManagement: React.FC = () => {
 
       {/* Delete Confirmation Modal */}
       {isDeleteModalOpen && selectedStudent && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg p-4 md:p-6 max-w-md w-full max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
             <h2 className="text-2xl font-bold mb-4 text-red-600">Delete Student</h2>
             <p className="mb-4 text-gray-700">
               Are you sure you want to delete <strong>{selectedStudent.name}</strong>? This action cannot be undone.
@@ -1305,8 +1186,8 @@ export const StudentManagement: React.FC = () => {
 
       {/* Bulk Upload Modal */}
       {isBulkUploadModalOpen && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg p-4 md:p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
             <h2 className="text-2xl font-bold mb-4">Bulk Student Enrollment</h2>
             
             {bulkUploadResult ? (
@@ -1406,8 +1287,8 @@ export const StudentManagement: React.FC = () => {
 
       {/* Orientation Modal */}
       {isOrientationModalOpen && orientationStudentId && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full mx-4 max-h-[90vh] overflow-hidden flex flex-col">
             <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
               <h2 className="text-xl font-bold text-gray-900">Student Orientation</h2>
               <button

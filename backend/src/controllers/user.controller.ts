@@ -30,8 +30,16 @@ export const getAllUsers = async (
 
     const { role, isActive, page = '1', limit = '50' } = req.query;
     const pageNum = parseInt(page, 10);
-    const limitNum = parseInt(limit, 10);
-    const offset = (pageNum - 1) * limitNum;
+    let limitNum = parseInt(limit, 10);
+    
+    // Cap limit at 10000 to prevent performance issues
+    if (limitNum > 10000) {
+      limitNum = 10000;
+      logger.warn(`Limit capped at 10000, requested: ${limit}`);
+    }
+    
+    // If limit is very high, don't use pagination
+    const offset = limitNum > 1000 ? 0 : (pageNum - 1) * limitNum;
 
     const where: any = {};
     if (role) {
@@ -44,40 +52,47 @@ export const getAllUsers = async (
     const includeOptions: any[] = [];
     
     // Only include profile models if they exist and are defined
+    // Include profiles based on the role being queried for better performance
     try {
-      if (db.StudentProfile && typeof db.StudentProfile !== 'undefined') {
-        includeOptions.push({
-          model: db.StudentProfile,
-          as: 'studentProfile',
-          required: false,
-        });
+      if (role === 'student' || !role) {
+        if (db.StudentProfile && typeof db.StudentProfile !== 'undefined') {
+          includeOptions.push({
+            model: db.StudentProfile,
+            as: 'studentProfile',
+            required: false,
+          });
+        }
       }
     } catch (e) {
-      // StudentProfile model not available
+      logger.warn('StudentProfile model not available for include:', e);
     }
     
     try {
-      if (db.FacultyProfile && typeof db.FacultyProfile !== 'undefined') {
-        includeOptions.push({
-          model: db.FacultyProfile,
-          as: 'facultyProfile',
-          required: false,
-        });
+      if (role === 'faculty' || !role) {
+        if (db.FacultyProfile && typeof db.FacultyProfile !== 'undefined') {
+          includeOptions.push({
+            model: db.FacultyProfile,
+            as: 'facultyProfile',
+            required: false,
+          });
+        }
       }
     } catch (e) {
-      // FacultyProfile model not available
+      logger.warn('FacultyProfile model not available for include:', e);
     }
     
     try {
-      if (db.EmployeeProfile && typeof db.EmployeeProfile !== 'undefined') {
-        includeOptions.push({
-          model: db.EmployeeProfile,
-          as: 'employeeProfile',
-          required: false,
-        });
+      if (role === 'employee' || !role) {
+        if (db.EmployeeProfile && typeof db.EmployeeProfile !== 'undefined') {
+          includeOptions.push({
+            model: db.EmployeeProfile,
+            as: 'employeeProfile',
+            required: false,
+          });
+        }
       }
     } catch (e) {
-      // EmployeeProfile model not available
+      logger.warn('EmployeeProfile model not available for include:', e);
     }
 
     const queryOptions: any = {
@@ -93,7 +108,37 @@ export const getAllUsers = async (
       queryOptions.include = includeOptions;
     }
 
-    const { count, rows: users } = await db.User.findAndCountAll(queryOptions);
+    logger.info(`Querying users with options: ${JSON.stringify({ where, limit: limitNum, offset, includeCount: includeOptions.length })}`);
+
+    let count: number;
+    let users: any[];
+    
+    try {
+      const result = await db.User.findAndCountAll(queryOptions);
+      count = result.count;
+      users = result.rows;
+    } catch (queryError: any) {
+      logger.error('Database query error in getAllUsers:', queryError);
+      logger.error('Query options:', JSON.stringify(queryOptions, null, 2));
+      
+      // Try without includes if query fails
+      if (includeOptions.length > 0) {
+        logger.info('Retrying query without includes...');
+        const simpleQueryOptions = {
+          where,
+          attributes: { exclude: ['passwordHash'] },
+          limit: limitNum,
+          offset,
+          order: [['createdAt', 'DESC']],
+        };
+        const result = await db.User.findAndCountAll(simpleQueryOptions);
+        count = result.count;
+        users = result.rows;
+        logger.warn('Query succeeded without includes. Profile data may be missing.');
+      } else {
+        throw queryError;
+      }
+    }
 
     logger.info(`Get all users: Found ${count} users with role=${role}, isActive=${isActive}`);
 
@@ -109,11 +154,14 @@ export const getAllUsers = async (
         },
       },
     });
-  } catch (error) {
+  } catch (error: any) {
     logger.error('Get all users error:', error);
+    logger.error('Error stack:', error?.stack);
+    logger.error('Error message:', error?.message);
     res.status(500).json({
       status: 'error',
       message: 'Internal server error while fetching users',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
     });
   }
 };

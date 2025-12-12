@@ -17,6 +17,7 @@ export const FacultyManagement: React.FC = () => {
   const [isImageModalOpen, setIsImageModalOpen] = useState(false);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [uploadingImage, setUploadingImage] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
 
   // Fetch faculty
   const { data: facultyData, isLoading, error: facultyError } = useQuery({
@@ -106,7 +107,18 @@ export const FacultyManagement: React.FC = () => {
     }
   };
 
-  const faculty = facultyData?.data.users || [];
+  const allFaculty = facultyData?.data.users || [];
+  
+  // Filter faculty based on search query
+  const faculty = allFaculty.filter((facultyMember) => {
+    if (!searchQuery.trim()) return true;
+    const query = searchQuery.toLowerCase();
+    return (
+      facultyMember.name?.toLowerCase().includes(query) ||
+      facultyMember.email?.toLowerCase().includes(query) ||
+      facultyMember.phone?.toLowerCase().includes(query)
+    );
+  });
 
   const handleDelete = (facultyMember: FacultyUser) => {
     setSelectedFaculty(facultyMember);
@@ -176,9 +188,52 @@ export const FacultyManagement: React.FC = () => {
           </div>
 
           <div className="p-4 md:p-6">
+            {/* Search Bar */}
+            <div className="mb-4">
+              <div className="relative max-w-md">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                  <svg className="h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                  </svg>
+                </div>
+                <input
+                  type="text"
+                  placeholder="Search faculty by name, email, or phone..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
+                />
+                {searchQuery && (
+                  <button
+                    onClick={() => setSearchQuery('')}
+                    className="absolute inset-y-0 right-0 pr-3 flex items-center"
+                  >
+                    <svg className="h-5 w-5 text-gray-400 hover:text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                )}
+              </div>
+              {searchQuery && (
+                <p className="mt-2 text-sm text-gray-600">
+                  Showing {faculty.length} of {allFaculty.length} faculty members
+                </p>
+              )}
+            </div>
+
             {faculty.length === 0 ? (
               <div className="text-center py-12">
-                <p className="text-gray-500 text-lg">No faculty members found</p>
+                <p className="text-gray-500 text-lg">
+                  {searchQuery ? 'No faculty members found matching your search' : 'No faculty members found'}
+                </p>
+                {searchQuery && (
+                  <button
+                    onClick={() => setSearchQuery('')}
+                    className="mt-2 text-orange-600 hover:text-orange-700 text-sm"
+                  >
+                    Clear search
+                  </button>
+                )}
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -277,17 +332,17 @@ export const FacultyManagement: React.FC = () => {
 
       {/* Delete Confirmation Modal */}
       {isDeleteModalOpen && selectedFaculty && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-4 md:p-6 max-w-md w-full mx-4 max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-2 sm:p-4">
+          <div className="bg-white rounded-lg p-4 sm:p-6 max-w-md w-full max-h-[90vh] overflow-y-auto">
             <h2 className="text-2xl font-bold mb-4 text-red-600">Delete Faculty</h2>
             <p className="mb-4 text-gray-700">
               Are you sure you want to delete <strong>{selectedFaculty.name}</strong>? This action cannot be undone.
             </p>
-            <div className="flex gap-3">
+            <div className="flex flex-col sm:flex-row gap-3">
               <button
                 onClick={handleConfirmDelete}
                 disabled={deleteUserMutation.isPending}
-                className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700 transition-colors disabled:opacity-50"
+                className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700 transition-colors disabled:opacity-50 text-sm sm:text-base"
               >
                 {deleteUserMutation.isPending ? 'Deleting...' : 'Delete'}
               </button>
@@ -296,7 +351,7 @@ export const FacultyManagement: React.FC = () => {
                   setIsDeleteModalOpen(false);
                   setSelectedFaculty(null);
                 }}
-                className="flex-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-lg font-semibold hover:bg-gray-300 transition-colors"
+                className="flex-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-lg font-semibold hover:bg-gray-300 transition-colors text-sm sm:text-base"
               >
                 Cancel
               </button>
@@ -307,8 +362,8 @@ export const FacultyManagement: React.FC = () => {
 
       {/* Image Upload Modal */}
       {isImageModalOpen && selectedFaculty && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-4 md:p-6 max-w-md w-full mx-4 max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-2 sm:p-4">
+          <div className="bg-white rounded-lg p-4 sm:p-6 max-w-md w-full max-h-[90vh] overflow-y-auto">
             <h2 className="text-2xl font-bold mb-4">Update Faculty Photo</h2>
             <div className="mb-4">
               <p className="text-sm text-gray-600 mb-2">

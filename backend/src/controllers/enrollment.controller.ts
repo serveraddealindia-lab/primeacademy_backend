@@ -201,6 +201,15 @@ export const getAllEnrollments = async (req: AuthRequest, res: Response): Promis
           model: db.User,
           as: 'student',
           attributes: ['id', 'name', 'email', 'phone'],
+          include: [
+            {
+              model: db.StudentProfile,
+              as: 'studentProfile',
+              attributes: ['id', 'documents', 'userId'],
+              required: false,
+            },
+          ],
+          required: true,
         },
         {
           model: db.Batch,
@@ -211,10 +220,120 @@ export const getAllEnrollments = async (req: AuthRequest, res: Response): Promis
       order: [['enrollmentDate', 'DESC']],
     });
 
+    // Enrich enrollments with fees from studentProfile if paymentPlan is empty
+    const enrichedEnrollments = await Promise.all(enrollments.map(async (enrollment: any) => {
+      const enrollmentJson = enrollment.toJSON();
+      
+      // If paymentPlan is empty or null, try to get fees from studentProfile
+      if (!enrollmentJson.paymentPlan || Object.keys(enrollmentJson.paymentPlan).length === 0) {
+        let studentProfile = enrollmentJson.student?.studentProfile;
+        
+        // If studentProfile is not included, fetch it directly
+        if (!studentProfile && enrollmentJson.studentId) {
+          try {
+            const profile = await db.StudentProfile.findOne({
+              where: { userId: enrollmentJson.studentId },
+              attributes: ['id', 'documents', 'userId'],
+            });
+            if (profile) {
+              studentProfile = profile.toJSON();
+            }
+          } catch (error) {
+            logger.error(`Error fetching studentProfile for enrollment ${enrollmentJson.id}:`, error);
+          }
+        }
+        
+        if (studentProfile?.documents) {
+          // Handle documents as string (JSON) or object
+          let documents = studentProfile.documents;
+          if (typeof documents === 'string') {
+            try {
+              documents = JSON.parse(documents);
+            } catch (e) {
+              logger.warn(`Failed to parse documents JSON for student ${studentProfile.id}:`, e);
+              documents = null;
+            }
+          }
+          
+          // Try to get enrollmentMetadata from documents
+          const metadata = documents?.enrollmentMetadata;
+          if (metadata) {
+            const totalDeal = metadata.totalDeal !== undefined && metadata.totalDeal !== null ? Number(metadata.totalDeal) : null;
+            const bookingAmount = metadata.bookingAmount !== undefined && metadata.bookingAmount !== null ? Number(metadata.bookingAmount) : null;
+            
+            // Calculate actual balance from payments
+            let balanceAmount = null;
+            if (totalDeal !== null && totalDeal !== undefined) {
+              // Get all payments for this enrollment
+              const payments = await db.PaymentTransaction.findAll({
+                where: {
+                  studentId: enrollmentJson.studentId,
+                  enrollmentId: enrollmentJson.id,
+                },
+                attributes: ['paidAmount', 'status'],
+              });
+              
+              // Calculate total paid amount
+              const totalPaid = payments.reduce((sum, payment: any) => {
+                if (payment.status === 'paid' || payment.status === 'partial') {
+                  return sum + (payment.paidAmount || 0);
+                }
+                return sum;
+              }, 0);
+              
+              // Calculate balance: totalDeal - bookingAmount - totalPaid
+              const calculatedBalance = totalDeal - (bookingAmount || 0) - totalPaid;
+              balanceAmount = Math.max(0, calculatedBalance);
+            }
+            
+            logger.info(`Setting paymentPlan for enrollment ${enrollmentJson.id}: totalDeal=${totalDeal}, bookingAmount=${bookingAmount}, balanceAmount=${balanceAmount}`);
+            
+            enrollmentJson.paymentPlan = {
+              totalDeal,
+              bookingAmount,
+              balanceAmount: balanceAmount !== null && balanceAmount !== undefined ? balanceAmount : null,
+            };
+          } else {
+            logger.warn(`No enrollmentMetadata found in documents for enrollment ${enrollmentJson.id}, studentProfileId: ${studentProfile.id}, documents keys: ${documents ? Object.keys(documents).join(', ') : 'null'}`);
+          }
+        } else {
+          logger.warn(`No studentProfile or documents found for enrollment ${enrollmentJson.id}, studentId: ${enrollmentJson.studentId}`);
+        }
+      } else {
+        // Even if paymentPlan exists, recalculate balanceAmount from actual payments
+        const paymentPlan = enrollmentJson.paymentPlan as any;
+        if (paymentPlan.totalDeal !== null && paymentPlan.totalDeal !== undefined) {
+          // Get all payments for this enrollment
+          const payments = await db.PaymentTransaction.findAll({
+            where: {
+              studentId: enrollmentJson.studentId,
+              enrollmentId: enrollmentJson.id,
+            },
+            attributes: ['paidAmount', 'status'],
+          });
+          
+          // Calculate total paid amount
+          const totalPaid = payments.reduce((sum, payment: any) => {
+            if (payment.status === 'paid' || payment.status === 'partial') {
+              return sum + (payment.paidAmount || 0);
+            }
+            return sum;
+          }, 0);
+          
+          // Recalculate balance: totalDeal - bookingAmount - totalPaid
+          const bookingAmount = paymentPlan.bookingAmount || 0;
+          const calculatedBalance = paymentPlan.totalDeal - bookingAmount - totalPaid;
+          paymentPlan.balanceAmount = Math.max(0, calculatedBalance);
+        }
+      }
+      
+      return enrollmentJson;
+    }));
+
     res.status(200).json({
       status: 'success',
-      data: enrollments,
-      count: enrollments.length,
+      data: enrichedEnrollments,
+      count: enrichedEnrollments.length,
     });
   } catch (error) {
     logger.error('Get all enrollments error:', error);
@@ -251,6 +370,14 @@ export const getEnrollmentById = async (req: AuthRequest, res: Response): Promis
           model: db.User,
           as: 'student',
           attributes: ['id', 'name', 'email', 'phone'],
+          include: [
+            {
+              model: db.StudentProfile,
+              as: 'studentProfile',
+              attributes: ['id', 'documents'],
+              required: false,
+            },
+          ],
         },
         {
           model: db.Batch,
@@ -286,9 +413,113 @@ export const getEnrollmentById = async (req: AuthRequest, res: Response): Promis
       }
     }
 
+    // Enrich enrollment with fees from studentProfile if paymentPlan is empty
+    const enrollmentJson = enrollment.toJSON();
+    if (!enrollmentJson.paymentPlan || Object.keys(enrollmentJson.paymentPlan).length === 0) {
+      let studentProfile = enrollmentJson.student?.studentProfile;
+      
+      // If studentProfile is not included, fetch it directly
+      if (!studentProfile && enrollmentJson.studentId) {
+        try {
+          const profile = await db.StudentProfile.findOne({
+            where: { userId: enrollmentJson.studentId },
+            attributes: ['id', 'documents', 'userId'],
+          });
+          if (profile) {
+            studentProfile = profile.toJSON();
+          }
+        } catch (error) {
+          logger.error(`Error fetching studentProfile for enrollment ${enrollmentJson.id}:`, error);
+        }
+      }
+      
+      if (studentProfile?.documents) {
+        // Handle documents as string (JSON) or object
+        let documents = studentProfile.documents;
+        if (typeof documents === 'string') {
+          try {
+            documents = JSON.parse(documents);
+          } catch (e) {
+            logger.warn(`Failed to parse documents JSON for student ${studentProfile.id}:`, e);
+            documents = null;
+          }
+        }
+        
+        // Try to get enrollmentMetadata from documents
+        const metadata = documents?.enrollmentMetadata;
+        if (metadata) {
+          const totalDeal = metadata.totalDeal !== undefined && metadata.totalDeal !== null ? Number(metadata.totalDeal) : null;
+          const bookingAmount = metadata.bookingAmount !== undefined && metadata.bookingAmount !== null ? Number(metadata.bookingAmount) : null;
+          
+          // Calculate actual balance from payments
+          let balanceAmount = null;
+          if (totalDeal !== null && totalDeal !== undefined) {
+            // Get all payments for this enrollment
+            const payments = await db.PaymentTransaction.findAll({
+              where: {
+                studentId: enrollmentJson.studentId,
+                enrollmentId: enrollmentJson.id,
+              },
+              attributes: ['paidAmount', 'status'],
+            });
+            
+            // Calculate total paid amount
+            const totalPaid = payments.reduce((sum, payment: any) => {
+              if (payment.status === 'paid' || payment.status === 'partial') {
+                return sum + (payment.paidAmount || 0);
+              }
+              return sum;
+            }, 0);
+            
+            // Calculate balance: totalDeal - bookingAmount - totalPaid
+            const calculatedBalance = totalDeal - (bookingAmount || 0) - totalPaid;
+            balanceAmount = Math.max(0, calculatedBalance);
+          }
+          
+          logger.info(`Setting paymentPlan for enrollment ${enrollmentJson.id}: totalDeal=${totalDeal}, bookingAmount=${bookingAmount}, balanceAmount=${balanceAmount}`);
+          
+          enrollmentJson.paymentPlan = {
+            totalDeal,
+            bookingAmount,
+            balanceAmount: balanceAmount !== null && balanceAmount !== undefined ? balanceAmount : null,
+          };
+        } else {
+          logger.warn(`No enrollmentMetadata found in documents for enrollment ${enrollmentJson.id}, studentProfileId: ${studentProfile.id}`);
+        }
+      } else {
+        logger.warn(`No studentProfile or documents found for enrollment ${enrollmentJson.id}, studentId: ${enrollmentJson.studentId}`);
+      }
+    } else {
+      // Even if paymentPlan exists, recalculate balanceAmount from actual payments
+      const paymentPlan = enrollmentJson.paymentPlan as any;
+      if (paymentPlan.totalDeal !== null && paymentPlan.totalDeal !== undefined) {
+        // Get all payments for this enrollment
+        const payments = await db.PaymentTransaction.findAll({
+          where: {
+            studentId: enrollmentJson.studentId,
+            enrollmentId: enrollmentJson.id,
+          },
+          attributes: ['paidAmount', 'status'],
+        });
+        
+        // Calculate total paid amount
+        const totalPaid = payments.reduce((sum, payment: any) => {
+          if (payment.status === 'paid' || payment.status === 'partial') {
+            return sum + (payment.paidAmount || 0);
+          }
+          return sum;
+        }, 0);
+        
+        // Recalculate balance: totalDeal - bookingAmount - totalPaid
+        const bookingAmount = paymentPlan.bookingAmount || 0;
+        const calculatedBalance = paymentPlan.totalDeal - bookingAmount - totalPaid;
+        paymentPlan.balanceAmount = Math.max(0, calculatedBalance);
+      }
+    }
+
     res.status(200).json({
       status: 'success',
-      data: enrollment,
+      data: enrollmentJson,
     });
   } catch (error) {
     logger.error('Get enrollment by ID error:', error);
@@ -328,7 +559,24 @@ export const updateEnrollment = async (req: AuthRequest & { body: UpdateEnrollme
       return;
     }
 
-    const enrollment = await db.Enrollment.findByPk(enrollmentId);
+    const enrollment = await db.Enrollment.findByPk(enrollmentId, {
+      include: [
+        {
+          model: db.User,
+          as: 'student',
+          attributes: ['id', 'name', 'email', 'phone'],
+          include: [
+            {
+              model: db.StudentProfile,
+              as: 'studentProfile',
+              attributes: ['id', 'documents'],
+              required: false,
+            },
+          ],
+        },
+      ],
+    });
+    
     if (!enrollment) {
       res.status(404).json({
         status: 'error',
@@ -339,10 +587,48 @@ export const updateEnrollment = async (req: AuthRequest & { body: UpdateEnrollme
 
     const { status, paymentPlan } = req.body;
 
+    // If paymentPlan is not provided, try to sync from studentProfile
+    let finalPaymentPlan = paymentPlan;
+    if (paymentPlan === undefined) {
+      const enrollmentJson = enrollment.toJSON();
+      const studentProfile = enrollmentJson.student?.studentProfile;
+      if (studentProfile?.documents) {
+        // Handle documents as string (JSON) or object
+        let documents = studentProfile.documents;
+        if (typeof documents === 'string') {
+          try {
+            documents = JSON.parse(documents);
+          } catch (e) {
+            logger.warn(`Failed to parse documents JSON for student ${studentProfile.id}:`, e);
+            documents = null;
+          }
+        }
+        
+        // Try to get enrollmentMetadata from documents
+        const metadata = documents?.enrollmentMetadata;
+        if (metadata) {
+          finalPaymentPlan = {
+            totalDeal: metadata.totalDeal !== undefined && metadata.totalDeal !== null ? metadata.totalDeal : null,
+            bookingAmount: metadata.bookingAmount !== undefined && metadata.bookingAmount !== null ? metadata.bookingAmount : null,
+            balanceAmount: metadata.balanceAmount !== undefined && metadata.balanceAmount !== null ? metadata.balanceAmount : null,
+          };
+          // Update enrollment with synced paymentPlan
+          await enrollment.update({
+            paymentPlan: finalPaymentPlan,
+          });
+          logger.info(`Synced paymentPlan from studentProfile for enrollment ${enrollmentId}`);
+        } else {
+          finalPaymentPlan = enrollment.paymentPlan;
+        }
+      } else {
+        finalPaymentPlan = enrollment.paymentPlan;
+      }
+    }
+
     // Update enrollment
     await enrollment.update({
       status: status !== undefined ? status : enrollment.status,
-      paymentPlan: paymentPlan !== undefined ? paymentPlan : enrollment.paymentPlan,
+      paymentPlan: finalPaymentPlan,
     });
 
     // Fetch updated enrollment with relations
@@ -352,6 +638,14 @@ export const updateEnrollment = async (req: AuthRequest & { body: UpdateEnrollme
           model: db.User,
           as: 'student',
           attributes: ['id', 'name', 'email', 'phone'],
+          include: [
+            {
+              model: db.StudentProfile,
+              as: 'studentProfile',
+              attributes: ['id', 'documents'],
+              required: false,
+            },
+          ],
         },
         {
           model: db.Batch,
@@ -361,12 +655,40 @@ export const updateEnrollment = async (req: AuthRequest & { body: UpdateEnrollme
       ],
     });
 
+    // Enrich with fees if needed
+    const enrollmentJson = updatedEnrollment?.toJSON();
+    if (enrollmentJson && (!enrollmentJson.paymentPlan || Object.keys(enrollmentJson.paymentPlan).length === 0)) {
+      const studentProfile = enrollmentJson.student?.studentProfile;
+      if (studentProfile?.documents) {
+        // Handle documents as string (JSON) or object
+        let documents = studentProfile.documents;
+        if (typeof documents === 'string') {
+          try {
+            documents = JSON.parse(documents);
+          } catch (e) {
+            logger.warn(`Failed to parse documents JSON for student ${studentProfile.id}:`, e);
+            documents = null;
+          }
+        }
+        
+        // Try to get enrollmentMetadata from documents
+        const metadata = documents?.enrollmentMetadata;
+        if (metadata) {
+          enrollmentJson.paymentPlan = {
+            totalDeal: metadata.totalDeal !== undefined && metadata.totalDeal !== null ? metadata.totalDeal : null,
+            bookingAmount: metadata.bookingAmount !== undefined && metadata.bookingAmount !== null ? metadata.bookingAmount : null,
+            balanceAmount: metadata.balanceAmount !== undefined && metadata.balanceAmount !== null ? metadata.balanceAmount : null,
+          };
+        }
+      }
+    }
+
     logger.info(`Enrollment updated: enrollmentId=${enrollmentId}`);
 
     res.status(200).json({
       status: 'success',
       message: 'Enrollment updated successfully',
-      data: updatedEnrollment,
+      data: enrollmentJson || updatedEnrollment,
     });
   } catch (error) {
     logger.error('Update enrollment error:', error);

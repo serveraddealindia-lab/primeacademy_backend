@@ -25,6 +25,25 @@ api.interceptors.request.use(
 api.interceptors.response.use(
   (response) => response,
   (error) => {
+    // Enhanced error logging for debugging
+    if (process.env.NODE_ENV === 'development') {
+      console.error('API Error:', {
+        url: error.config?.url,
+        method: error.config?.method,
+        baseURL: error.config?.baseURL,
+        status: error.response?.status,
+        message: error.message,
+        response: error.response?.data,
+        request: error.request,
+      });
+    }
+
+    // Handle network errors (no response from server)
+    if (!error.response && error.request) {
+      const baseURL = error.config?.baseURL || 'http://localhost:3000/api';
+      console.error(`Cannot connect to server at ${baseURL}. Make sure the backend is running.`);
+    }
+
     // Don't redirect on login endpoint 401 errors
     if (error.response?.status === 401 && !error.config?.url?.includes('/auth/login')) {
       // Unauthorized - clear token and redirect to login

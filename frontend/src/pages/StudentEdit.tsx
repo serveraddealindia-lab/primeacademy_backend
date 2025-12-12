@@ -22,7 +22,8 @@ export const StudentEdit: React.FC = () => {
   const [selectedSoftwares, setSelectedSoftwares] = useState<string[]>([]);
   const [showOtherSoftwareInput, setShowOtherSoftwareInput] = useState(false);
   const [otherSoftware, setOtherSoftware] = useState('');
-  const [allSoftware, setAllSoftware] = useState<string[]>([]);
+  const [uploadedDocuments, setUploadedDocuments] = useState<Array<{ name: string; url: string; size?: number }>>([]);
+  const [uploadingDocuments, setUploadingDocuments] = useState(false);
 
   // Form data state
   const [formData, setFormData] = useState<{
@@ -47,6 +48,11 @@ export const StudentEdit: React.FC = () => {
     balanceAmount?: number;
     emiPlan?: boolean;
     emiPlanDate?: string;
+    emiInstallments?: Array<{
+      month: number;
+      amount: number;
+      dueDate?: string;
+    }>;
     // Additional Info
     complimentarySoftware?: string;
     complimentaryGift?: string;
@@ -134,6 +140,8 @@ export const StudentEdit: React.FC = () => {
         balanceAmount: enrollmentMetadata?.balanceAmount,
         emiPlan: enrollmentMetadata?.emiPlan || false,
         emiPlanDate: enrollmentMetadata?.emiPlanDate || '',
+        emiInstallments: enrollmentMetadata?.emiInstallments || [],
+        enrollmentDocuments: enrollmentMetadata?.enrollmentDocuments || [],
         // Additional Info
         complimentarySoftware: enrollmentMetadata?.complimentarySoftware || '',
         complimentaryGift: enrollmentMetadata?.complimentaryGift || '',
@@ -150,6 +158,15 @@ export const StudentEdit: React.FC = () => {
         status: profile?.status || 'active',
         softwareList: profile?.softwareList || [],
       });
+
+      // Load existing documents
+      if (enrollmentMetadata?.enrollmentDocuments && Array.isArray(enrollmentMetadata.enrollmentDocuments)) {
+        const docs = enrollmentMetadata.enrollmentDocuments.map((url: string) => ({
+          name: url.split('/').pop() || 'Document',
+          url: url,
+        }));
+        setUploadedDocuments(docs);
+      }
 
       // Set software list
       if (profile?.softwareList && Array.isArray(profile.softwareList)) {
@@ -169,20 +186,6 @@ export const StudentEdit: React.FC = () => {
     queryFn: () => batchAPI.getAllBatches(),
   });
 
-  // Fetch all software list
-  useEffect(() => {
-    const fetchAllSoftware = async () => {
-      try {
-        const response = await studentAPI.getAllSoftware();
-        if (response.data?.software) {
-          setAllSoftware(response.data.software);
-        }
-      } catch (error) {
-        console.error('Failed to fetch software list:', error);
-      }
-    };
-    fetchAllSoftware();
-  }, []);
 
   const batches = batchesData?.data || [];
 
@@ -264,6 +267,12 @@ export const StudentEdit: React.FC = () => {
     if (formData.balanceAmount !== undefined) enrollmentMetadata.balanceAmount = formData.balanceAmount;
     if (formData.emiPlan !== undefined) enrollmentMetadata.emiPlan = formData.emiPlan;
     if (formData.emiPlanDate) enrollmentMetadata.emiPlanDate = formData.emiPlanDate;
+    if (formData.emiInstallments && formData.emiInstallments.length > 0) {
+      enrollmentMetadata.emiInstallments = formData.emiInstallments;
+    }
+    if (uploadedDocuments.length > 0) {
+      enrollmentMetadata.enrollmentDocuments = uploadedDocuments.map(doc => doc.url);
+    }
     if (formData.complimentarySoftware) enrollmentMetadata.complimentarySoftware = formData.complimentarySoftware;
     if (formData.complimentaryGift) enrollmentMetadata.complimentaryGift = formData.complimentaryGift;
     if (formData.hasReference !== undefined) enrollmentMetadata.hasReference = formData.hasReference;
@@ -461,7 +470,24 @@ export const StudentEdit: React.FC = () => {
             </div>
           </div>
 
-          <form onSubmit={handleSubmit}>
+          <form onSubmit={(e) => {
+            // Only allow form submission when explicitly clicking the submit button
+            // Prevent any other form submission triggers
+            e.preventDefault();
+          }} onKeyDown={(e) => {
+            // Prevent form submission when Enter is pressed in any input field
+            // Only allow submission via the submit button
+            if (e.key === 'Enter') {
+              const target = e.target as HTMLElement;
+              // Allow Enter in textareas (they handle it naturally)
+              if (target.tagName === 'TEXTAREA') {
+                return; // Let textarea handle Enter normally
+              }
+              // Prevent Enter in all other cases (input fields, selects, etc.)
+              e.preventDefault();
+              e.stopPropagation();
+            }
+          }}>
             <div className="p-4 md:p-8 max-h-[calc(100vh-12rem)] overflow-y-auto">
               {/* Step 1: Basic Information */}
               {currentStep === 1 && (
@@ -887,6 +913,107 @@ export const StudentEdit: React.FC = () => {
                         />
                       </div>
                     </div>
+
+                    {/* EMI Installments Table */}
+                    {formData.emiPlan && (
+                      <div className="mt-6">
+                        <div className="flex justify-between items-center mb-3">
+                          <label className="block text-sm font-medium text-gray-700">
+                            EMI Installments (Month-wise)
+                          </label>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const installments = formData.emiInstallments || [];
+                              const nextMonth = installments.length > 0 
+                                ? Math.max(...installments.map(i => i.month)) + 1 
+                                : 1;
+                              handleInputChange('emiInstallments', [
+                                ...installments,
+                                { month: nextMonth, amount: 0, dueDate: '' }
+                              ]);
+                            }}
+                            className="px-3 py-1 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                          >
+                            + Add Installment
+                          </button>
+                        </div>
+                        {formData.emiInstallments && formData.emiInstallments.length > 0 ? (
+                          <div className="overflow-x-auto">
+                            <table className="min-w-full divide-y divide-gray-200 border border-gray-300">
+                              <thead className="bg-gray-50">
+                                <tr>
+                                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-700 uppercase">Month</th>
+                                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-700 uppercase">Amount (₹)</th>
+                                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-700 uppercase">Due Date</th>
+                                  <th className="px-4 py-2 text-center text-xs font-medium text-gray-700 uppercase">Action</th>
+                                </tr>
+                              </thead>
+                              <tbody className="bg-white divide-y divide-gray-200">
+                                {formData.emiInstallments.map((installment, index) => (
+                                  <tr key={index}>
+                                    <td className="px-4 py-2">
+                                      <input
+                                        type="number"
+                                        min="1"
+                                        value={installment.month}
+                                        onChange={(e) => {
+                                          const installments = [...(formData.emiInstallments || [])];
+                                          installments[index].month = parseInt(e.target.value) || 1;
+                                          handleInputChange('emiInstallments', installments);
+                                        }}
+                                        className="w-20 px-2 py-1 border border-gray-300 rounded-md"
+                                      />
+                                    </td>
+                                    <td className="px-4 py-2">
+                                      <input
+                                        type="number"
+                                        step="0.01"
+                                        min="0"
+                                        value={installment.amount}
+                                        onChange={(e) => {
+                                          const installments = [...(formData.emiInstallments || [])];
+                                          installments[index].amount = parseFloat(e.target.value) || 0;
+                                          handleInputChange('emiInstallments', installments);
+                                        }}
+                                        className="w-32 px-2 py-1 border border-gray-300 rounded-md"
+                                      />
+                                    </td>
+                                    <td className="px-4 py-2">
+                                      <input
+                                        type="date"
+                                        value={formatDateForInput(installment.dueDate)}
+                                        onChange={(e) => {
+                                          const installments = [...(formData.emiInstallments || [])];
+                                          installments[index].dueDate = e.target.value;
+                                          handleInputChange('emiInstallments', installments);
+                                        }}
+                                        className="w-full px-2 py-1 border border-gray-300 rounded-md"
+                                      />
+                                    </td>
+                                    <td className="px-4 py-2 text-center">
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          const installments = formData.emiInstallments || [];
+                                          installments.splice(index, 1);
+                                          handleInputChange('emiInstallments', installments);
+                                        }}
+                                        className="px-2 py-1 text-sm text-red-600 hover:text-red-800"
+                                      >
+                                        Remove
+                                      </button>
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        ) : (
+                          <p className="text-sm text-gray-500 italic">No installments added. Click "Add Installment" to add month-wise EMI details.</p>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
@@ -906,6 +1033,12 @@ export const StudentEdit: React.FC = () => {
                           type="text"
                           value={formData.complimentarySoftware || ''}
                           onChange={(e) => handleInputChange('complimentarySoftware', e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              e.stopPropagation();
+                            }
+                          }}
                           className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
                         />
                       </div>
@@ -918,6 +1051,12 @@ export const StudentEdit: React.FC = () => {
                           type="text"
                           value={formData.complimentaryGift || ''}
                           onChange={(e) => handleInputChange('complimentaryGift', e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              e.stopPropagation();
+                            }
+                          }}
                           className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
                         />
                       </div>
@@ -930,6 +1069,12 @@ export const StudentEdit: React.FC = () => {
                       <select
                         value={formData.hasReference ? 'yes' : 'no'}
                         onChange={(e) => handleInputChange('hasReference', e.target.value === 'yes')}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            e.stopPropagation();
+                          }
+                        }}
                         className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
                       >
                         <option value="no">No</option>
@@ -958,6 +1103,12 @@ export const StudentEdit: React.FC = () => {
                           type="text"
                           value={formData.counselorName || ''}
                           onChange={(e) => handleInputChange('counselorName', e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              e.stopPropagation();
+                            }
+                          }}
                           className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
                         />
                       </div>
@@ -969,6 +1120,12 @@ export const StudentEdit: React.FC = () => {
                         <select
                           value={formData.leadSource || ''}
                           onChange={(e) => handleInputChange('leadSource', e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              e.stopPropagation();
+                            }
+                          }}
                           className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
                         >
                           <option value="">Select lead source</option>
@@ -991,6 +1148,12 @@ export const StudentEdit: React.FC = () => {
                           type="date"
                           value={formatDateForInput(formData.walkinDate)}
                           onChange={(e) => handleInputChange('walkinDate', e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              e.stopPropagation();
+                            }
+                          }}
                           className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
                         />
                       </div>
@@ -1003,8 +1166,93 @@ export const StudentEdit: React.FC = () => {
                           type="text"
                           value={formData.masterFaculty || ''}
                           onChange={(e) => handleInputChange('masterFaculty', e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              e.stopPropagation();
+                            }
+                          }}
                           className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
                         />
+                      </div>
+                    </div>
+
+                    {/* Documents Upload Section */}
+                    <div className="border-t pt-6 mt-6">
+                      <h3 className="text-lg font-semibold text-gray-900 mb-4">Enrollment Documents</h3>
+                      <div className="space-y-4">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            Upload Documents (PDF, Images, etc.)
+                          </label>
+                          <input
+                            type="file"
+                            multiple
+                            accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"
+                            onChange={handleDocumentUpload}
+                            disabled={uploadingDocuments}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500 disabled:opacity-50"
+                          />
+                          <p className="mt-1 text-xs text-gray-500">
+                            You can upload multiple files. Supported formats: PDF, JPG, PNG, DOC, DOCX (Max 10MB per file)
+                          </p>
+                          {uploadingDocuments && (
+                            <p className="mt-2 text-sm text-blue-600">Uploading documents...</p>
+                          )}
+                        </div>
+
+                        {uploadedDocuments.length > 0 && (
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                              Uploaded Documents ({uploadedDocuments.length})
+                            </label>
+                            <div className="space-y-2">
+                              {uploadedDocuments.map((doc, index) => (
+                                <div
+                                  key={index}
+                                  className="flex items-center justify-between p-3 bg-gray-50 border border-gray-200 rounded-md"
+                                >
+                                  <div className="flex items-center space-x-3 flex-1 min-w-0">
+                                    <div className="flex-shrink-0">
+                                      {doc.url.toLowerCase().endsWith('.pdf') ? (
+                                        <span className="text-2xl">📄</span>
+                                      ) : doc.url.toLowerCase().match(/\.(jpg|jpeg|png|gif)$/) ? (
+                                        <span className="text-2xl">🖼️</span>
+                                      ) : (
+                                        <span className="text-2xl">📎</span>
+                                      )}
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                      <p className="text-sm font-medium text-gray-900 truncate">{doc.name}</p>
+                                      {doc.size && (
+                                        <p className="text-xs text-gray-500">
+                                          {(doc.size / 1024).toFixed(2)} KB
+                                        </p>
+                                      )}
+                                    </div>
+                                  </div>
+                                  <div className="flex items-center space-x-2">
+                                    <a
+                                      href={getImageUrl(doc.url) || doc.url}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="px-3 py-1 text-sm text-blue-600 hover:text-blue-800 border border-blue-300 rounded hover:bg-blue-50"
+                                    >
+                                      View
+                                    </a>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleRemoveDocument(index)}
+                                      className="px-3 py-1 text-sm text-red-600 hover:text-red-800 border border-red-300 rounded hover:bg-red-50"
+                                    >
+                                      Remove
+                                    </button>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -1031,7 +1279,21 @@ export const StudentEdit: React.FC = () => {
                   </button>
                 ) : (
                   <button
-                    type="submit"
+                    type="button"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      // Create a synthetic form event to call handleSubmit
+                      const form = e.currentTarget.closest('form');
+                      if (form) {
+                        const syntheticEvent = {
+                          preventDefault: () => {},
+                          currentTarget: form,
+                          target: form,
+                        } as unknown as React.FormEvent<HTMLFormElement>;
+                        handleSubmit(syntheticEvent);
+                      }
+                    }}
                     disabled={updateUserMutation.isPending || updateStudentProfileMutation.isPending}
                     className="w-full sm:w-auto px-6 py-2 bg-orange-600 text-white rounded-lg font-semibold hover:bg-orange-700 transition-colors disabled:opacity-50"
                   >

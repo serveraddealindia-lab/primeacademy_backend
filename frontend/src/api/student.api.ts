@@ -104,6 +104,11 @@ export interface CompleteEnrollmentRequest {
   balanceAmount?: number;
   emiPlan?: boolean;
   emiPlanDate?: string;
+  emiInstallments?: Array<{
+    month: number;
+    amount: number;
+    dueDate?: string;
+  }>;
   
   // Additional Information
   complimentarySoftware?: string;
@@ -114,6 +119,7 @@ export interface CompleteEnrollmentRequest {
   leadSource?: string;
   walkinDate?: string;
   masterFaculty?: string;
+  enrollmentDocuments?: string[]; // Array of document URLs
 }
 
 export interface CompleteEnrollmentResponse {

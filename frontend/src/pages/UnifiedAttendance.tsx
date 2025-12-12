@@ -635,24 +635,32 @@ export const UnifiedAttendance: React.FC = () => {
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                    {facultyBatches?.map((batchItem) => {
-                      const selectedBatchSession =
-                        selectedBatch && selectedBatch.batch.id === batchItem.batch.id
-                          ? selectedBatch.activeSession
-                          : null;
-                      const session =
-                        batchItem.activeSession ||
-                        optimisticSessions[batchItem.batch.id] ||
-                        selectedBatchSession;
-                      const isOngoing = session && session.status === 'ongoing' && !session.actualEndAt;
-                      const canStartSession = !session;
+                    {(() => {
+                      // Check if faculty has ANY active session across ALL batches
+                      const hasAnyActiveSession = facultyBatches?.some((item) => {
+                        const session = item.activeSession || optimisticSessions[item.batch.id];
+                        return session && session.status === 'ongoing' && !session.actualEndAt;
+                      });
+                      
+                      return facultyBatches?.map((batchItem) => {
+                        const selectedBatchSession =
+                          selectedBatch && selectedBatch.batch.id === batchItem.batch.id
+                            ? selectedBatch.activeSession
+                            : null;
+                        const session =
+                          batchItem.activeSession ||
+                          optimisticSessions[batchItem.batch.id] ||
+                          selectedBatchSession;
+                        const isOngoing = session && session.status === 'ongoing' && !session.actualEndAt;
+                        // Can only start if this batch has no session AND no other batch has an active session
+                        const canStartSession = !session && !hasAnyActiveSession;
                       
                       // Get schedule for today
                       const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
                       const todaySchedule = batchItem.batch.schedule?.[dayNames[new Date().getDay()]];
                       
-                      return (
-                        <div key={batchItem.batch.id} className="border border-gray-200 rounded-lg p-5 space-y-4 shadow-sm">
+                        return (
+                          <div key={batchItem.batch.id} className="border border-gray-200 rounded-lg p-5 space-y-4 shadow-sm">
                           <div className="flex items-center justify-between">
                             <div>
                               <h3 className="text-xl font-semibold text-gray-900">{batchItem.batch.title}</h3>
@@ -690,20 +698,28 @@ export const UnifiedAttendance: React.FC = () => {
 
                           <div className="flex flex-wrap gap-3">
                             {!session && (
-                              <button
-                                onClick={() => {
-                                  const topic = prompt('Enter session topic (optional):');
-                                  startSessionMutation.mutate({ batchId: batchItem.batch.id, topicValue: topic || undefined });
-                                }}
-                                disabled={!canStartSession}
-                                className={`flex-1 px-4 py-2 rounded-lg font-semibold transition-colors ${
-                                  canStartSession
-                                    ? 'bg-green-600 text-white hover:bg-green-700'
-                                    : 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                                }`}
-                              >
-                                Start Session
-                              </button>
+                              <>
+                                <button
+                                  onClick={() => {
+                                    const topic = prompt('Enter session topic (optional):');
+                                    startSessionMutation.mutate({ batchId: batchItem.batch.id, topicValue: topic || undefined });
+                                  }}
+                                  disabled={!canStartSession}
+                                  className={`flex-1 px-4 py-2 rounded-lg font-semibold transition-colors ${
+                                    canStartSession
+                                      ? 'bg-green-600 text-white hover:bg-green-700'
+                                      : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                                  }`}
+                                  title={!canStartSession && hasAnyActiveSession ? 'You already have an active session running. Please end it before starting a new one.' : ''}
+                                >
+                                  Start Session
+                                </button>
+                                {!canStartSession && hasAnyActiveSession && (
+                                  <p className="text-xs text-red-600 mt-1 w-full">
+                                    You have an active session in another batch. End it first.
+                                  </p>
+                                )}
+                              </>
                             )}
                             {session && (
                               <>
@@ -732,7 +748,8 @@ export const UnifiedAttendance: React.FC = () => {
                           </button>
                         </div>
                       );
-                    })}
+                      });
+                    })()}
                   </div>
                 )}
 

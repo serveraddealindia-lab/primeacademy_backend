@@ -17,3 +17,23 @@ export const formatDateDDMMYYYY = (date: string | Date | null | undefined): stri
   }
 };
 
+/**
+ * Convert date input value (YYYY-MM-DD) to dd/mm/yyyy format for display
+ * @param dateString - Date string in YYYY-MM-DD format (from HTML date input)
+ * @returns Formatted date string in dd/mm/yyyy format or empty string
+ */
+export const formatDateInputToDDMMYYYY = (dateString: string | null | undefined): string => {
+  if (!dateString) return '';
+  try {
+    const [year, month, day] = dateString.split('-');
+    if (year && month && day) {
+      return `${day}/${month}/${year}`;
+    }
+    return '';
+  } catch {
+    return '';
+  }
+};
+
+
+

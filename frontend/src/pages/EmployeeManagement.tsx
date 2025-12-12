@@ -17,6 +17,7 @@ export const EmployeeManagement: React.FC = () => {
   const [isImageModalOpen, setIsImageModalOpen] = useState(false);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [uploadingImage, setUploadingImage] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
 
   // Fetch employees
   const { data: employeesData, isLoading, error: employeesError } = useQuery({
@@ -106,7 +107,20 @@ export const EmployeeManagement: React.FC = () => {
     }
   };
 
-  const employees = employeesData?.data.users || [];
+  const allEmployees = employeesData?.data.users || [];
+  
+  // Filter employees based on search query
+  const employees = allEmployees.filter((employee) => {
+    if (!searchQuery.trim()) return true;
+    const query = searchQuery.toLowerCase();
+    return (
+      employee.name?.toLowerCase().includes(query) ||
+      employee.email?.toLowerCase().includes(query) ||
+      employee.phone?.toLowerCase().includes(query) ||
+      employee.employeeProfile?.department?.toLowerCase().includes(query) ||
+      employee.employeeProfile?.designation?.toLowerCase().includes(query)
+    );
+  });
 
   const handleDelete = (employee: Employee) => {
     setSelectedEmployee(employee);
@@ -176,9 +190,52 @@ export const EmployeeManagement: React.FC = () => {
           </div>
 
           <div className="p-4 md:p-6">
+            {/* Search Bar */}
+            <div className="mb-4">
+              <div className="relative max-w-md">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                  <svg className="h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                  </svg>
+                </div>
+                <input
+                  type="text"
+                  placeholder="Search employees by name, email, phone, department, or designation..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
+                />
+                {searchQuery && (
+                  <button
+                    onClick={() => setSearchQuery('')}
+                    className="absolute inset-y-0 right-0 pr-3 flex items-center"
+                  >
+                    <svg className="h-5 w-5 text-gray-400 hover:text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                )}
+              </div>
+              {searchQuery && (
+                <p className="mt-2 text-sm text-gray-600">
+                  Showing {employees.length} of {allEmployees.length} employees
+                </p>
+              )}
+            </div>
+
             {employees.length === 0 ? (
               <div className="text-center py-12">
-                <p className="text-gray-500 text-lg">No employees found</p>
+                <p className="text-gray-500 text-lg">
+                  {searchQuery ? 'No employees found matching your search' : 'No employees found'}
+                </p>
+                {searchQuery && (
+                  <button
+                    onClick={() => setSearchQuery('')}
+                    className="mt-2 text-orange-600 hover:text-orange-700 text-sm"
+                  >
+                    Clear search
+                  </button>
+                )}
               </div>
             ) : (
               <div className="overflow-x-auto">
@@ -291,8 +348,8 @@ export const EmployeeManagement: React.FC = () => {
 
       {/* Delete Confirmation Modal */}
       {isDeleteModalOpen && selectedEmployee && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-4 md:p-6 max-w-md w-full mx-4 max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-2 sm:p-4">
+          <div className="bg-white rounded-lg p-4 sm:p-6 max-w-md w-full max-h-[90vh] overflow-y-auto">
             <h2 className="text-2xl font-bold mb-4 text-red-600">Delete Employee</h2>
             <p className="mb-4 text-gray-700">
               Are you sure you want to delete <strong>{selectedEmployee.name}</strong>? This action cannot be undone.

@@ -109,7 +109,7 @@ export interface SuggestedCandidate {
   name: string;
   email: string;
   phone?: string;
-  status: 'available' | 'busy' | 'fees_overdue';
+  status: 'available' | 'busy' | 'fees_overdue' | 'no_orientation';
   statusMessage: string;
   hasOverdueFees: boolean;
   totalOverdueAmount?: number;

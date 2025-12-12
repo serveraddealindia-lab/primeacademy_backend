@@ -268,7 +268,19 @@ export const suggestCandidates = async (req: AuthRequest, res: Response): Promis
     }
 
     // Find batch
-    const batch = await db.Batch.findByPk(batchId);
+    let batch: any;
+    try {
+      batch = await db.Batch.findByPk(batchId);
+    } catch (batchError: any) {
+      logger.error(`Error fetching batch ${batchId}:`, batchError);
+      res.status(500).json({
+        status: 'error',
+        message: 'Error fetching batch information',
+        error: process.env.NODE_ENV === 'development' ? batchError.message : undefined,
+      });
+      return;
+    }
+
     if (!batch) {
       res.status(404).json({
         status: 'error',
@@ -285,184 +297,639 @@ export const suggestCandidates = async (req: AuthRequest, res: Response): Promis
       return;
     }
 
-    const batchSoftware = batch.software.toLowerCase();
+    // Handle comma-separated software (e.g., "Photoshop, Illustrator")
+    const batchSoftwareList = batch.software
+      .split(',')
+      .map((s: string) => s.trim().toLowerCase())
+      .filter((s: string) => s.length > 0);
+    
+    logger.info(`Suggest candidates for batch ${batchId}: software=${batch.software}, softwareList=${JSON.stringify(batchSoftwareList)}`);
+    
+    // Validate and parse dates safely
     const batchStartDate = new Date(batch.startDate);
     const batchEndDate = new Date(batch.endDate);
+    if (isNaN(batchStartDate.getTime()) || isNaN(batchEndDate.getTime())) {
+      res.status(400).json({
+        status: 'error',
+        message: 'Invalid batch dates',
+      });
+      return;
+    }
+    
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
     // Get all active students with matching software
-    const allStudents = await db.User.findAll({
-      where: {
-        role: UserRole.STUDENT,
-        isActive: true,
-      },
-      include: [
-        {
-          model: db.StudentProfile,
-          as: 'studentProfile',
-          required: true,
-          attributes: ['id', 'softwareList'],
+    let allStudents: any[] = [];
+    try {
+      allStudents = await db.User.findAll({
+        where: {
+          role: UserRole.STUDENT,
+          isActive: true,
         },
-      ],
-      attributes: ['id', 'name', 'email', 'phone'],
-    });
-
-    // Filter students who have selected the matching software
-    const studentsWithMatchingSoftware = allStudents.filter((student) => {
-      const softwareList = student.studentProfile?.softwareList;
-      if (!softwareList || !Array.isArray(softwareList)) {
-        return false;
-      }
-      return softwareList.some((s: string) => s.toLowerCase() === batchSoftware);
-    });
-
-    // Get payment transactions for all candidate students
-    const studentIds = studentsWithMatchingSoftware.map((s) => s.id);
-    const payments =
-      studentIds.length > 0
-        ? await db.PaymentTransaction.findAll({
-            where: {
-              studentId: { [Op.in]: studentIds },
-              status: {
-                [Op.in]: [PaymentStatus.PENDING, PaymentStatus.PARTIAL, PaymentStatus.OVERDUE],
-              },
-            },
-            attributes: ['studentId', 'dueDate', 'amount', 'status'],
-          })
-        : [];
-
-    const disqualifiedStudentIds = new Set(payments.map((payment) => payment.studentId));
-    const eligibleStudents = studentsWithMatchingSoftware.filter(
-      (student) => !disqualifiedStudentIds.has(student.id)
-    );
-
-    // Get all enrollments for candidate students to check for conflicts
-    const existingEnrollments = await db.Enrollment.findAll({
-      where: {
-        studentId: studentIds,
-      },
-      include: [
-        {
-          model: db.Batch,
-          as: 'batch',
-          attributes: ['id', 'title', 'startDate', 'endDate', 'status'],
-        },
-      ],
-    });
-
-    // Get all sessions in the date range to check for time conflicts
-    const existingSessions = await db.Session.findAll({
-      where: {
-        date: {
-          [Op.between]: [batchStartDate, batchEndDate],
-        },
-      },
-      include: [
-        {
-          model: db.Batch,
-          as: 'batch',
-          attributes: ['id', 'title', 'startDate', 'endDate'],
+        include: [
+          {
+            model: db.StudentProfile,
+            as: 'studentProfile',
+            required: false, // Changed to false to include students without profiles
+            attributes: ['id', 'softwareList', 'pendingBatches', 'currentBatches', 'finishedBatches'],
+          },
+        ],
+        attributes: ['id', 'name', 'email', 'phone'],
+      });
+    } catch (studentsError: any) {
+      logger.error('Error fetching students:', studentsError);
+      // Try without the new columns in case migration hasn't been run
+      try {
+        allStudents = await db.User.findAll({
+          where: {
+            role: UserRole.STUDENT,
+            isActive: true,
+          },
           include: [
             {
-              model: db.Enrollment,
-              as: 'enrollments',
+              model: db.StudentProfile,
+              as: 'studentProfile',
+              required: false,
+              attributes: ['id', 'softwareList'], // Only include softwareList if new columns don't exist
+            },
+          ],
+          attributes: ['id', 'name', 'email', 'phone'],
+        });
+        logger.info('Fetched students without new batch status columns (migration may not be run)');
+      } catch (fallbackError: any) {
+        logger.error('Error fetching students even with fallback:', fallbackError);
+        throw new Error(`Failed to fetch students: ${fallbackError.message}`);
+      }
+    }
+
+    logger.info(`Found ${allStudents.length} active students`);
+
+    // Log sample student data for debugging
+    if (allStudents.length > 0) {
+      const sampleStudent = allStudents[0];
+      logger.info(`Sample student: id=${sampleStudent.id}, name=${sampleStudent.name}, hasProfile=${!!sampleStudent.studentProfile}, softwareList=${JSON.stringify(sampleStudent.studentProfile?.softwareList)}`);
+    }
+
+    // Filter students who have matching software
+    // Priority: pendingBatches > softwareList (for backward compatibility)
+    const studentsWithMatchingSoftware = allStudents.filter((student) => {
+      try {
+        const profile = student.studentProfile;
+        
+        if (!profile) {
+          logger.debug(`Student ${student.id} (${student.name}): No profile found`);
+          return false;
+        }
+        
+        // Check pending batches first (primary filter) - if column exists
+        let pendingBatchesList: any = null;
+        try {
+          pendingBatchesList = (profile as any).pendingBatches;
+          
+          // Handle case where pendingBatches might be a JSON string (MySQL/MariaDB)
+          if (pendingBatchesList && typeof pendingBatchesList === 'string') {
+            try {
+              pendingBatchesList = JSON.parse(pendingBatchesList);
+            } catch (e) {
+              logger.warn(`Student ${student.id} (${student.name}): Failed to parse pendingBatches as JSON: ${pendingBatchesList}`);
+              pendingBatchesList = null;
+            }
+          }
+        } catch (e) {
+          // Column might not exist yet (migration not run)
+          logger.debug(`Student ${student.id}: pendingBatches column might not exist, using fallback`);
+          pendingBatchesList = null;
+        }
+        
+        // If student has pending batches, check if any match
+        if (pendingBatchesList && Array.isArray(pendingBatchesList) && pendingBatchesList.length > 0) {
+          try {
+            const normalizedPendingBatches = pendingBatchesList
+              .map((s: any) => String(s).trim().toLowerCase())
+              .filter((s: string) => s.length > 0);
+
+            const matches = batchSoftwareList.some((batchSoftware: string) =>
+              normalizedPendingBatches.some((pendingSoftware: string) => {
+                // Exact match
+                if (pendingSoftware === batchSoftware) {
+                  logger.info(`✓ Pending batch match: Student ${student.id} (${student.name}) has "${pendingSoftware}" in pending batches matching "${batchSoftware}"`);
+                  return true;
+                }
+                // Partial match
+                if (pendingSoftware.includes(batchSoftware) || batchSoftware.includes(pendingSoftware)) {
+                  logger.info(`✓ Pending batch partial match: Student ${student.id} (${student.name}) has "${pendingSoftware}" in pending batches matching "${batchSoftware}"`);
+                  return true;
+                }
+                return false;
+              })
+            );
+            
+            if (matches) {
+              return true; // Found match in pending batches
+            }
+          } catch (e: any) {
+            logger.warn(`Student ${student.id}: Error processing pendingBatches: ${e.message}`);
+          }
+        }
+        
+        // Fallback: If no pending batches, check softwareList (for backward compatibility)
+        let softwareList: any = null;
+        try {
+          softwareList = profile.softwareList;
+          
+          // Handle case where softwareList might be a JSON string (MySQL/MariaDB)
+          if (softwareList && typeof softwareList === 'string') {
+            try {
+              softwareList = JSON.parse(softwareList);
+            } catch (e) {
+              logger.warn(`Student ${student.id} (${student.name}): Failed to parse softwareList as JSON: ${softwareList}`);
+              return false;
+            }
+          }
+        } catch (e) {
+          logger.debug(`Student ${student.id}: Error accessing softwareList`);
+          return false;
+        }
+        
+        if (!softwareList) {
+          logger.debug(`Student ${student.id} (${student.name}): No softwareList or pendingBatches in profile`);
+          return false;
+        }
+        
+        if (!Array.isArray(softwareList)) {
+          logger.debug(`Student ${student.id} (${student.name}): softwareList is not an array: ${typeof softwareList}, value: ${JSON.stringify(softwareList)}`);
+          return false;
+        }
+        
+        if (softwareList.length === 0) {
+          logger.debug(`Student ${student.id} (${student.name}): softwareList is empty`);
+          return false;
+        }
+
+        // Normalize student software list (trim and lowercase)
+        const normalizedStudentSoftware = softwareList
+          .map((s: any) => {
+            try {
+              return String(s).trim().toLowerCase();
+            } catch (e) {
+              return '';
+            }
+          })
+          .filter((s: string) => s.length > 0);
+
+        if (normalizedStudentSoftware.length === 0) {
+          logger.debug(`Student ${student.id} (${student.name}): No valid software after normalization`);
+          return false;
+        }
+
+        // Check if any batch software matches any student software
+        // Use flexible matching: exact match or contains match
+        const matches = batchSoftwareList.some((batchSoftware: string) =>
+          normalizedStudentSoftware.some((studentSoftware: string) => {
+            try {
+              // Exact match
+              if (studentSoftware === batchSoftware) {
+                logger.info(`✓ SoftwareList match (fallback): Student ${student.id} (${student.name}) has "${studentSoftware}" matching batch software "${batchSoftware}"`);
+                return true;
+              }
+              // Partial match (student software contains batch software or vice versa)
+              if (studentSoftware.includes(batchSoftware) || batchSoftware.includes(studentSoftware)) {
+                logger.info(`✓ SoftwareList partial match (fallback): Student ${student.id} (${student.name}) has "${studentSoftware}" matching batch software "${batchSoftware}"`);
+                return true;
+              }
+            } catch (e) {
+              logger.warn(`Student ${student.id}: Error comparing software "${studentSoftware}" with "${batchSoftware}"`);
+            }
+            return false;
+          })
+        );
+        
+        if (!matches) {
+          logger.debug(`Student ${student.id} (${student.name}): No match. Student has: [${normalizedStudentSoftware.join(', ')}], Batch needs: [${batchSoftwareList.join(', ')}]`);
+        }
+        
+        return matches;
+      } catch (studentFilterError: any) {
+        logger.error(`Error filtering student ${student.id} (${student.name}): ${studentFilterError.message}`, { error: studentFilterError });
+        return false; // Don't include this student if there's an error
+      }
+    });
+
+    logger.info(`Found ${studentsWithMatchingSoftware.length} students with matching software out of ${allStudents.length} total students`);
+
+    // Fallback: Also check students enrolled in batches with matching software
+    // This helps find students who might have software through batch enrollment
+    let batchesWithMatchingSoftware: any[] = [];
+    try {
+      batchesWithMatchingSoftware = await db.Batch.findAll({
+        where: {
+          software: {
+            [Op.not]: null,
+          },
+        },
+        attributes: ['id', 'software'],
+      });
+    } catch (batchQueryError: any) {
+      logger.error('Error fetching batches with matching software:', batchQueryError);
+      batchesWithMatchingSoftware = [];
+    }
+
+    const batchIdsWithMatchingSoftware = batchesWithMatchingSoftware
+      .filter((b) => {
+        if (!b.software) return false;
+        const otherBatchSoftwareList = b.software
+          .split(',')
+          .map((s: string) => s.trim().toLowerCase())
+          .filter((s: string) => s.length > 0);
+        // Check if any software in this batch matches any software in the target batch
+        return otherBatchSoftwareList.some((otherSoftware: string) =>
+          batchSoftwareList.some((targetSoftware: string) =>
+            otherSoftware === targetSoftware || 
+            otherSoftware.includes(targetSoftware) || 
+            targetSoftware.includes(otherSoftware)
+          )
+        );
+      })
+      .map((b) => b.id);
+
+    // Get students enrolled in batches with matching software
+    let additionalStudentIds: number[] = [];
+    if (batchIdsWithMatchingSoftware.length > 0) {
+      try {
+        const enrollments = await db.Enrollment.findAll({
+          where: {
+            batchId: { [Op.in]: batchIdsWithMatchingSoftware },
+            status: 'active',
+          },
+          include: [
+            {
+              model: db.User,
+              as: 'student',
               where: {
-                studentId: studentIds,
+                role: UserRole.STUDENT,
+                isActive: true,
               },
-              attributes: ['studentId'],
+              attributes: ['id'],
+              required: true,
+            },
+          ],
+          attributes: ['studentId'],
+        });
+        additionalStudentIds = enrollments.map((e: any) => e.studentId).filter((id: any) => id !== null && id !== undefined);
+        logger.info(`Found ${additionalStudentIds.length} additional students through batch enrollments`);
+      } catch (enrollmentError: any) {
+        logger.error('Error fetching enrollments for matching batches:', enrollmentError);
+        additionalStudentIds = [];
+      }
+    }
+
+    // Combine students from profile software and batch enrollments
+    const allCandidateStudentIds = new Set([
+      ...studentsWithMatchingSoftware.map((s) => s.id),
+      ...additionalStudentIds,
+    ]);
+
+    // Handle empty candidate list
+    if (allCandidateStudentIds.size === 0) {
+      logger.info(`No candidate students found for batch ${batchId} with software: ${batch.software}`);
+      res.status(200).json({
+        status: 'success',
+        data: {
+          batch: {
+            id: batch.id,
+            title: batch.title,
+            software: batch.software,
+            startDate: batch.startDate,
+            endDate: batch.endDate,
+            schedule: batch.schedule,
+          },
+          candidates: [],
+          totalCount: 0,
+          summary: {
+            available: 0,
+            noOrientation: 0,
+            busy: 0,
+            feesOverdue: 0,
+          },
+        },
+      });
+      return;
+    }
+
+    const candidateIdsArray = Array.from(allCandidateStudentIds);
+
+    // Get full student data for all candidates
+    let allCandidateStudents: any[] = [];
+    try {
+      allCandidateStudents = await db.User.findAll({
+        where: {
+          id: { [Op.in]: candidateIdsArray },
+          role: UserRole.STUDENT,
+          isActive: true,
+        },
+        include: [
+          {
+            model: db.StudentProfile,
+            as: 'studentProfile',
+            required: false,
+            attributes: ['id', 'softwareList', 'pendingBatches', 'currentBatches', 'finishedBatches'],
+          },
+        ],
+        attributes: ['id', 'name', 'email', 'phone'],
+      });
+    } catch (queryError: any) {
+      logger.error('Error fetching candidate students with new columns:', queryError);
+      // Try without the new columns in case migration hasn't been run
+      try {
+        allCandidateStudents = await db.User.findAll({
+          where: {
+            id: { [Op.in]: candidateIdsArray },
+            role: UserRole.STUDENT,
+            isActive: true,
+          },
+          include: [
+            {
+              model: db.StudentProfile,
+              as: 'studentProfile',
+              required: false,
+              attributes: ['id', 'softwareList'], // Only include softwareList if new columns don't exist
+            },
+          ],
+          attributes: ['id', 'name', 'email', 'phone'],
+        });
+        logger.info('Fetched candidate students without new batch status columns (migration may not be run)');
+      } catch (fallbackError: any) {
+        logger.error('Error fetching candidate students even with fallback:', fallbackError);
+        throw new Error(`Failed to fetch candidate students: ${fallbackError.message}`);
+      }
+    }
+
+    logger.info(`Total candidate students: ${allCandidateStudents.length} (${studentsWithMatchingSoftware.length} from profile, ${additionalStudentIds.length} from enrollments)`);
+
+    // Get payment transactions for all candidate students
+    const studentIds = allCandidateStudents.map((s) => s.id).filter((id: any) => id !== null && id !== undefined);
+    let payments: any[] = [];
+    if (studentIds.length > 0) {
+      try {
+        payments = await db.PaymentTransaction.findAll({
+          where: {
+            studentId: { [Op.in]: studentIds },
+            status: {
+              [Op.in]: [PaymentStatus.PENDING, PaymentStatus.PARTIAL, PaymentStatus.OVERDUE],
+            },
+          },
+          attributes: ['studentId', 'dueDate', 'amount', 'status'],
+        });
+      } catch (paymentError: any) {
+        logger.error('Error fetching payment transactions:', paymentError);
+        payments = [];
+      }
+    }
+
+    // Get orientation status for all candidate students (get all orientations, not just accepted)
+    let orientations: any[] = [];
+    if (studentIds.length > 0) {
+      try {
+        orientations = await db.StudentOrientation.findAll({
+          where: {
+            studentId: { [Op.in]: studentIds },
+          },
+          attributes: ['studentId', 'accepted'],
+        });
+      } catch (orientationError: any) {
+        logger.error('Error fetching orientation status:', orientationError);
+        orientations = [];
+      }
+    }
+
+    // Students are eligible if they have at least one accepted orientation
+    const eligibleStudentIds = new Set(
+      orientations.filter((o) => o.accepted).map((o) => o.studentId)
+    );
+
+    const disqualifiedStudentIds = new Set(payments.map((payment) => payment.studentId));
+    
+    // Show ALL students with matching software (don't filter by orientation or fees here)
+    // We'll mark their status in the response instead
+    const eligibleStudents = allCandidateStudents;
+
+    // Get all enrollments for candidate students to check for conflicts
+    let existingEnrollments: any[] = [];
+    if (studentIds.length > 0) {
+      try {
+        existingEnrollments = await db.Enrollment.findAll({
+          where: {
+            studentId: { [Op.in]: studentIds },
+          },
+          include: [
+            {
+              model: db.Batch,
+              as: 'batch',
+              attributes: ['id', 'title', 'startDate', 'endDate', 'status'],
               required: false,
             },
           ],
-        },
-      ],
-    });
+        });
+      } catch (enrollmentError: any) {
+        logger.error('Error fetching enrollments:', enrollmentError);
+        existingEnrollments = [];
+      }
+    }
+
+    // Get all sessions in the date range to check for time conflicts
+    let existingSessions: any[] = [];
+    if (studentIds.length > 0) {
+      try {
+        // First get sessions in date range
+        const sessionsInRange = await db.Session.findAll({
+          where: {
+            date: {
+              [Op.between]: [batchStartDate, batchEndDate],
+            },
+          },
+          include: [
+            {
+              model: db.Batch,
+              as: 'batch',
+              attributes: ['id', 'title', 'startDate', 'endDate'],
+              required: false,
+            },
+          ],
+        });
+
+        // Then get enrollments for these sessions' batches
+        const sessionBatchIds = sessionsInRange
+          .map((s: any) => s.batch?.id)
+          .filter((id: any) => id !== null && id !== undefined);
+
+        if (sessionBatchIds.length > 0) {
+          const enrollmentsForSessions = await db.Enrollment.findAll({
+            where: {
+              batchId: { [Op.in]: sessionBatchIds },
+              studentId: { [Op.in]: studentIds },
+            },
+            attributes: ['batchId', 'studentId'],
+          });
+
+          // Map enrollments to sessions
+          existingSessions = sessionsInRange.filter((session: any) => {
+            if (!session.batch) return false;
+            return enrollmentsForSessions.some(
+              (enrollment: any) =>
+                enrollment.batchId === session.batch.id &&
+                studentIds.includes(enrollment.studentId)
+            );
+          });
+        }
+      } catch (sessionError: any) {
+        logger.error('Error fetching sessions:', sessionError);
+        existingSessions = [];
+      }
+    }
 
     // Process each candidate student
     const candidates = eligibleStudents.map((student) => {
-      const studentId = student.id;
+      try {
+        const studentId = student.id;
+        
+        // Debug: Log student data to help identify name issues
+        const studentData = (student as any).toJSON ? (student as any).toJSON() : student;
+        logger.debug(`Processing candidate student ${studentId}: name="${studentData?.name || student.name || 'MISSING'}", email="${studentData?.email || student.email || 'MISSING'}"`);
 
-      // Check for overdue payments
-      const overduePayments = payments
-        .filter((payment) => {
-          const dueDate = new Date(payment.dueDate);
-          return dueDate < today;
-        })
-        .filter((payment) => payment.studentId === studentId);
+        // Check for overdue payments
+        const overduePayments = payments
+          .filter((payment: any) => {
+            if (!payment || !payment.dueDate) return false;
+            try {
+              const dueDate = new Date(payment.dueDate);
+              return !isNaN(dueDate.getTime()) && dueDate < today;
+            } catch (e) {
+              logger.warn(`Invalid dueDate for payment: ${payment.dueDate}`);
+              return false;
+            }
+          })
+          .filter((payment: any) => payment.studentId === studentId);
 
-      const hasOverdueFees = overduePayments.length > 0;
-      const totalOverdueAmount = overduePayments.reduce((sum, payment) => sum + Number(payment.amount), 0);
+        const hasOverdueFees = overduePayments.length > 0;
+        const totalOverdueAmount = overduePayments.reduce((sum: number, payment: any) => {
+          const amount = Number(payment.amount) || 0;
+          return sum + (isNaN(amount) ? 0 : amount);
+        }, 0);
 
-      // Check for conflicting enrollments (overlapping batch dates)
-      const conflictingEnrollments = existingEnrollments.filter((enrollment) => {
-        if (enrollment.studentId !== studentId) return false;
-        const enrollmentBatch = (enrollment as any).batch;
-        if (!enrollmentBatch) return false;
-        if (enrollmentBatch.id === batchId) return false; // Exclude current batch
-        if (enrollmentBatch.status === 'ended' || enrollmentBatch.status === 'cancelled') return false;
+        // Check for conflicting enrollments (overlapping batch dates)
+        const conflictingEnrollments = existingEnrollments.filter((enrollment) => {
+          if (enrollment.studentId !== studentId) return false;
+          const enrollmentBatch = (enrollment as any).batch;
+          if (!enrollmentBatch) return false;
+          if (enrollmentBatch.id === batchId) return false; // Exclude current batch
+          if (enrollmentBatch.status === 'ended' || enrollmentBatch.status === 'cancelled') return false;
 
-        const otherStart = new Date(enrollmentBatch.startDate);
-        const otherEnd = new Date(enrollmentBatch.endDate);
+          try {
+            const otherStart = new Date(enrollmentBatch.startDate);
+            const otherEnd = new Date(enrollmentBatch.endDate);
+            if (isNaN(otherStart.getTime()) || isNaN(otherEnd.getTime())) return false;
 
-        // Check if date ranges overlap
-        return batchStartDate <= otherEnd && batchEndDate >= otherStart;
-      });
+            // Check if date ranges overlap
+            return batchStartDate <= otherEnd && batchEndDate >= otherStart;
+          } catch (e) {
+            logger.warn(`Invalid dates for enrollment batch ${enrollmentBatch.id}`);
+            return false;
+          }
+        });
 
-      // Check for conflicting sessions
-      const conflictingSessions = existingSessions.filter((session) => {
-        const sessionBatch = (session as any).batch;
-        if (!sessionBatch || !sessionBatch.enrollments) return false;
-        return sessionBatch.enrollments.some((enrollment: any) => enrollment.studentId === studentId);
-      });
+        // Check for conflicting sessions
+        const conflictingSessions = existingSessions.filter((session: any) => {
+          if (!session || !session.batch) return false;
+          // Check if this student is enrolled in the batch for this session
+          const sessionBatchId = session.batch.id;
+          return existingEnrollments.some(
+            (enrollment: any) =>
+              enrollment.studentId === studentId &&
+              enrollment.batch?.id === sessionBatchId
+          );
+        });
 
-      const isBusy = conflictingEnrollments.length > 0 || conflictingSessions.length > 0;
+        const isBusy = conflictingEnrollments.length > 0 || conflictingSessions.length > 0;
+        const hasOrientation = eligibleStudentIds.has(studentId);
 
-      // Determine candidate status
-      let status = 'available';
-      let statusMessage = 'Available for enrollment';
+        // Determine candidate status
+        let status = 'available';
+        let statusMessage = 'Available for enrollment';
 
-      if (hasOverdueFees) {
-        status = 'fees_overdue';
-        statusMessage = `Fees overdue (₹${totalOverdueAmount.toFixed(2)})`;
-      } else if (isBusy) {
-        status = 'busy';
-        const conflictDetails: string[] = [];
-        if (conflictingEnrollments.length > 0) {
-          conflictDetails.push(`${conflictingEnrollments.length} batch(es)`);
+        // Check orientation first - if no orientation, mark as not eligible
+        if (!hasOrientation) {
+          status = 'no_orientation';
+          statusMessage = 'Orientation not accepted';
+        } else if (hasOverdueFees) {
+          status = 'fees_overdue';
+          statusMessage = `Fees overdue (₹${totalOverdueAmount.toFixed(2)})`;
+        } else if (isBusy) {
+          status = 'busy';
+          const conflictDetails: string[] = [];
+          if (conflictingEnrollments.length > 0) {
+            conflictDetails.push(`${conflictingEnrollments.length} batch(es)`);
+          }
+          if (conflictingSessions.length > 0) {
+            conflictDetails.push(`${conflictingSessions.length} session(s)`);
+          }
+          statusMessage = `Busy - ${conflictDetails.join(', ')}`;
         }
-        if (conflictingSessions.length > 0) {
-          conflictDetails.push(`${conflictingSessions.length} session(s)`);
-        }
-        statusMessage = `Busy - ${conflictDetails.join(', ')}`;
+
+        // Ensure name is properly extracted - handle both direct property and toJSON() cases
+        const studentName = (student.name || (student as any).toJSON?.()?.name || 'Unknown').trim();
+        const studentEmail = (student.email || (student as any).toJSON?.()?.email || '').trim();
+        const studentPhone = (student.phone || (student as any).toJSON?.()?.phone || '-').trim();
+
+        return {
+          studentId: student.id,
+          name: studentName || `Student #${student.id}`,
+          email: studentEmail || '',
+          phone: studentPhone || '-',
+          status,
+          statusMessage,
+          hasOverdueFees,
+          totalOverdueAmount: hasOverdueFees ? totalOverdueAmount : 0,
+          conflictingBatches: conflictingEnrollments
+            .map((enrollment) => (enrollment as any).batch)
+            .filter((enrollmentBatch): enrollmentBatch is { id: number; title: string; startDate: Date; endDate: Date } => !!enrollmentBatch)
+            .map((enrollmentBatch) => enrollmentBatch.title),
+          conflictingSessions: conflictingSessions.length > 0 ? [`${conflictingSessions.length} session(s)`] : [],
+        };
+      } catch (studentError: any) {
+        logger.error(`Error processing student ${student.id}:`, studentError);
+        // Return a safe default candidate
+        const studentName = (student.name || (student as any).toJSON?.()?.name || 'Unknown').trim();
+        const studentEmail = (student.email || (student as any).toJSON?.()?.email || '').trim();
+        const studentPhone = (student.phone || (student as any).toJSON?.()?.phone || '-').trim();
+        
+        return {
+          studentId: student.id,
+          name: studentName || `Student #${student.id}`,
+          email: studentEmail || '',
+          phone: studentPhone || '-',
+          status: 'no_orientation',
+          statusMessage: 'Error processing student data',
+          hasOverdueFees: false,
+          totalOverdueAmount: 0,
+          conflictingBatches: [],
+          conflictingSessions: [],
+        };
       }
+    }).filter((candidate) => candidate !== null && candidate !== undefined);
 
-      return {
-        id: student.id,
-        name: student.name,
-        email: student.email,
-        phone: student.phone || '-',
-        status,
-        statusMessage,
-        hasOverdueFees,
-        totalOverdueAmount: hasOverdueFees ? totalOverdueAmount : 0,
-        conflictingBatches: conflictingEnrollments
-          .map((enrollment) => (enrollment as any).batch)
-          .filter((enrollmentBatch): enrollmentBatch is { id: number; title: string; startDate: Date; endDate: Date } => !!enrollmentBatch)
-          .map((enrollmentBatch) => ({
-            id: enrollmentBatch.id,
-            title: enrollmentBatch.title,
-            startDate: enrollmentBatch.startDate,
-            endDate: enrollmentBatch.endDate,
-          })),
-        conflictingSessionsCount: conflictingSessions.length,
-      };
-    });
-
-    // Sort candidates: available first, then busy, then fees_overdue
-    const statusOrder: { [key: string]: number } = { available: 1, busy: 2, fees_overdue: 3 };
+    // Sort candidates: available first, then no_orientation, then busy, then fees_overdue
+    const statusOrder: { [key: string]: number } = { 
+      available: 1, 
+      no_orientation: 2, 
+      busy: 3, 
+      fees_overdue: 4 
+    };
     candidates.sort((a, b) => {
       return (statusOrder[a.status] || 99) - (statusOrder[b.status] || 99);
     });
+
+    logger.info(`Returning ${candidates.length} candidates for batch ${batchId}`);
 
     res.status(200).json({
       status: 'success',
@@ -479,16 +946,35 @@ export const suggestCandidates = async (req: AuthRequest, res: Response): Promis
         totalCount: candidates.length,
         summary: {
           available: candidates.filter((c) => c.status === 'available').length,
+          noOrientation: candidates.filter((c) => c.status === 'no_orientation').length,
           busy: candidates.filter((c) => c.status === 'busy').length,
           feesOverdue: candidates.filter((c) => c.status === 'fees_overdue').length,
         },
       },
     });
-  } catch (error) {
+  } catch (error: any) {
     logger.error('Suggest candidates error:', error);
+    logger.error('Error stack:', error?.stack);
+    logger.error('Error details:', {
+      message: error?.message,
+      name: error?.name,
+      batchId: req.params.id,
+      batchIdParsed: parseInt(req.params.id, 10),
+    });
+    
+    // Provide more detailed error in development
+    const errorDetails = process.env.NODE_ENV === 'development' 
+      ? {
+          message: error?.message,
+          stack: error?.stack,
+          name: error?.name,
+        }
+      : undefined;
+    
     res.status(500).json({
       status: 'error',
       message: 'Internal server error while suggesting candidates',
+      ...(errorDetails && { error: errorDetails }),
     });
   }
 };

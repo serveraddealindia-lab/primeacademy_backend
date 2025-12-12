@@ -12,6 +12,9 @@ export interface StudentProfileAttributes {
   softwareList: string[] | null;
   enrollmentDate: Date | null;
   status: string | null;
+  finishedBatches: string[] | null; // Array of software names from finished batches
+  currentBatches: string[] | null; // Array of software names from current batches
+  pendingBatches: string[] | null; // Array of software names from pending batches
   createdAt?: Date;
   updatedAt?: Date;
 }
@@ -19,7 +22,7 @@ export interface StudentProfileAttributes {
 export interface StudentProfileCreationAttributes
   extends Optional<
     StudentProfileAttributes,
-    'id' | 'dob' | 'address' | 'documents' | 'photoUrl' | 'softwareList' | 'enrollmentDate' | 'status' | 'createdAt' | 'updatedAt'
+    'id' | 'dob' | 'address' | 'documents' | 'photoUrl' | 'softwareList' | 'enrollmentDate' | 'status' | 'finishedBatches' | 'currentBatches' | 'pendingBatches' | 'createdAt' | 'updatedAt'
   > {}
 
 class StudentProfile extends Model<StudentProfileAttributes, StudentProfileCreationAttributes> implements StudentProfileAttributes {
@@ -32,6 +35,9 @@ class StudentProfile extends Model<StudentProfileAttributes, StudentProfileCreat
   public softwareList!: string[] | null;
   public enrollmentDate!: Date | null;
   public status!: string | null;
+  public finishedBatches!: string[] | null;
+  public currentBatches!: string[] | null;
+  public pendingBatches!: string[] | null;
   public readonly createdAt!: Date;
   public readonly updatedAt!: Date;
 
@@ -85,6 +91,21 @@ StudentProfile.init(
     status: {
       type: DataTypes.STRING,
       allowNull: true,
+    },
+    finishedBatches: {
+      type: DataTypes.JSON,
+      allowNull: true,
+      comment: 'Array of software names from finished batches',
+    },
+    currentBatches: {
+      type: DataTypes.JSON,
+      allowNull: true,
+      comment: 'Array of software names from current/active batches',
+    },
+    pendingBatches: {
+      type: DataTypes.JSON,
+      allowNull: true,
+      comment: 'Array of software names from pending/upcoming batches',
     },
   },
   {

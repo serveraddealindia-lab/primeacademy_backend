@@ -15,6 +15,163 @@ if (!fs.existsSync(receiptsDir)) {
   fs.mkdirSync(receiptsDir, { recursive: true });
 }
 
+// Helper function to update payment plan balance based on payments
+const updatePaymentPlanBalance = async (studentId: number, enrollmentId?: number | null): Promise<void> => {
+  try {
+    // Get all payments for this student/enrollment
+    const whereClause: any = { studentId };
+    if (enrollmentId) {
+      whereClause.enrollmentId = enrollmentId;
+    }
+    
+    const payments = await db.PaymentTransaction.findAll({
+      where: whereClause,
+      attributes: ['paidAmount', 'status'],
+    });
+    
+    // Calculate total paid amount (sum of all paidAmounts from paid/partial payments)
+    const totalPaid = payments.reduce((sum, payment) => {
+      if (payment.status === PaymentStatus.PAID || payment.status === PaymentStatus.PARTIAL) {
+        return sum + (payment.paidAmount || 0);
+      }
+      return sum;
+    }, 0);
+    
+    // Get enrollment if enrollmentId is provided
+    if (enrollmentId) {
+      const enrollment = await db.Enrollment.findByPk(enrollmentId, {
+        include: [
+          {
+            model: db.User,
+            as: 'student',
+            include: [
+              {
+                model: db.StudentProfile,
+                as: 'studentProfile',
+                attributes: ['id', 'documents'],
+                required: false,
+              },
+            ],
+          },
+        ],
+      });
+      
+      if (enrollment) {
+        const enrollmentJson = enrollment.toJSON() as any;
+        let paymentPlan = enrollmentJson.paymentPlan;
+        
+        // If paymentPlan doesn't exist, try to get from studentProfile
+        if (!paymentPlan || Object.keys(paymentPlan).length === 0) {
+          const studentProfile = enrollmentJson.student?.studentProfile;
+          if (studentProfile?.documents) {
+            let documents = studentProfile.documents;
+            if (typeof documents === 'string') {
+              try {
+                documents = JSON.parse(documents);
+              } catch (e) {
+                logger.warn(`Failed to parse documents JSON:`, e);
+                documents = null;
+              }
+            }
+            const metadata = documents?.enrollmentMetadata;
+            if (metadata) {
+              paymentPlan = {
+                totalDeal: metadata.totalDeal !== undefined && metadata.totalDeal !== null ? Number(metadata.totalDeal) : null,
+                bookingAmount: metadata.bookingAmount !== undefined && metadata.bookingAmount !== null ? Number(metadata.bookingAmount) : null,
+                balanceAmount: metadata.balanceAmount !== undefined && metadata.balanceAmount !== null ? Number(metadata.balanceAmount) : null,
+              };
+            }
+          }
+        }
+        
+        if (paymentPlan && (paymentPlan.totalDeal !== null && paymentPlan.totalDeal !== undefined)) {
+          const totalDeal = Number(paymentPlan.totalDeal);
+          const bookingAmount = Number(paymentPlan.bookingAmount || 0);
+          
+          // Calculate new balance: totalDeal - bookingAmount - totalPaid
+          const newBalance = totalDeal - bookingAmount - totalPaid;
+          
+          // Update enrollment paymentPlan
+          const updatedPaymentPlan = {
+            ...paymentPlan,
+            balanceAmount: Math.max(0, newBalance), // Ensure balance doesn't go negative
+          };
+          
+          await enrollment.update({ paymentPlan: updatedPaymentPlan });
+          logger.info(`Updated enrollment ${enrollmentId} paymentPlan: balanceAmount=${updatedPaymentPlan.balanceAmount}, totalPaid=${totalPaid}`);
+          
+          // Also update studentProfile documents if it exists
+          const studentProfile = enrollmentJson.student?.studentProfile;
+          if (studentProfile?.documents) {
+            let documents = studentProfile.documents;
+            if (typeof documents === 'string') {
+              try {
+                documents = JSON.parse(documents);
+              } catch (e) {
+                logger.warn(`Failed to parse documents JSON:`, e);
+                documents = {};
+              }
+            }
+            
+            if (documents && typeof documents === 'object' && documents.enrollmentMetadata) {
+              documents.enrollmentMetadata.balanceAmount = Math.max(0, newBalance);
+              await db.StudentProfile.update(
+                { documents },
+                { where: { id: studentProfile.id } }
+              );
+              logger.info(`Updated studentProfile ${studentProfile.id} documents: balanceAmount=${Math.max(0, newBalance)}`);
+            }
+          }
+        }
+      }
+    } else {
+      // No enrollmentId - update studentProfile directly
+      const student = await db.User.findByPk(studentId, {
+        include: [
+          {
+            model: db.StudentProfile,
+            as: 'studentProfile',
+            attributes: ['id', 'documents'],
+            required: false,
+          },
+        ],
+      });
+      
+      if (student?.studentProfile?.documents) {
+        let documents = student.studentProfile.documents;
+        if (typeof documents === 'string') {
+          try {
+            documents = JSON.parse(documents);
+          } catch (e) {
+            logger.warn(`Failed to parse documents JSON:`, e);
+            documents = {};
+          }
+        }
+        
+        if (documents && typeof documents === 'object' && documents.enrollmentMetadata) {
+          const metadata = documents.enrollmentMetadata;
+          const totalDeal = metadata.totalDeal !== undefined && metadata.totalDeal !== null ? Number(metadata.totalDeal) : null;
+          const bookingAmount = metadata.bookingAmount !== undefined && metadata.bookingAmount !== null ? Number(metadata.bookingAmount) : 0;
+          
+          if (totalDeal !== null && totalDeal !== undefined) {
+            const newBalance = totalDeal - bookingAmount - totalPaid;
+            documents.enrollmentMetadata.balanceAmount = Math.max(0, newBalance);
+            
+            await db.StudentProfile.update(
+              { documents },
+              { where: { id: student.studentProfile.id } }
+            );
+            logger.info(`Updated studentProfile ${student.studentProfile.id} documents: balanceAmount=${Math.max(0, newBalance)}, totalPaid=${totalPaid}`);
+          }
+        }
+      }
+    }
+  } catch (error) {
+    logger.error(`Error updating payment plan balance for student ${studentId}, enrollment ${enrollmentId}:`, error);
+    // Don't throw - this is a background update
+  }
+};
+
 // Generate receipt number
 const generateReceiptNumber = (paymentId: number, date: Date): string => {
   const year = date.getFullYear();
@@ -470,18 +627,45 @@ export const getPayments = async (req: AuthRequest, res: Response): Promise<void
       where.status = normalizedStatus;
     }
 
-    const payments = await db.PaymentTransaction.findAll({
-      where,
-      include: [
-        { model: db.User, as: 'student', attributes: ['id', 'name', 'email', 'phone'] },
-        {
-          model: db.Enrollment,
-          as: 'enrollment',
-          include: [{ model: db.Batch, as: 'batch', attributes: ['id', 'title'] }],
-        },
-      ],
-      order: [['dueDate', 'DESC'], ['id', 'DESC']],
-    });
+    let payments: any[] = [];
+    try {
+      payments = await db.PaymentTransaction.findAll({
+        where,
+        include: [
+          { 
+            model: db.User, 
+            as: 'student', 
+            attributes: ['id', 'name', 'email', 'phone'],
+            required: false,
+          },
+          {
+            model: db.Enrollment,
+            as: 'enrollment',
+            required: false,
+            include: [{ 
+              model: db.Batch, 
+              as: 'batch', 
+              attributes: ['id', 'title'],
+              required: false,
+            }],
+          },
+        ],
+        order: [['dueDate', 'DESC'], ['id', 'DESC']],
+      });
+    } catch (queryError: any) {
+      logger.error('Get payments query error:', queryError);
+      // Try without includes if query fails
+      try {
+        payments = await db.PaymentTransaction.findAll({
+          where,
+          order: [['dueDate', 'DESC'], ['id', 'DESC']],
+        });
+        logger.warn('Fetched payments without relations due to query error');
+      } catch (fallbackError: any) {
+        logger.error('Get payments fallback error:', fallbackError);
+        throw new Error(`Failed to fetch payments: ${fallbackError.message}`);
+      }
+    }
 
     res.status(200).json({
       status: 'success',
@@ -489,11 +673,17 @@ export const getPayments = async (req: AuthRequest, res: Response): Promise<void
         payments: payments.map(formatPayment),
       },
     });
-  } catch (error) {
-    logger.error('Get payments error', error);
+  } catch (error: any) {
+    logger.error('Get payments error:', error);
+    logger.error('Error details:', {
+      message: error?.message,
+      stack: error?.stack,
+      name: error?.name,
+    });
     res.status(500).json({
       status: 'error',
       message: 'Failed to load payments',
+      error: process.env.NODE_ENV === 'development' ? error?.message : undefined,
     });
   }
 };
@@ -552,10 +742,38 @@ export const createPayment = async (req: AuthRequest, res: Response): Promise<vo
 
     const { studentId, enrollmentId, amount, dueDate, notes, paymentMethod, transactionId } = req.body;
 
-    if (!studentId || !amount || !dueDate) {
+    if (!studentId || !dueDate) {
       res.status(400).json({
         status: 'error',
-        message: 'studentId, amount, and dueDate are required',
+        message: 'studentId and dueDate are required',
+      });
+      return;
+    }
+
+    // Fetch student with profile first to check for fees
+    const student = await db.User.findByPk(studentId, {
+      include: [
+        {
+          model: db.StudentProfile,
+          as: 'studentProfile',
+          attributes: ['id', 'documents'],
+          required: false,
+        },
+      ],
+    });
+    if (!student || student.role !== UserRole.STUDENT) {
+      res.status(400).json({
+        status: 'error',
+        message: 'Invalid student selected',
+      });
+      return;
+    }
+
+    // Validate amount
+    if (!amount) {
+      res.status(400).json({
+        status: 'error',
+        message: 'Amount is required',
       });
       return;
     }
@@ -569,21 +787,34 @@ export const createPayment = async (req: AuthRequest, res: Response): Promise<vo
       return;
     }
 
-    const student = await db.User.findByPk(studentId);
-    if (!student || student.role !== UserRole.STUDENT) {
-      res.status(400).json({
-        status: 'error',
-        message: 'Invalid student selected',
-      });
-      return;
-    }
-
+    let enrollment: any = null;
     if (enrollmentId) {
-      const enrollment = await db.Enrollment.findByPk(enrollmentId);
-      if (!enrollment) {
+      try {
+        enrollment = await db.Enrollment.findByPk(enrollmentId, {
+          include: [{ model: db.Batch, as: 'batch', attributes: ['id', 'title'], required: false }],
+        });
+        if (!enrollment) {
+          res.status(400).json({
+            status: 'error',
+            message: 'Invalid enrollment selected',
+          });
+          return;
+        }
+        
+        // If amount is not provided, try to get it from enrollment paymentPlan
+        if (!amount && enrollment.paymentPlan) {
+          const paymentPlan = enrollment.paymentPlan as any;
+          const suggestedAmount = paymentPlan.balanceAmount || paymentPlan.totalDeal || paymentPlan.bookingAmount;
+          if (suggestedAmount && suggestedAmount > 0) {
+            logger.info(`Auto-suggesting amount ${suggestedAmount} from enrollment ${enrollmentId} paymentPlan`);
+            // Don't auto-set, just log - let frontend handle it
+          }
+        }
+      } catch (enrollmentError: any) {
+        logger.error('Error fetching enrollment:', enrollmentError);
         res.status(400).json({
           status: 'error',
-          message: 'Invalid enrollment selected',
+          message: 'Failed to validate enrollment',
         });
         return;
       }
@@ -618,6 +849,15 @@ export const createPayment = async (req: AuthRequest, res: Response): Promise<vo
     } catch (includeError) {
       logger.warn('Failed to fetch payment with relations, using basic payment:', includeError);
       paymentWithRelations = payment;
+    }
+
+    // Update payment plan balance synchronously to ensure it's updated
+    try {
+      await updatePaymentPlanBalance(studentId, enrollmentId || null);
+      logger.info(`Payment plan balance updated for student ${studentId}, enrollment ${enrollmentId || 'none'}`);
+    } catch (err) {
+      logger.error('Payment plan balance update failed:', err);
+      // Don't fail the payment creation if balance update fails
     }
 
     res.status(201).json({
@@ -834,6 +1074,25 @@ export const updatePayment = async (req: AuthRequest, res: Response): Promise<vo
     }
 
     await payment.update(updates);
+
+    // Update payment plan balance if paidAmount or status changed
+    if (updates.paidAmount !== undefined || updates.status !== undefined) {
+      // Refresh payment to get updated enrollmentId
+      const refreshedPayment = await db.PaymentTransaction.findByPk(payment.id, {
+        attributes: ['studentId', 'enrollmentId'],
+      });
+      
+      if (refreshedPayment) {
+        // Update payment plan balance synchronously to ensure it's updated before response
+        try {
+          await updatePaymentPlanBalance(refreshedPayment.studentId, refreshedPayment.enrollmentId || null);
+          logger.info(`Payment plan balance updated for student ${refreshedPayment.studentId}, enrollment ${refreshedPayment.enrollmentId || 'none'}`);
+        } catch (err) {
+          logger.error('Payment plan balance update failed:', err);
+          // Don't fail the payment update if balance update fails
+        }
+      }
+    }
 
     const updatedPayment = await db.PaymentTransaction.findByPk(payment.id, {
       include: [

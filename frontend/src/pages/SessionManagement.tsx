@@ -21,6 +21,7 @@ export const SessionManagement: React.FC = () => {
   const [filterStatus, setFilterStatus] = useState<string>('');
   const [filterDateFrom, setFilterDateFrom] = useState<string>('');
   const [filterDateTo, setFilterDateTo] = useState<string>('');
+  const [searchQuery, setSearchQuery] = useState('');
 
   // Fetch sessions with filters
   const { data: sessionsData, isLoading } = useQuery({
@@ -85,19 +86,32 @@ export const SessionManagement: React.FC = () => {
     },
   });
 
-  let sessions = sessionsData?.data.sessions || [];
+  let allSessions = sessionsData?.data.sessions || [];
   const batches = batchesData?.data || [];
   const faculty = facultyData?.data.users || [];
 
-  // Apply date filters
+  // Apply date filters first
+  let filteredSessions = allSessions;
   if (filterDateFrom || filterDateTo) {
-    sessions = sessions.filter(session => {
+    filteredSessions = filteredSessions.filter(session => {
       const sessionDate = new Date(session.date);
       if (filterDateFrom && sessionDate < new Date(filterDateFrom)) return false;
       if (filterDateTo && sessionDate > new Date(filterDateTo)) return false;
       return true;
     });
   }
+
+  // Filter sessions based on search query
+  const sessions = filteredSessions.filter((session) => {
+    if (!searchQuery.trim()) return true;
+    const query = searchQuery.toLowerCase();
+    return (
+      session.topic?.toLowerCase().includes(query) ||
+      session.batch?.title?.toLowerCase().includes(query) ||
+      session.faculty?.name?.toLowerCase().includes(query) ||
+      session.status?.toLowerCase().includes(query)
+    );
+  });
 
   const handleCreateSession = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -214,6 +228,39 @@ export const SessionManagement: React.FC = () => {
               </div>
             </div>
 
+            {/* Search Bar */}
+            <div className="mb-4">
+              <div className="relative max-w-md">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                  <svg className="h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                  </svg>
+                </div>
+                <input
+                  type="text"
+                  placeholder="Search sessions by topic, batch, faculty, or status..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
+                />
+                {searchQuery && (
+                  <button
+                    onClick={() => setSearchQuery('')}
+                    className="absolute inset-y-0 right-0 pr-3 flex items-center"
+                  >
+                    <svg className="h-5 w-5 text-gray-400 hover:text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                )}
+              </div>
+              {searchQuery && (
+                <p className="mt-2 text-sm text-gray-600">
+                  Showing {sessions.length} of {allSessions.length} sessions
+                </p>
+              )}
+            </div>
+
             {/* Summary Stats */}
             <div className="mb-6 grid grid-cols-1 md:grid-cols-4 gap-4">
               <div className="bg-blue-50 p-4 rounded-lg">
@@ -242,8 +289,20 @@ export const SessionManagement: React.FC = () => {
 
             {sessions.length === 0 ? (
               <div className="text-center py-12">
-                <p className="text-gray-500 text-lg">No sessions found</p>
-                <p className="text-sm text-gray-400 mt-2">Try adjusting your filters or create a new session</p>
+                <p className="text-gray-500 text-lg">
+                  {searchQuery ? 'No sessions found matching your search' : 'No sessions found'}
+                </p>
+                <p className="text-sm text-gray-400 mt-2">
+                  {searchQuery ? '' : 'Try adjusting your filters or create a new session'}
+                </p>
+                {searchQuery && (
+                  <button
+                    onClick={() => setSearchQuery('')}
+                    className="mt-2 text-orange-600 hover:text-orange-700 text-sm"
+                  >
+                    Clear search
+                  </button>
+                )}
               </div>
             ) : (
               <div className="overflow-x-auto">

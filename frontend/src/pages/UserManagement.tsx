@@ -34,6 +34,7 @@ export const UserManagement: React.FC = () => {
     canEdit: boolean;
     canDelete: boolean;
   }>>([]);
+  const [searchQuery, setSearchQuery] = useState('');
 
   // Fetch users
   const { data: usersData, isLoading, error: usersError } = useQuery({
@@ -273,7 +274,19 @@ export const UserManagement: React.FC = () => {
     },
   });
 
-  const users = usersData?.data.users || [];
+  const allUsers = usersData?.data.users || [];
+  
+  // Filter users based on search query
+  const users = allUsers.filter((user) => {
+    if (!searchQuery.trim()) return true;
+    const query = searchQuery.toLowerCase();
+    return (
+      user.name?.toLowerCase().includes(query) ||
+      user.email?.toLowerCase().includes(query) ||
+      user.phone?.toLowerCase().includes(query) ||
+      user.role?.toLowerCase().includes(query)
+    );
+  });
 
   const handleEdit = (user: User) => {
     setSelectedUser(user);
@@ -494,12 +507,57 @@ export const UserManagement: React.FC = () => {
                   Retry
                 </button>
               </div>
-            ) : users.length === 0 ? (
-              <div className="text-center py-12">
-                <p className="text-gray-500 text-lg">No users found</p>
-              </div>
             ) : (
-              <div className="overflow-x-auto">
+              <>
+                {/* Search Bar */}
+                <div className="mb-4">
+                  <div className="relative max-w-md">
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                      <svg className="h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                      </svg>
+                    </div>
+                    <input
+                      type="text"
+                      placeholder="Search users by name, email, phone, or role..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
+                    />
+                    {searchQuery && (
+                      <button
+                        onClick={() => setSearchQuery('')}
+                        className="absolute inset-y-0 right-0 pr-3 flex items-center"
+                      >
+                        <svg className="h-5 w-5 text-gray-400 hover:text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </button>
+                    )}
+                  </div>
+                  {searchQuery && (
+                    <p className="mt-2 text-sm text-gray-600">
+                      Showing {users.length} of {allUsers.length} users
+                    </p>
+                  )}
+                </div>
+
+                {users.length === 0 ? (
+                  <div className="text-center py-12">
+                    <p className="text-gray-500 text-lg">
+                      {searchQuery ? 'No users found matching your search' : 'No users found'}
+                    </p>
+                    {searchQuery && (
+                      <button
+                        onClick={() => setSearchQuery('')}
+                        className="mt-2 text-orange-600 hover:text-orange-700 text-sm"
+                      >
+                        Clear search
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
                 <table className="min-w-full divide-y divide-gray-200">
                   <thead className="bg-gray-50">
                     <tr>
@@ -595,6 +653,8 @@ export const UserManagement: React.FC = () => {
                   </tbody>
                 </table>
               </div>
+                )}
+              </>
             )}
           </div>
         </div>

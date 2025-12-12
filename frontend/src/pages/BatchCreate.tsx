@@ -6,6 +6,7 @@ import { Layout } from '../components/Layout';
 import { batchAPI, CreateBatchRequest, SuggestedCandidate } from '../api/batch.api';
 import { studentAPI } from '../api/student.api';
 import { facultyAPI } from '../api/faculty.api';
+import { formatDateInputToDDMMYYYY } from '../utils/dateUtils';
 
 const DAYS_OF_WEEK = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
@@ -27,6 +28,9 @@ export const BatchCreate: React.FC = () => {
   const [showOtherSoftwareInput, setShowOtherSoftwareInput] = useState(false);
   const [otherSoftware, setOtherSoftware] = useState('');
   const [selectedSoftwares, setSelectedSoftwares] = useState<string[]>([]);
+  const [studentSearchQuery, setStudentSearchQuery] = useState('');
+  const [startDateDisplay, setStartDateDisplay] = useState('');
+  const [endDateDisplay, setEndDateDisplay] = useState('');
 
   // Fetch all students
   const { data: studentsData } = useQuery({
@@ -143,9 +147,9 @@ export const BatchCreate: React.FC = () => {
     if (selectedFaculty.length > 0) {
       // Use selected faculty if available
       tempFacultyIds = selectedFaculty;
-    } else if (facultyData?.data?.faculty && facultyData.data.faculty.length > 0) {
+    } else if (facultyData?.data?.users && facultyData.data.users.length > 0) {
       // Use the first available faculty
-      tempFacultyIds = [facultyData.data.faculty[0].id];
+      tempFacultyIds = [facultyData.data.users[0].id];
     } else {
       alert('Please select at least one faculty member first, or ensure faculty data is loaded');
       return;
@@ -166,17 +170,28 @@ export const BatchCreate: React.FC = () => {
       const tempBatch = await batchAPI.createBatch(tempData);
       if (tempBatch.data.batch) {
         const suggestions = await batchAPI.suggestCandidates(tempBatch.data.batch.id);
-        setSuggestedCandidates(suggestions.data.candidates);
-        setShowSuggestions(true);
+        console.log('Suggestions received:', suggestions);
+        if (suggestions.data && suggestions.data.candidates) {
+          setSuggestedCandidates(suggestions.data.candidates);
+          setShowSuggestions(true);
+          // Don't show alert for empty results, just show the empty state message in UI
+        } else {
+          console.error('No suggestions data received:', suggestions);
+          setSuggestedCandidates([]);
+          setShowSuggestions(true);
+        }
         // Delete temporary batch
         try {
           await batchAPI.deleteBatch(tempBatch.data.batch.id);
         } catch (err) {
           console.error('Failed to delete temp batch:', err);
         }
+      } else {
+        alert('Failed to create temporary batch for suggestions');
       }
     } catch (error: any) {
-      alert(error.response?.data?.message || 'Failed to get suggestions');
+      console.error('Error getting suggestions:', error);
+      alert(error.response?.data?.message || 'Failed to get suggestions. Please check console for details.');
     }
   };
 
@@ -199,6 +214,8 @@ export const BatchCreate: React.FC = () => {
   const handleSelectSuggested = (candidate: SuggestedCandidate) => {
     if (candidate.status === 'available' || candidate.status === 'fees_overdue') {
       handleToggleStudent(candidate.studentId);
+    } else if (candidate.status === 'no_orientation') {
+      alert('This student has not accepted orientation yet. Please accept orientation first.');
     }
   };
 
@@ -387,8 +404,14 @@ export const BatchCreate: React.FC = () => {
                     type="date"
                     name="startDate"
                     required
+                    onChange={(e) => {
+                      setStartDateDisplay(formatDateInputToDDMMYYYY(e.target.value));
+                    }}
                     className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent"
                   />
+                  {startDateDisplay && (
+                    <p className="mt-1 text-sm text-gray-600">Selected: {startDateDisplay}</p>
+                  )}
                 </div>
 
                 <div>
@@ -399,8 +422,14 @@ export const BatchCreate: React.FC = () => {
                     type="date"
                     name="endDate"
                     required
+                    onChange={(e) => {
+                      setEndDateDisplay(formatDateInputToDDMMYYYY(e.target.value));
+                    }}
                     className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent"
                   />
+                  {endDateDisplay && (
+                    <p className="mt-1 text-sm text-gray-600">Selected: {endDateDisplay}</p>
+                  )}
                 </div>
 
                 <div>
@@ -501,49 +530,67 @@ export const BatchCreate: React.FC = () => {
                   </button>
                 </div>
                 
-                {showSuggestions && suggestedCandidates.length > 0 && (
+                {showSuggestions && (
                   <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
                     <h4 className="font-semibold text-blue-900 mb-2">Suggested Students (based on software)</h4>
-                    <div className="max-h-40 overflow-y-auto space-y-2">
-                      {suggestedCandidates.map((candidate) => (
-                        <div
-                          key={candidate.studentId}
-                          className={`p-2 rounded border cursor-pointer ${
-                            candidate.status === 'available' 
-                              ? 'bg-green-50 border-green-300 hover:bg-green-100' 
-                              : candidate.status === 'fees_overdue'
-                              ? 'bg-yellow-50 border-yellow-300 hover:bg-yellow-100'
-                              : 'bg-gray-50 border-gray-300 opacity-50'
-                          }`}
-                          onClick={() => handleSelectSuggested(candidate)}
-                        >
-                          <div className="flex items-center justify-between">
-                            <div>
-                              <span className="font-medium">{candidate.name}</span>
-                              <span className="text-xs text-gray-600 ml-2">({candidate.email})</span>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <span className={`text-xs px-2 py-1 rounded ${
-                                candidate.status === 'available' 
-                                  ? 'bg-green-200 text-green-800'
-                                  : candidate.status === 'fees_overdue'
-                                  ? 'bg-yellow-200 text-yellow-800'
-                                  : 'bg-gray-200 text-gray-800'
-                              }`}>
-                                {candidate.statusMessage}
-                              </span>
-                              <input
-                                type="checkbox"
-                                checked={selectedStudents.includes(candidate.studentId)}
-                                onChange={() => handleToggleStudent(candidate.studentId)}
-                                disabled={candidate.status === 'busy'}
-                                className="w-4 h-4 text-orange-600 border-gray-300 rounded focus:ring-orange-500"
-                              />
+                    {suggestedCandidates.length > 0 ? (
+                      <div className="max-h-40 overflow-y-auto space-y-2">
+                        {suggestedCandidates.map((candidate) => (
+                          <div
+                            key={candidate.studentId}
+                            className={`p-2 rounded border cursor-pointer ${
+                              candidate.status === 'available' 
+                                ? 'bg-green-50 border-green-300 hover:bg-green-100' 
+                                : candidate.status === 'fees_overdue'
+                                ? 'bg-yellow-50 border-yellow-300 hover:bg-yellow-100'
+                                : candidate.status === 'no_orientation'
+                                ? 'bg-orange-50 border-orange-300 hover:bg-orange-100'
+                                : 'bg-gray-50 border-gray-300 opacity-50'
+                            }`}
+                            onClick={() => handleSelectSuggested(candidate)}
+                          >
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <span className="font-medium">{candidate.name || `Student #${candidate.studentId}`}</span>
+                                {candidate.email && (
+                                  <span className="text-xs text-gray-600 ml-2">({candidate.email})</span>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <span className={`text-xs px-2 py-1 rounded ${
+                                  candidate.status === 'available' 
+                                    ? 'bg-green-200 text-green-800'
+                                    : candidate.status === 'fees_overdue'
+                                    ? 'bg-yellow-200 text-yellow-800'
+                                    : candidate.status === 'no_orientation'
+                                    ? 'bg-orange-200 text-orange-800'
+                                    : 'bg-gray-200 text-gray-800'
+                                }`}>
+                                  {candidate.statusMessage || candidate.status}
+                                </span>
+                                <input
+                                  type="checkbox"
+                                  checked={selectedStudents.includes(candidate.studentId)}
+                                  onChange={() => handleToggleStudent(candidate.studentId)}
+                                  disabled={candidate.status === 'busy' || candidate.status === 'no_orientation'}
+                                  className="w-4 h-4 text-orange-600 border-gray-300 rounded focus:ring-orange-500"
+                                  onClick={(e) => e.stopPropagation()}
+                                />
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      ))}
-                    </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="p-3 bg-white border border-blue-200 rounded">
+                        <p className="text-sm text-gray-600">
+                          No students found with matching software "{selectedSoftwares.join(', ')}".
+                        </p>
+                        <p className="text-xs text-gray-500 mt-2">
+                          Students need to have the software selected in their profile to appear here.
+                        </p>
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -551,21 +598,54 @@ export const BatchCreate: React.FC = () => {
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     Select Students to Enroll
                   </label>
+                  <div className="mb-3 relative">
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                      <svg className="h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                      </svg>
+                    </div>
+                    <input
+                      type="text"
+                      placeholder="Search students by name or email..."
+                      value={studentSearchQuery}
+                      onChange={(e) => setStudentSearchQuery(e.target.value)}
+                      className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
+                    />
+                  </div>
                   <div className="max-h-60 overflow-y-auto border border-gray-300 rounded-lg p-3 space-y-2">
-                    {students.map((student) => (
-                      <label key={student.id} className="flex items-center p-2 hover:bg-gray-50 rounded cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={selectedStudents.includes(student.id)}
-                          onChange={() => handleToggleStudent(student.id)}
-                          className="w-4 h-4 text-orange-600 border-gray-300 rounded focus:ring-orange-500 mr-3"
-                        />
-                        <div>
-                          <span className="font-medium">{student.name}</span>
-                          <span className="text-sm text-gray-600 ml-2">({student.email})</span>
-                        </div>
-                      </label>
-                    ))}
+                    {students
+                      .filter((student) => {
+                        if (!studentSearchQuery.trim()) return true;
+                        const query = studentSearchQuery.toLowerCase();
+                        return (
+                          student.name.toLowerCase().includes(query) ||
+                          student.email.toLowerCase().includes(query)
+                        );
+                      })
+                      .map((student) => (
+                        <label key={student.id} className="flex items-center p-2 hover:bg-gray-50 rounded cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={selectedStudents.includes(student.id)}
+                            onChange={() => handleToggleStudent(student.id)}
+                            className="w-4 h-4 text-orange-600 border-gray-300 rounded focus:ring-orange-500 mr-3"
+                          />
+                          <div>
+                            <span className="font-medium">{student.name}</span>
+                            <span className="text-sm text-gray-600 ml-2">({student.email})</span>
+                          </div>
+                        </label>
+                      ))}
+                    {students.filter((student) => {
+                      if (!studentSearchQuery.trim()) return false;
+                      const query = studentSearchQuery.toLowerCase();
+                      return (
+                        student.name.toLowerCase().includes(query) ||
+                        student.email.toLowerCase().includes(query)
+                      );
+                    }).length === 0 && studentSearchQuery.trim() && (
+                      <p className="text-sm text-gray-500 text-center py-4">No students found matching your search</p>
+                    )}
                   </div>
                   {selectedStudents.length > 0 && (
                     <p className="mt-2 text-sm text-gray-600">

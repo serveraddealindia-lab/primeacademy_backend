@@ -36,6 +36,7 @@ import enrollmentRoutes from './routes/enrollment.routes';
 import studentRoutes from './routes/student.routes';
 import certificateRoutes from './routes/certificate.routes';
 import biometricRoutes from './routes/biometric.routes';
+import studentSoftwareProgressRoutes from './routes/studentSoftwareProgress.routes';
 import { notFoundHandler, errorHandler } from './middleware/error.middleware';
 import { logger } from './utils/logger';
 
@@ -266,6 +267,39 @@ app.use('/receipts', (req, res, next) => {
   dotfiles: 'ignore',
 }));
 
+// Also serve receipts through /api/receipts/ for frontend compatibility
+app.use('/api/receipts', (req, res, next) => {
+  const origin = req.headers.origin;
+  const allowedOrigins = process.env.FRONTEND_URL?.split(',').map((o) => o.trim()) || [
+    'http://localhost:5173',
+    'http://crm.prashantthakar.com',
+  ];
+  
+  if (origin && allowedOrigins.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+  } else {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+  }
+  
+  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  
+  if (req.method === 'OPTIONS') {
+    res.sendStatus(200);
+    return;
+  }
+  
+  next();
+}, express.static(receiptsStaticPath, {
+  setHeaders: (res, _filePath) => {
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Cache-Control', 'public, max-age=31536000');
+  },
+  index: false,
+  dotfiles: 'ignore',
+}));
+
 // Serve certificate PDFs statically (must be before API routes to avoid conflicts)
 // This allows direct access to PDF files via /certificates/filename.pdf
 // Use the same path calculation as certificate controller
@@ -425,6 +459,7 @@ app.use('/api/students', studentRoutes);
 // Certificate API routes (must be after static file serving)
 app.use('/api/certificates', certificateRoutes);
 app.use('/api/biometric', biometricRoutes);
+app.use('/api/student-software-progress', studentSoftwareProgressRoutes);
 
 // Debug: Log registered student routes (development only)
 // if (process.env.NODE_ENV === 'development') {

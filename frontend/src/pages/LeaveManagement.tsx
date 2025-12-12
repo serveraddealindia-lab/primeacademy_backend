@@ -25,6 +25,7 @@ export const LeaveManagement: React.FC = () => {
   const [isApproveModalOpen, setIsApproveModalOpen] = useState(false);
   const [selectedLeave, setSelectedLeave] = useState<any>(null);
   const [statusFilter, setStatusFilter] = useState<LeaveStatus | 'all'>('all');
+  const [studentSearchQuery, setStudentSearchQuery] = useState('');
 
   // Fetch student leaves
   const { data: studentLeavesData, isLoading: isLoadingStudent } = useQuery({
@@ -467,6 +468,20 @@ export const LeaveManagement: React.FC = () => {
                   {(currentUser?.role === 'admin' || currentUser?.role === 'superadmin') && (
                     <div className="mb-4">
                       <label className="block text-sm font-medium text-gray-700 mb-1">Student *</label>
+                      <div className="relative mb-2">
+                        <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                          <svg className="h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                          </svg>
+                        </div>
+                        <input
+                          type="text"
+                          placeholder="Search students by name or email..."
+                          value={studentSearchQuery}
+                          onChange={(e) => setStudentSearchQuery(e.target.value)}
+                          className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
+                        />
+                      </div>
                       <select
                         name="studentId"
                         required
@@ -474,12 +489,31 @@ export const LeaveManagement: React.FC = () => {
                         disabled={!studentsData?.data?.users}
                       >
                         <option value="">{studentsData?.data?.users ? 'Select Student' : 'Loading...'}</option>
-                        {studentsData?.data?.users?.map((student: any) => (
-                          <option key={student.id} value={student.id}>
-                            {student.name} ({student.email})
-                          </option>
-                        ))}
+                        {studentsData?.data?.users
+                          ?.filter((student: any) => {
+                            if (!studentSearchQuery.trim()) return true;
+                            const query = studentSearchQuery.toLowerCase();
+                            return (
+                              student.name?.toLowerCase().includes(query) ||
+                              student.email?.toLowerCase().includes(query)
+                            );
+                          })
+                          ?.map((student: any) => (
+                            <option key={student.id} value={student.id}>
+                              {student.name} ({student.email})
+                            </option>
+                          ))}
                       </select>
+                      {studentsData?.data?.users?.filter((student: any) => {
+                        if (!studentSearchQuery.trim()) return false;
+                        const query = studentSearchQuery.toLowerCase();
+                        return (
+                          student.name?.toLowerCase().includes(query) ||
+                          student.email?.toLowerCase().includes(query)
+                        );
+                      }).length === 0 && studentSearchQuery.trim() && (
+                        <p className="mt-1 text-xs text-gray-500">No students found matching your search</p>
+                      )}
                     </div>
                   )}
                   <div className="mb-4">
