@@ -222,7 +222,7 @@ export const getAllEnrollments = async (req: AuthRequest, res: Response): Promis
 
     // Enrich enrollments with fees from studentProfile if paymentPlan is empty
     const enrichedEnrollments = await Promise.all(enrollments.map(async (enrollment: any) => {
-      const enrollmentJson = enrollment.toJSON();
+      const enrollmentJson = enrollment.toJSON() as any;
       
       // If paymentPlan is empty or null, try to get fees from studentProfile
       if (!enrollmentJson.paymentPlan || Object.keys(enrollmentJson.paymentPlan).length === 0) {

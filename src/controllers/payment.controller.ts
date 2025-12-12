@@ -73,7 +73,7 @@ const updatePaymentPlanBalance = async (studentId: number, enrollmentId?: number
                 documents = null;
               }
             }
-            const metadata = documents?.enrollmentMetadata;
+            const metadata = documents?.enrollmentMetadata as any;
             if (metadata) {
               paymentPlan = {
                 totalDeal: metadata.totalDeal !== undefined && metadata.totalDeal !== null ? Number(metadata.totalDeal) : null,
