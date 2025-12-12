@@ -792,6 +792,10 @@ export const suggestCandidates = async (req: AuthRequest, res: Response): Promis
     const candidates = eligibleStudents.map((student) => {
       try {
         const studentId = student.id;
+        
+        // Debug: Log student data to help identify name issues
+        const studentData = (student as any).toJSON ? (student as any).toJSON() : student;
+        logger.debug(`Processing candidate student ${studentId}: name="${studentData?.name || student.name || 'MISSING'}", email="${studentData?.email || student.email || 'MISSING'}"`);
 
         // Check for overdue payments
         const overduePayments = payments
@@ -872,11 +876,16 @@ export const suggestCandidates = async (req: AuthRequest, res: Response): Promis
           statusMessage = `Busy - ${conflictDetails.join(', ')}`;
         }
 
+        // Ensure name is properly extracted - handle both direct property and toJSON() cases
+        const studentName = (student.name || (student as any).toJSON?.()?.name || 'Unknown').trim();
+        const studentEmail = (student.email || (student as any).toJSON?.()?.email || '').trim();
+        const studentPhone = (student.phone || (student as any).toJSON?.()?.phone || '-').trim();
+
         return {
           studentId: student.id,
-          name: student.name || 'Unknown',
-          email: student.email || '',
-          phone: student.phone || '-',
+          name: studentName || `Student #${student.id}`,
+          email: studentEmail || '',
+          phone: studentPhone || '-',
           status,
           statusMessage,
           hasOverdueFees,
@@ -890,11 +899,15 @@ export const suggestCandidates = async (req: AuthRequest, res: Response): Promis
       } catch (studentError: any) {
         logger.error(`Error processing student ${student.id}:`, studentError);
         // Return a safe default candidate
+        const studentName = (student.name || (student as any).toJSON?.()?.name || 'Unknown').trim();
+        const studentEmail = (student.email || (student as any).toJSON?.()?.email || '').trim();
+        const studentPhone = (student.phone || (student as any).toJSON?.()?.phone || '-').trim();
+        
         return {
           studentId: student.id,
-          name: student.name || 'Unknown',
-          email: student.email || '',
-          phone: student.phone || '-',
+          name: studentName || `Student #${student.id}`,
+          email: studentEmail || '',
+          phone: studentPhone || '-',
           status: 'no_orientation',
           statusMessage: 'Error processing student data',
           hasOverdueFees: false,

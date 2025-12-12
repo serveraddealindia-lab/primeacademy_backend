@@ -90,6 +90,11 @@ interface CompleteEnrollmentBody {
   balanceAmount?: number;
   emiPlan?: boolean;
   emiPlanDate?: string;
+  emiInstallments?: Array<{
+    month: number;
+    amount: number;
+    dueDate?: string;
+  }>;
   complimentarySoftware?: string;
   complimentaryGift?: string;
   hasReference?: boolean;
@@ -98,6 +103,7 @@ interface CompleteEnrollmentBody {
   leadSource?: string;
   walkinDate?: string;
   masterFaculty?: string;
+  enrollmentDocuments?: string[]; // Array of document URLs
 }
 
 // POST /students/enroll → Create student user, profile, and enrollment in one call
@@ -152,6 +158,7 @@ export const completeEnrollment = async (
       leadSource,
       walkinDate,
       masterFaculty,
+      enrollmentDocuments,
     } = req.body;
 
     // Validation - Only studentName and phone are required
@@ -262,6 +269,9 @@ export const completeEnrollment = async (
       if (balanceAmount !== undefined) enrollmentMetadata.balanceAmount = balanceAmount;
       if (emiPlan !== undefined) enrollmentMetadata.emiPlan = emiPlan;
       if (emiPlanDate) enrollmentMetadata.emiPlanDate = emiPlanDate;
+      if (emiInstallments && Array.isArray(emiInstallments) && emiInstallments.length > 0) {
+        enrollmentMetadata.emiInstallments = emiInstallments;
+      }
       if (complimentarySoftware) enrollmentMetadata.complimentarySoftware = complimentarySoftware;
       if (complimentaryGift) enrollmentMetadata.complimentaryGift = complimentaryGift;
       if (hasReference !== undefined) enrollmentMetadata.hasReference = hasReference;
@@ -273,6 +283,9 @@ export const completeEnrollment = async (
       if (permanentAddress) enrollmentMetadata.permanentAddress = permanentAddress;
       if (localAddress) enrollmentMetadata.localAddress = localAddress;
       if (dateOfAdmission) enrollmentMetadata.dateOfAdmission = dateOfAdmission;
+      if (enrollmentDocuments && Array.isArray(enrollmentDocuments) && enrollmentDocuments.length > 0) {
+        enrollmentMetadata.enrollmentDocuments = enrollmentDocuments;
+      }
 
       // Always store documents with enrollmentMetadata wrapper (matching bulk upload structure)
       profileData.documents = {
@@ -325,6 +338,9 @@ export const completeEnrollment = async (
         if (balanceAmount !== undefined) paymentPlan.balanceAmount = balanceAmount;
         if (emiPlan !== undefined) paymentPlan.emiPlan = emiPlan;
         if (emiPlanDate) paymentPlan.emiPlanDate = emiPlanDate;
+        if (emiInstallments && Array.isArray(emiInstallments) && emiInstallments.length > 0) {
+          paymentPlan.emiInstallments = emiInstallments;
+        }
 
         enrollment = await db.Enrollment.create(
           {
@@ -771,6 +787,7 @@ export const bulkEnrollStudents = async (req: AuthRequest, res: Response): Promi
           balanceAmount: row.balanceAmount ? (typeof row.balanceAmount === 'string' ? parseFloat(row.balanceAmount) : row.balanceAmount) : null,
           emiPlan: parseBoolean(row.emiPlan),
           emiPlanDate: row.emiPlanDate ? (parseExcelDate(row.emiPlanDate)?.toISOString().split('T')[0] || null) : null,
+          emiInstallments: row.emiInstallments ? (typeof row.emiInstallments === 'string' ? JSON.parse(row.emiInstallments) : row.emiInstallments) : null,
           complimentarySoftware: row.complimentarySoftware || null,
           complimentaryGift: row.complimentaryGift || null,
           hasReference: parseBoolean(row.hasReference),
