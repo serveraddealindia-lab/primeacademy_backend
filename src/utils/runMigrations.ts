@@ -38,6 +38,23 @@ export const runPendingMigrations = async () => {
   const migrator = new Umzug({
     migrations: {
       glob: [globPattern, { cwd: migrationsPath }],
+      resolve: ({ name, path: migrationPath, context }) => {
+        // Handle both CommonJS and ES6 module formats
+        if (!migrationPath) {
+          throw new Error(`Migration path is undefined for ${name}`);
+        }
+        const migration = require(migrationPath);
+        // If it's a default export (ES6), use .default, otherwise use the module directly
+        const migrationModule = migration.default || migration;
+        if (!migrationModule || typeof migrationModule.up !== 'function') {
+          throw new Error(`Migration ${name} does not have a valid 'up' function`);
+        }
+        return {
+          name,
+          up: async () => migrationModule.up(context),
+          down: async () => migrationModule.down ? migrationModule.down(context) : Promise.resolve(),
+        };
+      },
     },
     context: sequelize.getQueryInterface(),
     storage: new SequelizeStorage({ sequelize }),

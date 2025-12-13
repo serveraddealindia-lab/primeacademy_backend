@@ -65,9 +65,22 @@ export default {
       },
     });
 
-    await queryInterface.addIndex('faculty_leaves', ['facultyId'], { name: 'idx_facultyId' });
-    await queryInterface.addIndex('faculty_leaves', ['status'], { name: 'idx_status' });
-    await queryInterface.addIndex('faculty_leaves', ['startDate', 'endDate'], { name: 'idx_dates' });
+    // Add indexes only if they don't exist
+    try {
+      await queryInterface.addIndex('faculty_leaves', ['facultyId'], { name: 'idx_facultyId' });
+    } catch (error: any) {
+      if (error.original?.code !== 'ER_DUP_KEYNAME') throw error;
+    }
+    try {
+      await queryInterface.addIndex('faculty_leaves', ['status'], { name: 'idx_status' });
+    } catch (error: any) {
+      if (error.original?.code !== 'ER_DUP_KEYNAME') throw error;
+    }
+    try {
+      await queryInterface.addIndex('faculty_leaves', ['startDate', 'endDate'], { name: 'idx_dates' });
+    } catch (error: any) {
+      if (error.original?.code !== 'ER_DUP_KEYNAME') throw error;
+    }
   },
 
   down: async (queryInterface: QueryInterface): Promise<void> => {

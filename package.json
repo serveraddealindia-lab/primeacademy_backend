@@ -15,7 +15,8 @@
     "format": "prettier --write \"src/**/*.ts\"",
     "format:check": "prettier --check \"src/**/*.ts\"",
     "seed": "tsx src/seeders/20240101000001-seed-users.ts && tsx src/seeders/20240101000002-seed-demo-data.ts",
-    "create-dummy-student": "tsx src/scripts/createDummyStudent.ts"
+    "create-dummy-student": "tsx src/scripts/createDummyStudent.ts",
+    "regenerate-receipts": "tsx src/scripts/regenerateAllReceipts.ts"
   },
   "keywords": [
     "express",

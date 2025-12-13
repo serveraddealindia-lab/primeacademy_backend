@@ -73,10 +73,22 @@ export default {
       },
     });
 
-    // Add indexes
-    await queryInterface.addIndex(TABLE_NAME, ['studentId'], { name: 'idx_studentId' });
-    await queryInterface.addIndex(TABLE_NAME, ['certificateNumber'], { name: 'idx_certificateNumber', unique: true });
-    await queryInterface.addIndex(TABLE_NAME, ['issuedBy'], { name: 'idx_issuedBy' });
+    // Add indexes only if they don't exist
+    try {
+      await queryInterface.addIndex(TABLE_NAME, ['studentId'], { name: 'idx_studentId' });
+    } catch (error: any) {
+      if (error.original?.code !== 'ER_DUP_KEYNAME') throw error;
+    }
+    try {
+      await queryInterface.addIndex(TABLE_NAME, ['certificateNumber'], { name: 'idx_certificateNumber', unique: true });
+    } catch (error: any) {
+      if (error.original?.code !== 'ER_DUP_KEYNAME') throw error;
+    }
+    try {
+      await queryInterface.addIndex(TABLE_NAME, ['issuedBy'], { name: 'idx_issuedBy' });
+    } catch (error: any) {
+      if (error.original?.code !== 'ER_DUP_KEYNAME') throw error;
+    }
   },
 
   down: async (queryInterface: QueryInterface): Promise<void> => {

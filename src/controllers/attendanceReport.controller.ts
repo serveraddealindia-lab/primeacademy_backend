@@ -514,7 +514,7 @@ export const getStudentsWithoutBatch = async (req: AuthRequest, res: Response): 
       return;
     }
 
-    // Get all students with distinct to prevent duplicates
+    // Get all students
     const allStudents = await db.User.findAll({
       where: {
         role: UserRole.STUDENT,
@@ -536,36 +536,13 @@ export const getStudentsWithoutBatch = async (req: AuthRequest, res: Response): 
         },
       ],
       order: [['createdAt', 'DESC']],
-      // Note: distinct is handled by filtering in JavaScript to avoid Sequelize type issues
-    } as any);
+    });
 
-    // Filter students with no active enrollments in active batches
-    // A student is considered "without batch" if:
-    // 1. They have no enrollments, OR
-    // 2. All their enrollments are either inactive OR in ended/cancelled batches
+    // Filter students with no active enrollments
     const studentsWithoutBatch = allStudents
       .filter((student: any) => {
         const enrollments = student.enrollments || [];
-        if (enrollments.length === 0) {
-          return true; // No enrollments = without batch
-        }
-        
-        // Check if student has any active enrollment in an active batch
-        const hasActiveEnrollmentInActiveBatch = enrollments.some((e: any) => {
-          // Enrollment must be active
-          if (e.status !== 'active') {
-            return false;
-          }
-          // Batch must exist and be active (not ended or cancelled)
-          if (!e.batch) {
-            return false;
-          }
-          const batchStatus = e.batch.status;
-          return batchStatus !== 'ended' && batchStatus !== 'cancelled';
-        });
-        
-        // Student is without batch if they don't have any active enrollment in active batch
-        return !hasActiveEnrollmentInActiveBatch;
+        return enrollments.length === 0 || enrollments.every((e: any) => e.status !== 'active');
       })
       .map((student: any) => ({
         id: student.id,

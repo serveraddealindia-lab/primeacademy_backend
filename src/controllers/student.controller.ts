@@ -667,9 +667,9 @@ export const bulkEnrollStudents = async (req: AuthRequest, res: Response): Promi
     let workbook;
     try {
       workbook = XLSX.read(req.file.buffer, { 
-        type: 'buffer',
-        cellDates: true, // Parse dates automatically as Date objects
-      });
+      type: 'buffer',
+      cellDates: true, // Parse dates automatically as Date objects
+    });
       logger.info(`Bulk enrollment: Excel file parsed successfully - sheets: ${workbook.SheetNames.join(', ')}`);
     } catch (parseError: any) {
       logger.error('Bulk enrollment: Failed to parse Excel file:', parseError);
