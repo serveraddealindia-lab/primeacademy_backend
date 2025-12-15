@@ -721,15 +721,55 @@ export const getPayments = async (req: AuthRequest, res: Response): Promise<void
       });
     } catch (queryError: any) {
       logger.error('Get payments query error:', queryError);
+      logger.error('Error details:', {
+        message: queryError?.message,
+        code: queryError?.parent?.code,
+        errno: queryError?.parent?.errno,
+        sql: queryError?.parent?.sql,
+      });
+      
+      // Check if error is about enrollmentId column
+      const isEnrollmentIdError = queryError?.message?.includes('enrollmentId') || 
+                                  queryError?.parent?.message?.includes('enrollmentId') ||
+                                  queryError?.parent?.code === 'ER_BAD_FIELD_ERROR';
+      
       // Try without includes if query fails
       try {
-        payments = await db.PaymentTransaction.findAll({
-          where,
-          order: [['dueDate', 'DESC'], ['id', 'DESC']],
-        });
-        logger.warn('Fetched payments without relations due to query error');
+        if (isEnrollmentIdError) {
+          // Fallback: explicitly specify attributes to exclude enrollmentId if it's causing issues
+          logger.info('Attempting fallback query - enrollmentId column issue detected');
+          payments = await db.PaymentTransaction.findAll({
+            where,
+            attributes: {
+              exclude: ['enrollmentId'], // Explicitly exclude if causing issues
+            },
+            include: [
+              { 
+                model: db.User, 
+                as: 'student', 
+                attributes: ['id', 'name', 'email', 'phone'],
+                required: false,
+              },
+            ],
+            order: [['dueDate', 'DESC'], ['id', 'DESC']],
+          });
+          logger.info(`Fallback query successful: fetched ${payments.length} payments without enrollmentId`);
+        } else {
+          // Other error - try without relations
+          payments = await db.PaymentTransaction.findAll({
+            where,
+            order: [['dueDate', 'DESC'], ['id', 'DESC']],
+          });
+          logger.warn('Fetched payments without relations due to query error');
+        }
       } catch (fallbackError: any) {
         logger.error('Get payments fallback error:', fallbackError);
+        logger.error('Fallback error details:', {
+          message: fallbackError?.message,
+          code: fallbackError?.parent?.code,
+          errno: fallbackError?.parent?.errno,
+          sql: fallbackError?.parent?.sql,
+        });
         throw new Error(`Failed to fetch payments: ${fallbackError.message}`);
       }
     }
