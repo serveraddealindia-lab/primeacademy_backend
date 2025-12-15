@@ -347,14 +347,20 @@ export const getAllStudents = async (req: AuthRequest, res: Response): Promise<v
     }));
 
     logger.info(`getAllStudents: Mapped ${mappedStudents.length} students for response`);
+    logger.info(`getAllStudents: Sample mapped student: ${JSON.stringify(mappedStudents[0] || 'none')}`);
 
-    res.status(200).json({
+    const responseData = {
       status: 'success',
       data: {
         students: mappedStudents,
         totalCount: mappedStudents.length,
       },
-    });
+    };
+
+    logger.info(`getAllStudents: Sending response with ${mappedStudents.length} students`);
+    logger.info(`getAllStudents: Response structure: ${JSON.stringify({ status: responseData.status, studentCount: responseData.data.totalCount })}`);
+
+    res.status(200).json(responseData);
     
     logger.info(`getAllStudents: Response sent successfully with ${mappedStudents.length} students`);
   } catch (error: any) {
