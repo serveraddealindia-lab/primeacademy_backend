@@ -262,21 +262,40 @@ export const getAllStudents = async (req: AuthRequest, res: Response): Promise<v
     }
 
     // Get all students (no pagination limit for student management)
-    const students = await db.User.findAll({
-      where: {
-        role: UserRole.STUDENT,
-      },
-      attributes: ['id', 'name', 'email', 'phone', 'avatarUrl', 'isActive', 'createdAt'],
-      include: [
-        {
-          model: db.StudentProfile,
-          as: 'studentProfile',
-          required: false,
-          attributes: ['id', 'softwareList', 'status'],
+    let students: any[];
+    try {
+      students = await db.User.findAll({
+        where: {
+          role: UserRole.STUDENT,
         },
-      ],
-      order: [['createdAt', 'DESC']],
-    });
+        attributes: ['id', 'name', 'email', 'phone', 'avatarUrl', 'isActive', 'createdAt'],
+        include: [
+          {
+            model: db.StudentProfile,
+            as: 'studentProfile',
+            required: false,
+            attributes: ['id', 'softwareList', 'status'],
+          },
+        ],
+        order: [['createdAt', 'DESC']],
+      });
+    } catch (includeError: any) {
+      logger.warn('Error fetching students with profile include, trying without include:', includeError);
+      // Fallback: try without include if it fails
+      try {
+        students = await db.User.findAll({
+          where: {
+            role: UserRole.STUDENT,
+          },
+          attributes: ['id', 'name', 'email', 'phone', 'avatarUrl', 'isActive', 'createdAt'],
+          order: [['createdAt', 'DESC']],
+        });
+        logger.info('Successfully fetched students without profile include');
+      } catch (fallbackError: any) {
+        logger.error('Error fetching students even without include:', fallbackError);
+        throw fallbackError;
+      }
+    }
 
     logger.info(`Get all students: Found ${students.length} students`);
 
