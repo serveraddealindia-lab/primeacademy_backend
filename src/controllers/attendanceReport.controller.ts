@@ -245,6 +245,7 @@ export const getStudentAttendanceReport = async (req: AuthRequest, res: Response
 export const getAllStudents = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     if (!req.user) {
+      logger.warn('getAllStudents: No user in request');
       res.status(401).json({
         status: 'error',
         message: 'Authentication required',
@@ -252,8 +253,11 @@ export const getAllStudents = async (req: AuthRequest, res: Response): Promise<v
       return;
     }
 
+    logger.info(`getAllStudents: Request from user ${req.user.userId} with role ${req.user.role}`);
+
     // Only Admin or SuperAdmin can view all students
     if (req.user.role !== UserRole.ADMIN && req.user.role !== UserRole.SUPERADMIN) {
+      logger.warn(`getAllStudents: Access denied for user ${req.user.userId} with role ${req.user.role}`);
       res.status(403).json({
         status: 'error',
         message: 'Only admins can view all students',
@@ -264,6 +268,7 @@ export const getAllStudents = async (req: AuthRequest, res: Response): Promise<v
     // Get all students (no pagination limit for student management)
     let students: any[];
     try {
+      logger.info('getAllStudents: Attempting to fetch students with profile include');
       students = await db.User.findAll({
         where: {
           role: UserRole.STUDENT,
@@ -279,10 +284,17 @@ export const getAllStudents = async (req: AuthRequest, res: Response): Promise<v
         ],
         order: [['createdAt', 'DESC']],
       });
+      logger.info(`getAllStudents: Successfully fetched ${students.length} students with profile include`);
     } catch (includeError: any) {
-      logger.warn('Error fetching students with profile include, trying without include:', includeError);
+      logger.warn('getAllStudents: Error fetching students with profile include, trying without include:', includeError);
+      logger.warn('getAllStudents: Error details:', {
+        message: includeError?.message,
+        stack: includeError?.stack,
+        name: includeError?.name,
+      });
       // Fallback: try without include if it fails
       try {
+        logger.info('getAllStudents: Attempting fallback query without profile include');
         students = await db.User.findAll({
           where: {
             role: UserRole.STUDENT,
@@ -290,37 +302,72 @@ export const getAllStudents = async (req: AuthRequest, res: Response): Promise<v
           attributes: ['id', 'name', 'email', 'phone', 'avatarUrl', 'isActive', 'createdAt'],
           order: [['createdAt', 'DESC']],
         });
-        logger.info('Successfully fetched students without profile include');
+        logger.info(`getAllStudents: Successfully fetched ${students.length} students without profile include`);
       } catch (fallbackError: any) {
-        logger.error('Error fetching students even without include:', fallbackError);
+        logger.error('getAllStudents: Error fetching students even without include:', fallbackError);
+        logger.error('getAllStudents: Fallback error details:', {
+          message: fallbackError?.message,
+          stack: fallbackError?.stack,
+          name: fallbackError?.name,
+        });
         throw fallbackError;
       }
     }
 
-    logger.info(`Get all students: Found ${students.length} students`);
+    logger.info(`getAllStudents: Found ${students.length} students total`);
+    
+    // Log sample student data for debugging
+    if (students.length > 0) {
+      logger.info(`getAllStudents: Sample student - id: ${students[0].id}, name: ${students[0].name}, email: ${students[0].email}`);
+    } else {
+      logger.warn('getAllStudents: No students found in database!');
+      // Check if there are any users with student role
+      try {
+        const totalUsers = await db.User.count({ where: { role: UserRole.STUDENT } });
+        logger.info(`getAllStudents: Total users with STUDENT role in database: ${totalUsers}`);
+        if (totalUsers > 0 && students.length === 0) {
+          logger.error('getAllStudents: Database has students but query returned empty! This indicates a query issue.');
+        }
+      } catch (countError: any) {
+        logger.error('getAllStudents: Error counting students:', countError);
+      }
+    }
+
+    // Map students to response format
+    const mappedStudents = students.map((student) => ({
+      id: student.id,
+      name: student.name,
+      email: student.email,
+      phone: student.phone,
+      avatarUrl: student.avatarUrl,
+      isActive: student.isActive,
+      createdAt: student.createdAt,
+      softwareList: (student as any).studentProfile?.softwareList || [],
+      profileStatus: (student as any).studentProfile?.status || null,
+    }));
+
+    logger.info(`getAllStudents: Mapped ${mappedStudents.length} students for response`);
 
     res.status(200).json({
       status: 'success',
       data: {
-        students: students.map((student) => ({
-          id: student.id,
-          name: student.name,
-          email: student.email,
-          phone: student.phone,
-          avatarUrl: student.avatarUrl,
-          isActive: student.isActive,
-          createdAt: student.createdAt,
-          softwareList: (student as any).studentProfile?.softwareList || [],
-          profileStatus: (student as any).studentProfile?.status || null,
-        })),
-        totalCount: students.length,
+        students: mappedStudents,
+        totalCount: mappedStudents.length,
       },
     });
-  } catch (error) {
-    logger.error('Get all students error:', error);
+    
+    logger.info(`getAllStudents: Response sent successfully with ${mappedStudents.length} students`);
+  } catch (error: any) {
+    logger.error('getAllStudents: Error in getAllStudents:', error);
+    logger.error('getAllStudents: Error details:', {
+      message: error?.message,
+      stack: error?.stack,
+      name: error?.name,
+    });
     res.status(500).json({
       status: 'error',
       message: 'Internal server error while fetching students',
+      ...(process.env.NODE_ENV === 'development' && { error: error?.message }),
     });
   }
 };
