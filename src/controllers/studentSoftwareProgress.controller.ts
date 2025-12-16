@@ -410,7 +410,8 @@ export const importExcel = async (req: AuthRequest, res: Response): Promise<void
       const row = rows[i] as any;
       try {
         // Get student by phone number
-        const phone = getValue(row, ['phone', 'phoneNumber', '__EMPTY_2', 'Phone', 'Phone Number']);
+        // Support multiple possible phone column headers, including 'NUMBER' from the Excel sheet
+        const phone = getValue(row, ['phone', 'phoneNumber', 'NUMBER', '__EMPTY_2', 'Phone', 'Phone Number']);
         if (!phone) {
           result.failed++;
           result.errors.push({ row: i + 2, error: 'Phone number is required' });
