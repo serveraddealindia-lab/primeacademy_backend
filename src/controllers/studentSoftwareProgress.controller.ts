@@ -392,6 +392,20 @@ export const importExcel = async (req: AuthRequest, res: Response): Promise<void
       return null;
     };
 
+    // Helper function to normalize phone number (remove spaces, dashes, etc.)
+    const normalizePhone = (phone: any): string => {
+      if (!phone) return '';
+      // Convert to string and remove all non-digit characters except +
+      let normalized = String(phone).trim();
+      // Remove spaces, dashes, parentheses, dots, slashes, plus signs
+      normalized = normalized.replace(/[\s\-\(\)\.\/\+]/g, '');
+      // Remove leading zeros if length > 10
+      if (normalized.length > 10 && normalized.startsWith('0')) {
+        normalized = normalized.substring(1);
+      }
+      return normalized;
+    };
+
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i] as any;
       try {
@@ -403,9 +417,44 @@ export const importExcel = async (req: AuthRequest, res: Response): Promise<void
           continue;
         }
 
-        const student = await db.User.findOne({
-          where: { phone: String(phone).trim(), role: 'student' },
+        // Skip if phone is "NUMBER" (likely header row)
+        if (String(phone).trim().toUpperCase() === 'NUMBER') {
+          result.failed++;
+          result.errors.push({ row: i + 2, error: 'Invalid phone number (header row detected)' });
+          continue;
+        }
+
+        // Normalize phone number for search
+        const normalizedPhone = normalizePhone(phone);
+        if (!normalizedPhone || normalizedPhone.length < 10) {
+          result.failed++;
+          result.errors.push({ row: i + 2, error: `Invalid phone number format: ${phone}` });
+          continue;
+        }
+
+        // Search with normalized phone - try exact match first, then try with LIKE for partial matches
+        let student = await db.User.findOne({
+          where: { 
+            phone: normalizedPhone, 
+            role: 'student' 
+          },
         });
+
+        // If not found, try searching with normalized phone in database (handle cases where DB has formatting)
+        if (!student) {
+          // Use Sequelize function to normalize database phone for comparison
+          const allStudents = await db.User.findAll({
+            where: { role: 'student' },
+            attributes: ['id', 'name', 'email', 'phone'],
+          });
+
+          // Find student by comparing normalized phones
+          student = allStudents.find((s) => {
+            if (!s.phone) return false;
+            const dbNormalized = normalizePhone(s.phone);
+            return dbNormalized === normalizedPhone;
+          }) as any;
+        }
 
         if (!student) {
           result.failed++;
