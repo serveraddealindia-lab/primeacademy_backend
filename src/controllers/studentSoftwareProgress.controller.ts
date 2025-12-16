@@ -456,10 +456,27 @@ export const importExcel = async (req: AuthRequest, res: Response): Promise<void
           }) as any;
         }
 
+        // If student not found, create them automatically
         if (!student) {
-          result.failed++;
-          result.errors.push({ row: i + 2, error: `Student not found with phone: ${phone}` });
-          continue;
+          logger.info(`Student not found with phone ${normalizedPhone}, creating new student...`);
+          try {
+            // Create student automatically
+            const newStudent = await db.User.create({
+              name: getValue(row, ['studentName', 'name', 'Name', 'Student Name']) || `Student_${normalizedPhone}`,
+              email: getValue(row, ['email', 'Email']) || `student_${normalizedPhone}@primeacademy.local`,
+              phone: normalizedPhone,
+              role: UserRole.STUDENT,
+              passwordHash: '$2b$10$dummyhashforstudents', // Default password
+              isActive: true,
+            });
+            student = newStudent;
+            logger.info(`Created new student with ID: ${student.id}, phone: ${normalizedPhone}`);
+          } catch (createError: any) {
+            logger.error(`Failed to create student with phone ${normalizedPhone}:`, createError);
+            result.failed++;
+            result.errors.push({ row: i + 2, error: `Student not found and failed to create: ${phone}` });
+            continue;
+          }
         }
 
         // Get enrollment date
