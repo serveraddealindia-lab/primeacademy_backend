@@ -389,6 +389,21 @@ export const importExcel = async (req: AuthRequest, res: Response): Promise<void
           }
         }
       }
+      
+      // Try more flexible matching for student names
+      if (names.includes('studentName') || names.includes('name')) {
+        for (const key in row) {
+          const lowerKey = key.toLowerCase();
+          if ((lowerKey.includes('student') && lowerKey.includes('name')) || 
+              lowerKey.includes('full') && lowerKey.includes('name') ||
+              lowerKey === 'student' || lowerKey === 'name') {
+            if (row[key] !== undefined && row[key] !== null && row[key] !== '') {
+              return row[key];
+            }
+          }
+        }
+      }
+      
       return null;
     };
 
@@ -459,11 +474,72 @@ export const importExcel = async (req: AuthRequest, res: Response): Promise<void
 
         // If student not found, create them automatically
         if (!student) {
-          logger.info(`Student not found with phone ${normalizedPhone}, creating new student...`);
+          // Log row data for debugging (first 3 rows)
+          if (i < 3) {
+            logger.info(`Row ${i + 2} data keys: ${Object.keys(row).join(', ')}`);
+            logger.info(`Row ${i + 2} data values: ${JSON.stringify(row)}`);
+          }
+          
+          // Try to get student name from Excel first
+          let studentName = getValue(row, ['studentName', 'name', 'Name', 'Student Name', 'Student_Name', 'Full Name', 'fullName']);
+          
+          // If no name in Excel, check if we already have a student with this phone in database with a proper name
+          if (!studentName) {
+            // Search for any existing user with this phone (not necessarily student role)
+            const existingUserWithPhone = await db.User.findOne({
+              where: { 
+                phone: {
+                  [Op.like]: `%${normalizedPhone}%`
+                }
+              },
+            });
+            
+            if (existingUserWithPhone && existingUserWithPhone.name && !existingUserWithPhone.name.startsWith('Student_')) {
+              studentName = existingUserWithPhone.name;
+            } else {
+              // Check if we have a student profile with documents that might contain the name
+              const studentProfile = await db.StudentProfile.findOne({
+                where: {
+                  userId: existingUserWithPhone?.id
+                }
+              });
+              
+              if (studentProfile && studentProfile.documents) {
+                try {
+                  const documents = typeof studentProfile.documents === 'string' 
+                    ? JSON.parse(studentProfile.documents) 
+                    : studentProfile.documents;
+                  
+                  // Look for name in documents
+                  if (documents.studentName) {
+                    studentName = documents.studentName;
+                  } else if (documents.name) {
+                    studentName = documents.name;
+                  } else if (documents.fullName) {
+                    studentName = documents.fullName;
+                  }
+                } catch (e) {
+                  // Ignore parsing errors
+                }
+              }
+              
+              // If still no name found, use default
+              if (!studentName) {
+                studentName = `Student_${normalizedPhone}`;
+              }
+            }
+          }
+          
+          // Log detected student name
+          if (i < 3) {
+            logger.info(`Row ${i + 2} detected student name: ${studentName}`);
+          }
+          
+          logger.info(`Student not found with phone ${normalizedPhone}, creating new student with name: ${studentName}...`);
           try {
             // Create student automatically
             const newStudent = await db.User.create({
-              name: getValue(row, ['studentName', 'name', 'Name', 'Student Name']) || `Student_${normalizedPhone}`,
+              name: studentName,
               email: getValue(row, ['email', 'Email']) || `student_${normalizedPhone}@primeacademy.local`,
               phone: normalizedPhone,
               role: UserRole.STUDENT,
@@ -471,7 +547,7 @@ export const importExcel = async (req: AuthRequest, res: Response): Promise<void
               isActive: true,
             });
             student = newStudent;
-            logger.info(`Created new student with ID: ${student.id}, phone: ${normalizedPhone}`);
+            logger.info(`Created new student with ID: ${student.id}, name: ${student.name}, phone: ${normalizedPhone}`);
           } catch (createError: any) {
             logger.error(`Failed to create student with phone ${normalizedPhone}:`, createError);
             result.failed++;
