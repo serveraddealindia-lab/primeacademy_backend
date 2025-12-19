@@ -19,6 +19,11 @@ interface CompleteEnrollmentBody {
     balanceAmount?: number;
     emiPlan?: boolean;
     emiPlanDate?: string;
+    emiInstallments?: Array<{
+        month: number;
+        amount: number;
+        dueDate?: string;
+    }>;
     complimentarySoftware?: string;
     complimentaryGift?: string;
     hasReference?: boolean;
@@ -27,6 +32,7 @@ interface CompleteEnrollmentBody {
     leadSource?: string;
     walkinDate?: string;
     masterFaculty?: string;
+    enrollmentDocuments?: string[];
 }
 export declare const completeEnrollment: (req: AuthRequest & {
     body: CompleteEnrollmentBody;

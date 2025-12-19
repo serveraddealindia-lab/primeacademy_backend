@@ -129,8 +129,8 @@ export const getAllUsers = async (
           attributes: { exclude: ['passwordHash'] },
           limit: limitNum,
           offset,
-          order: [['createdAt', 'DESC']],
-        };
+          order: [['createdAt', 'DESC']] as any,
+        } as any;
         const result = await db.User.findAndCountAll(simpleQueryOptions);
         count = result.count;
         users = result.rows;

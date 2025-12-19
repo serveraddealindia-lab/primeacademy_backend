@@ -71,9 +71,33 @@ export default {
       },
     });
 
-    await queryInterface.addIndex('batch_extensions', ['batchId'], { name: 'idx_batchId' });
-    await queryInterface.addIndex('batch_extensions', ['requestedBy'], { name: 'idx_requestedBy' });
-    await queryInterface.addIndex('batch_extensions', ['status'], { name: 'idx_status' });
+    // Add indexes only if they don't exist
+    try {
+      await queryInterface.addIndex('batch_extensions', ['batchId'], { name: 'idx_batchId' });
+    } catch (error: any) {
+      if (error.original?.code !== 'ER_DUP_KEYNAME') {
+        throw error;
+      }
+      // Index already exists, skip
+    }
+    
+    try {
+      await queryInterface.addIndex('batch_extensions', ['requestedBy'], { name: 'idx_requestedBy' });
+    } catch (error: any) {
+      if (error.original?.code !== 'ER_DUP_KEYNAME') {
+        throw error;
+      }
+      // Index already exists, skip
+    }
+    
+    try {
+      await queryInterface.addIndex('batch_extensions', ['status'], { name: 'idx_status' });
+    } catch (error: any) {
+      if (error.original?.code !== 'ER_DUP_KEYNAME') {
+        throw error;
+      }
+      // Index already exists, skip
+    }
   },
 
   down: async (queryInterface: QueryInterface): Promise<void> => {

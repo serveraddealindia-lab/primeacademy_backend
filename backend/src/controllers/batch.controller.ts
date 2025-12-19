@@ -708,8 +708,6 @@ export const suggestCandidates = async (req: AuthRequest, res: Response): Promis
       orientations.filter((o) => o.accepted).map((o) => o.studentId)
     );
 
-    const disqualifiedStudentIds = new Set(payments.map((payment) => payment.studentId));
-    
     // Show ALL students with matching software (don't filter by orientation or fees here)
     // We'll mark their status in the response instead
     const eligibleStudents = allCandidateStudents;

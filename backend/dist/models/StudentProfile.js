@@ -50,6 +50,21 @@ StudentProfile.init({
         type: sequelize_1.DataTypes.STRING,
         allowNull: true,
     },
+    finishedBatches: {
+        type: sequelize_1.DataTypes.JSON,
+        allowNull: true,
+        comment: 'Array of software names from finished batches',
+    },
+    currentBatches: {
+        type: sequelize_1.DataTypes.JSON,
+        allowNull: true,
+        comment: 'Array of software names from current/active batches',
+    },
+    pendingBatches: {
+        type: sequelize_1.DataTypes.JSON,
+        allowNull: true,
+        comment: 'Array of software names from pending/upcoming batches',
+    },
 }, {
     sequelize: database_1.default,
     tableName: 'student_profiles',

@@ -24,6 +24,7 @@ export interface EmployeeProfileAttributes {
   city: string | null;
   state: string | null;
   postalCode: string | null;
+  documents: Record<string, any> | null;
   createdAt?: Date;
   updatedAt?: Date;
 }
@@ -50,6 +51,7 @@ export interface EmployeeProfileCreationAttributes
     | 'city'
     | 'state'
     | 'postalCode'
+    | 'documents'
     | 'createdAt'
     | 'updatedAt'
   > {}
@@ -76,6 +78,7 @@ class EmployeeProfile extends Model<EmployeeProfileAttributes, EmployeeProfileCr
   public city!: string | null;
   public state!: string | null;
   public postalCode!: string | null;
+  public documents!: Record<string, any> | null;
   public readonly createdAt!: Date;
   public readonly updatedAt!: Date;
 
@@ -177,6 +180,10 @@ EmployeeProfile.init(
     },
     postalCode: {
       type: DataTypes.STRING,
+      allowNull: true,
+    },
+    documents: {
+      type: DataTypes.JSON,
       allowNull: true,
     },
   },

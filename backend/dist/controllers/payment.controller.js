@@ -17,35 +17,244 @@ const receiptsDir = path_1.default.join(__dirname, '../../receipts');
 if (!fs_1.default.existsSync(receiptsDir)) {
     fs_1.default.mkdirSync(receiptsDir, { recursive: true });
 }
-// Generate receipt number
-const generateReceiptNumber = (paymentId, date) => {
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const day = String(date.getDate()).padStart(2, '0');
-    return `PA/RCP/${year}${month}${day}/${String(paymentId).padStart(6, '0')}`;
+// Helper function to update payment plan balance based on payments
+const updatePaymentPlanBalance = async (studentId, enrollmentId) => {
+    try {
+        // Get all payments for this student/enrollment
+        const whereClause = { studentId };
+        if (enrollmentId) {
+            whereClause.enrollmentId = enrollmentId;
+        }
+        const payments = await models_1.default.PaymentTransaction.findAll({
+            where: whereClause,
+            attributes: ['paidAmount', 'status'],
+        });
+        // Calculate total paid amount (sum of all paidAmounts from paid/partial payments)
+        const totalPaid = payments.reduce((sum, payment) => {
+            if (payment.status === PaymentTransaction_1.PaymentStatus.PAID || payment.status === PaymentTransaction_1.PaymentStatus.PARTIAL) {
+                return sum + (payment.paidAmount || 0);
+            }
+            return sum;
+        }, 0);
+        // Get enrollment if enrollmentId is provided
+        if (enrollmentId) {
+            const enrollment = await models_1.default.Enrollment.findByPk(enrollmentId, {
+                include: [
+                    {
+                        model: models_1.default.User,
+                        as: 'student',
+                        include: [
+                            {
+                                model: models_1.default.StudentProfile,
+                                as: 'studentProfile',
+                                attributes: ['id', 'documents'],
+                                required: false,
+                            },
+                        ],
+                    },
+                ],
+            });
+            if (enrollment) {
+                const enrollmentJson = enrollment.toJSON();
+                let paymentPlan = enrollmentJson.paymentPlan;
+                // If paymentPlan doesn't exist, try to get from studentProfile
+                if (!paymentPlan || Object.keys(paymentPlan).length === 0) {
+                    const studentProfile = enrollmentJson.student?.studentProfile;
+                    if (studentProfile?.documents) {
+                        let documents = studentProfile.documents;
+                        if (typeof documents === 'string') {
+                            try {
+                                documents = JSON.parse(documents);
+                            }
+                            catch (e) {
+                                logger_1.logger.warn(`Failed to parse documents JSON:`, e);
+                                documents = null;
+                            }
+                        }
+                        const metadata = documents?.enrollmentMetadata;
+                        if (metadata) {
+                            paymentPlan = {
+                                totalDeal: metadata.totalDeal !== undefined && metadata.totalDeal !== null ? Number(metadata.totalDeal) : null,
+                                bookingAmount: metadata.bookingAmount !== undefined && metadata.bookingAmount !== null ? Number(metadata.bookingAmount) : null,
+                                balanceAmount: metadata.balanceAmount !== undefined && metadata.balanceAmount !== null ? Number(metadata.balanceAmount) : null,
+                            };
+                        }
+                    }
+                }
+                if (paymentPlan && (paymentPlan.totalDeal !== null && paymentPlan.totalDeal !== undefined)) {
+                    const totalDeal = Number(paymentPlan.totalDeal);
+                    const bookingAmount = Number(paymentPlan.bookingAmount || 0);
+                    // Calculate new balance: totalDeal - bookingAmount - totalPaid
+                    const newBalance = totalDeal - bookingAmount - totalPaid;
+                    // Update enrollment paymentPlan
+                    const updatedPaymentPlan = {
+                        ...paymentPlan,
+                        balanceAmount: Math.max(0, newBalance), // Ensure balance doesn't go negative
+                    };
+                    await enrollment.update({ paymentPlan: updatedPaymentPlan });
+                    logger_1.logger.info(`Updated enrollment ${enrollmentId} paymentPlan: balanceAmount=${updatedPaymentPlan.balanceAmount}, totalPaid=${totalPaid}`);
+                    // Also update studentProfile documents if it exists
+                    const studentProfile = enrollmentJson.student?.studentProfile;
+                    if (studentProfile?.documents) {
+                        let documents = studentProfile.documents;
+                        if (typeof documents === 'string') {
+                            try {
+                                documents = JSON.parse(documents);
+                            }
+                            catch (e) {
+                                logger_1.logger.warn(`Failed to parse documents JSON:`, e);
+                                documents = {};
+                            }
+                        }
+                        if (documents && typeof documents === 'object' && documents.enrollmentMetadata) {
+                            documents.enrollmentMetadata.balanceAmount = Math.max(0, newBalance);
+                            await models_1.default.StudentProfile.update({ documents }, { where: { id: studentProfile.id } });
+                            logger_1.logger.info(`Updated studentProfile ${studentProfile.id} documents: balanceAmount=${Math.max(0, newBalance)}`);
+                        }
+                    }
+                }
+            }
+        }
+        else {
+            // No enrollmentId - update studentProfile directly
+            const student = await models_1.default.User.findByPk(studentId, {
+                include: [
+                    {
+                        model: models_1.default.StudentProfile,
+                        as: 'studentProfile',
+                        attributes: ['id', 'documents'],
+                        required: false,
+                    },
+                ],
+            });
+            if (student?.studentProfile?.documents) {
+                let documents = student.studentProfile.documents;
+                if (typeof documents === 'string') {
+                    try {
+                        documents = JSON.parse(documents);
+                    }
+                    catch (e) {
+                        logger_1.logger.warn(`Failed to parse documents JSON:`, e);
+                        documents = {};
+                    }
+                }
+                if (documents && typeof documents === 'object' && documents.enrollmentMetadata) {
+                    const metadata = documents.enrollmentMetadata;
+                    const totalDeal = metadata?.totalDeal !== undefined && metadata?.totalDeal !== null ? Number(metadata.totalDeal) : null;
+                    const bookingAmount = metadata?.bookingAmount !== undefined && metadata?.bookingAmount !== null ? Number(metadata.bookingAmount) : 0;
+                    if (totalDeal !== null && totalDeal !== undefined) {
+                        const newBalance = totalDeal - bookingAmount - totalPaid;
+                        const enrollmentMetadata = documents.enrollmentMetadata;
+                        enrollmentMetadata.balanceAmount = Math.max(0, newBalance);
+                        await models_1.default.StudentProfile.update({ documents }, { where: { id: student.studentProfile.id } });
+                        logger_1.logger.info(`Updated studentProfile ${student.studentProfile.id} documents: balanceAmount=${Math.max(0, newBalance)}, totalPaid=${totalPaid}`);
+                    }
+                }
+            }
+        }
+    }
+    catch (error) {
+        logger_1.logger.error(`Error updating payment plan balance for student ${studentId}, enrollment ${enrollmentId}:`, error);
+        // Don't throw - this is a background update
+    }
 };
-// Generate PDF receipt matching the sample format
-const generateReceiptPDF = async (receiptNumber, studentName, studentEmail, studentPhone, _amount, paidAmount, paymentMethod, transactionId, paymentDate, courseName, notes) => {
+// Generate receipt number
+const generateReceiptNumber = (paymentId, _date) => {
+    // Format: #PRI-PT1570 (matching the invoice format exactly)
+    return `#PRI-PT${paymentId}`;
+};
+// Generate PDF receipt matching the Paid Invoice format exactly
+const generateReceiptPDF = async (receiptNumber, studentName, _studentEmail, studentPhone, _amount, paidAmount, _paymentMethod, _transactionId, paymentDate, courseName, notes) => {
     return new Promise((resolve, reject) => {
         try {
+            // Use Times-Roman which better supports Unicode characters including rupee symbol
             const fonts = {
                 Roboto: {
-                    normal: 'Helvetica',
-                    bold: 'Helvetica-Bold',
-                    italics: 'Helvetica-Oblique',
-                    bolditalics: 'Helvetica-BoldOblique',
+                    normal: 'Times-Roman',
+                    bold: 'Times-Bold',
+                    italics: 'Times-Italic',
+                    bolditalics: 'Times-BoldItalic',
                 },
             };
             const printer = new pdfmake_1.default(fonts);
             const filename = `receipt_${receiptNumber.replace(/\//g, '_')}_${Date.now()}.pdf`;
             const filepath = path_1.default.join(receiptsDir, filename);
-            // Format date
-            const formattedDate = paymentDate.toLocaleDateString('en-IN', {
-                day: '2-digit',
-                month: '2-digit',
-                year: 'numeric',
-            });
-            // Format amount in words (simplified)
+            // Load rupee symbol image - try multiple formats and paths
+            const possiblePaths = [
+                // Try PNG first (better quality)
+                path_1.default.join(process.cwd(), 'rupee.png'),
+                path_1.default.join(__dirname, '../../rupee.png'),
+                path_1.default.join(process.cwd(), 'backend', 'rupee.png'),
+                // Then try JPG
+                path_1.default.join(process.cwd(), 'rupee.jpg'),
+                path_1.default.join(__dirname, '../../rupee.jpg'),
+                path_1.default.join(process.cwd(), 'backend', 'rupee.jpg'),
+                // Then try SVG
+                path_1.default.join(process.cwd(), 'rupee.svg'),
+                path_1.default.join(__dirname, '../../rupee.svg'),
+                path_1.default.join(process.cwd(), 'backend', 'rupee.svg'),
+            ];
+            let rupeeImageBase64 = null;
+            for (const imagePath of possiblePaths) {
+                if (fs_1.default.existsSync(imagePath)) {
+                    try {
+                        const rupeeImageBuffer = fs_1.default.readFileSync(imagePath);
+                        // pdfmake 0.2.20 expects base64 string WITHOUT data URI prefix
+                        rupeeImageBase64 = rupeeImageBuffer.toString('base64');
+                        logger_1.logger.info(`✅ Rupee image loaded successfully from: ${imagePath} (${rupeeImageBuffer.length} bytes)`);
+                        logger_1.logger.info(`📝 Image base64 length: ${rupeeImageBase64.length} characters`);
+                        break;
+                    }
+                    catch (error) {
+                        logger_1.logger.error(`❌ Error reading rupee image from ${imagePath}:`, error);
+                    }
+                }
+            }
+            // If no image found, use inline SVG rupee symbol (always available)
+            if (!rupeeImageBase64) {
+                logger_1.logger.warn('⚠️ Rupee image file not found, using inline SVG rupee symbol');
+                // Create a simple SVG rupee symbol - this always works
+                const rupeeSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+  <path fill="#000000" d="M17.5 2C19.43 2 21 3.57 21 5.5S19.43 9 17.5 9C15.57 9 14 7.43 14 5.5S15.57 2 17.5 2M17.5 3.5C16.4 3.5 15.5 4.4 15.5 5.5S16.4 7.5 17.5 7.5S19.5 6.6 19.5 5.5S18.6 3.5 17.5 3.5M3 13.5C3 9.36 6.36 6 10.5 6H13V4L17 8L13 12V10H10.5C8.57 10 7 11.57 7 13.5S8.57 17 10.5 17H18V18.5H10.5C6.36 18.5 3 15.14 3 11V13.5Z"/>
+</svg>`;
+                rupeeImageBase64 = Buffer.from(rupeeSvg).toString('base64');
+                logger_1.logger.info('✅ Using inline SVG rupee symbol');
+            }
+            // Helper function to create rupee symbol with amount
+            const createRupeeAmount = (amount, fontSize = 10, bold = false, margin = [0, 0, 0, 0]) => {
+                const imageSize = Math.max(fontSize * 0.7, 8); // Minimum 8px, scale with font
+                // Try base64 string first (pdfmake 0.2.20 format)
+                if (rupeeImageBase64) {
+                    return {
+                        columns: [
+                            {
+                                image: rupeeImageBase64, // Base64 string without data URI prefix
+                                width: imageSize,
+                                height: imageSize,
+                                fit: [imageSize, imageSize],
+                            },
+                            {
+                                text: amount,
+                                fontSize: fontSize,
+                                bold: bold,
+                                alignment: 'right',
+                                margin: [3, 0, 0, 0],
+                            },
+                        ],
+                        columnGap: 2,
+                        margin: margin,
+                    };
+                }
+                // Fallback to text if image not found
+                logger_1.logger.warn(`⚠️ Rupee image not available, using text symbol for amount: ${amount}`);
+                return { text: `₹${amount}`, fontSize: fontSize, bold: bold, alignment: 'right', margin: margin };
+            };
+            // Format date as DD-MM-YYYY
+            const day = String(paymentDate.getDate()).padStart(2, '0');
+            const month = String(paymentDate.getMonth() + 1).padStart(2, '0');
+            const year = paymentDate.getFullYear();
+            const formattedDate = `${day}-${month}-${year}`;
+            // Format amount in words (improved)
             const formatAmountInWords = (amount) => {
                 const ones = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine'];
                 const teens = ['Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen'];
@@ -68,291 +277,282 @@ const generateReceiptPDF = async (receiptNumber, studentName, studentEmail, stud
                     const remainder = amount % 1000;
                     return formatAmountInWords(thousands) + ' Thousand' + (remainder !== 0 ? ' ' + formatAmountInWords(remainder) : '');
                 }
+                if (amount < 10000000) {
+                    const lakhs = Math.floor(amount / 100000);
+                    const remainder = amount % 100000;
+                    return formatAmountInWords(lakhs) + ' Lakh' + (lakhs > 1 ? 's' : '') + (remainder !== 0 ? ' ' + formatAmountInWords(remainder) : '');
+                }
                 return amount.toString();
             };
             const amountInWords = formatAmountInWords(Math.floor(paidAmount)) + ' Rupees Only';
-            // Document definition matching receipt format
+            // Document definition matching Paid Invoice format exactly
             const docDefinition = {
                 pageSize: 'A4',
                 pageOrientation: 'portrait',
-                pageMargins: [40, 60, 40, 60],
+                pageMargins: [40, 50, 40, 50],
                 content: [
-                    // Header with logo area
+                    // Title: "Paid Invoice" (centered, dark purple)
+                    {
+                        text: 'Paid Invoice',
+                        fontSize: 18,
+                        bold: true,
+                        color: '#4A148C', // Dark purple
+                        alignment: 'center',
+                        margin: [0, 0, 0, 20],
+                    },
+                    // Header with Logo and Invoice Number
                     {
                         columns: [
                             {
+                                // Logo - Black background with PRIME (orange/yellow) and "Digital Art With Excellence" (white)
+                                width: 120,
+                                table: {
+                                    widths: [120],
+                                    body: [
+                                        [
+                                            {
+                                                stack: [
+                                                    {
+                                                        text: 'PRIME',
+                                                        fontSize: 18,
+                                                        bold: true,
+                                                        color: '#FF8C00', // Orange (closest to orange/yellow gradient)
+                                                        alignment: 'center',
+                                                        margin: [5, 8, 5, 2],
+                                                    },
+                                                    {
+                                                        text: 'Digital Art With Excellence',
+                                                        fontSize: 8,
+                                                        color: '#FFFFFF', // White
+                                                        alignment: 'center',
+                                                        margin: [5, 0, 5, 8],
+                                                    },
+                                                ],
+                                                fillColor: '#000000', // Black background
+                                            },
+                                        ],
+                                    ],
+                                },
+                                layout: 'noBorders',
+                            },
+                            {
                                 width: '*',
-                                stack: [
-                                    {
-                                        text: 'PRIME ACADEMY',
-                                        fontSize: 24,
-                                        bold: true,
-                                        color: '#1a365d',
-                                        margin: [0, 0, 0, 5],
-                                    },
-                                    {
-                                        text: '401, Shilp Square B, Opp. Sales India, Nr. Himalaya Mall',
-                                        fontSize: 10,
-                                        color: '#4a5568',
-                                        margin: [0, 0, 0, 2],
-                                    },
-                                    {
-                                        text: 'Drive-In-Road, Ahmedabad - 380052',
-                                        fontSize: 10,
-                                        color: '#4a5568',
-                                        margin: [0, 0, 0, 2],
-                                    },
-                                    {
-                                        text: 'Phone: +91 1234567890 | Email: info@primeacademy.com',
-                                        fontSize: 9,
-                                        color: '#718096',
-                                        margin: [0, 0, 0, 10],
-                                    },
-                                ],
+                                stack: [],
                             },
                             {
                                 width: 'auto',
                                 stack: [
                                     {
-                                        text: 'RECEIPT',
-                                        fontSize: 20,
+                                        text: `Invoice No: ${receiptNumber}`,
+                                        fontSize: 11,
                                         bold: true,
-                                        color: '#1a365d',
+                                        color: '#4A148C', // Dark purple
                                         alignment: 'right',
                                         margin: [0, 0, 0, 5],
                                     },
                                     {
-                                        text: receiptNumber,
+                                        text: `Date: ${formattedDate}`,
                                         fontSize: 11,
-                                        color: '#4a5568',
                                         alignment: 'right',
                                     },
                                 ],
                             },
                         ],
-                        margin: [0, 0, 0, 20],
+                        margin: [0, 0, 0, 25],
                     },
-                    // Horizontal line
+                    // Prime Academy Details (From)
                     {
-                        canvas: [
-                            {
-                                type: 'line',
-                                x1: 0,
-                                y1: 0,
-                                x2: 515,
-                                y2: 0,
-                                lineWidth: 0.78,
-                                lineColor: '#cbd5e0',
-                            },
-                        ],
-                        margin: [0, 0, 0, 20],
+                        text: 'Prime Academy',
+                        fontSize: 12,
+                        bold: true,
+                        margin: [0, 0, 0, 5],
                     },
-                    // Receipt Details Section
                     {
-                        columns: [
-                            {
-                                width: '*',
-                                stack: [
-                                    {
-                                        text: 'Received from:',
-                                        fontSize: 10,
-                                        color: '#4a5568',
-                                        margin: [0, 0, 0, 5],
-                                    },
-                                    {
-                                        text: studentName,
-                                        fontSize: 12,
-                                        bold: true,
-                                        color: '#1a365d',
-                                        margin: [0, 0, 0, 2],
-                                    },
-                                    {
-                                        text: studentEmail || '',
-                                        fontSize: 10,
-                                        color: '#718096',
-                                        margin: [0, 0, 0, 2],
-                                    },
-                                    {
-                                        text: studentPhone || '',
-                                        fontSize: 10,
-                                        color: '#718096',
-                                        margin: [0, 0, 0, 10],
-                                    },
-                                ],
-                            },
-                            {
-                                width: 'auto',
-                                stack: [
-                                    {
-                                        text: 'Date:',
-                                        fontSize: 10,
-                                        color: '#4a5568',
-                                        margin: [0, 0, 0, 5],
-                                    },
-                                    {
-                                        text: formattedDate,
-                                        fontSize: 11,
-                                        bold: true,
-                                        color: '#1a365d',
-                                    },
-                                ],
-                            },
-                        ],
+                        text: 'bd.drivein@gmail.com',
+                        fontSize: 10,
+                        margin: [0, 0, 0, 2],
+                    },
+                    {
+                        text: '919033222499',
+                        fontSize: 10,
+                        margin: [0, 0, 0, 2],
+                    },
+                    {
+                        text: 'Gala Empire, 601, Opposite Doordarshan Metro Station, Drive in road, Ahmedabad',
+                        fontSize: 10,
                         margin: [0, 0, 0, 20],
                     },
-                    // Payment Details Table
+                    // Invoice To (Recipient)
+                    {
+                        text: 'Invoice To:',
+                        fontSize: 11,
+                        bold: true,
+                        margin: [0, 0, 0, 5],
+                    },
+                    {
+                        text: studentName,
+                        fontSize: 11,
+                        margin: [0, 0, 0, 2],
+                    },
+                    {
+                        text: studentPhone || '',
+                        fontSize: 10,
+                        margin: [0, 0, 0, 20],
+                    },
+                    // Itemized Table
                     {
                         table: {
-                            widths: ['*', 120],
+                            headerRows: 1,
+                            widths: [30, '*', 80, 50, 70, 90],
                             body: [
                                 [
-                                    {
-                                        text: 'Description',
-                                        fontSize: 11,
-                                        bold: true,
-                                        color: '#1a365d',
-                                        fillColor: '#edf2f7',
-                                        margin: [8, 6, 8, 6],
-                                    },
-                                    {
-                                        text: 'Amount (₹)',
-                                        fontSize: 11,
-                                        bold: true,
-                                        color: '#1a365d',
-                                        fillColor: '#edf2f7',
-                                        alignment: 'right',
-                                        margin: [8, 6, 8, 6],
-                                    },
+                                    { text: '#', fontSize: 10, bold: true, fillColor: '#4A148C', color: '#FFFFFF', alignment: 'center', margin: [5, 5, 5, 5] },
+                                    { text: 'Product Name', fontSize: 10, bold: true, fillColor: '#4A148C', color: '#FFFFFF', margin: [5, 5, 5, 5] },
+                                    { text: 'Cost', fontSize: 10, bold: true, fillColor: '#4A148C', color: '#FFFFFF', alignment: 'right', margin: [5, 5, 5, 5] },
+                                    { text: 'Qty', fontSize: 10, bold: true, fillColor: '#4A148C', color: '#FFFFFF', alignment: 'center', margin: [5, 5, 5, 5] },
+                                    { text: 'Discount', fontSize: 10, bold: true, fillColor: '#4A148C', color: '#FFFFFF', alignment: 'right', margin: [5, 5, 5, 5] },
+                                    { text: 'Total Amount', fontSize: 10, bold: true, fillColor: '#4A148C', color: '#FFFFFF', alignment: 'right', margin: [5, 5, 5, 5] },
                                 ],
                                 [
+                                    { text: '1', fontSize: 10, alignment: 'center', margin: [5, 5, 5, 5] },
                                     {
-                                        text: courseName || 'Course Fee Payment',
+                                        text: notes || courseName || 'Course Fee Payment',
                                         fontSize: 10,
-                                        color: '#2d3748',
-                                        margin: [8, 8, 8, 8],
+                                        margin: [5, 5, 5, 5]
                                     },
-                                    {
-                                        text: `₹ ${paidAmount.toFixed(2)}`,
-                                        fontSize: 11,
-                                        bold: true,
-                                        color: '#1a365d',
-                                        alignment: 'right',
-                                        margin: [8, 8, 8, 8],
-                                    },
+                                    createRupeeAmount(paidAmount.toFixed(2), 10, false, [5, 5, 5, 5]),
+                                    { text: '1.00', fontSize: 10, alignment: 'center', margin: [5, 5, 5, 5] },
+                                    createRupeeAmount('0.00', 10, false, [5, 5, 5, 5]),
+                                    createRupeeAmount(paidAmount.toFixed(2), 10, true, [5, 5, 5, 5]),
                                 ],
                             ],
                         },
                         margin: [0, 0, 0, 20],
                     },
-                    // Amount in words
+                    // Payment Details Section
                     {
-                        text: `Amount in Words: ${amountInWords}`,
-                        fontSize: 10,
-                        color: '#4a5568',
-                        italics: true,
-                        margin: [0, 0, 0, 20],
+                        text: 'Payments Details',
+                        fontSize: 11,
+                        bold: true,
+                        margin: [0, 0, 0, 10],
                     },
-                    // Payment Method and Transaction Details
                     {
                         columns: [
                             {
                                 width: '*',
                                 stack: [
-                                    paymentMethod ? {
-                                        text: `Payment Method: ${paymentMethod}`,
-                                        fontSize: 10,
-                                        color: '#4a5568',
-                                        margin: [0, 0, 0, 5],
-                                    } : null,
-                                    transactionId ? {
-                                        text: `Transaction ID: ${transactionId}`,
-                                        fontSize: 10,
-                                        color: '#4a5568',
-                                        margin: [0, 0, 0, 5],
-                                    } : null,
-                                ].filter(Boolean),
+                                    { text: 'Bank Name: Axis Bank', fontSize: 10, margin: [0, 0, 0, 3] },
+                                    { text: 'Account No: 2147483647', fontSize: 10, margin: [0, 0, 0, 3] },
+                                    { text: 'IFSC Code: UTIB0000032', fontSize: 10, margin: [0, 0, 0, 15] },
+                                ],
+                            },
+                        ],
+                    },
+                    // Summary Section
+                    {
+                        columns: [
+                            {
+                                width: '*',
+                                stack: [],
                             },
                             {
-                                width: 'auto',
+                                width: 200,
                                 stack: [
                                     {
-                                        text: 'Total Amount:',
-                                        fontSize: 10,
-                                        color: '#4a5568',
-                                        alignment: 'right',
-                                        margin: [0, 0, 0, 5],
+                                        columns: [
+                                            { text: 'Sub Total:', fontSize: 10, width: '*', margin: [0, 0, 0, 5] },
+                                            createRupeeAmount(paidAmount.toFixed(2), 10, false),
+                                        ],
                                     },
                                     {
-                                        text: `₹ ${paidAmount.toFixed(2)}`,
-                                        fontSize: 16,
-                                        bold: true,
-                                        color: '#1a365d',
-                                        alignment: 'right',
+                                        columns: [
+                                            { text: 'Discount:', fontSize: 10, width: '*', margin: [0, 0, 0, 5] },
+                                            createRupeeAmount('0.00', 10, false),
+                                        ],
+                                    },
+                                    {
+                                        columns: [
+                                            { text: 'Total:', fontSize: 11, bold: true, width: '*', margin: [0, 5, 0, 5] },
+                                            createRupeeAmount(paidAmount.toFixed(2), 11, true),
+                                        ],
                                     },
                                 ],
                             },
                         ],
+                        margin: [0, 0, 0, 15],
+                    },
+                    // Total in Words
+                    {
+                        columns: [
+                            { text: 'IN WORDS: ', fontSize: 10, bold: true },
+                            ...(rupeeImageBase64 ? [
+                                { image: rupeeImageBase64, width: 10, height: 10, fit: [10, 10] },
+                                { text: ` ${amountInWords}`, fontSize: 10, bold: true }
+                            ] : [
+                                { text: `₹ ${amountInWords}`, fontSize: 10, bold: true }
+                            ]),
+                        ],
+                        columnGap: 2,
                         margin: [0, 0, 0, 20],
                     },
-                    // Notes if available
-                    notes ? {
-                        text: `Notes: ${notes}`,
-                        fontSize: 9,
-                        color: '#718096',
-                        margin: [0, 0, 0, 30],
-                    } : null,
-                    // Horizontal line
+                    // Terms & Condition
                     {
-                        canvas: [
-                            {
-                                type: 'line',
-                                x1: 0,
-                                y1: 0,
-                                x2: 515,
-                                y2: 0,
-                                lineWidth: 0.78,
-                                lineColor: '#cbd5e0',
-                            },
-                        ],
-                        margin: [0, 20, 0, 20],
+                        text: 'Terms & Condition',
+                        fontSize: 11,
+                        bold: true,
+                        margin: [0, 0, 0, 5],
                     },
-                    // Footer
+                    {
+                        table: {
+                            widths: ['*'],
+                            body: [
+                                [
+                                    {
+                                        text: 'The above Payment is subject to realisation & Non - Refundable / Non-Transferrable',
+                                        fontSize: 10,
+                                        fillColor: '#E1BEE7', // Light purple background
+                                        margin: [8, 8, 8, 8],
+                                    },
+                                ],
+                            ],
+                        },
+                        layout: 'noBorders',
+                        margin: [0, 0, 0, 30],
+                    },
+                    // Authorized Signature
                     {
                         columns: [
                             {
                                 width: '*',
+                                stack: [],
+                            },
+                            {
+                                width: 150,
                                 stack: [
+                                    {
+                                        canvas: [
+                                            {
+                                                type: 'line',
+                                                x1: 0,
+                                                y1: 0,
+                                                x2: 150,
+                                                y2: 0,
+                                                lineWidth: 1,
+                                                lineColor: '#000000',
+                                            },
+                                        ],
+                                        margin: [0, 0, 0, 5],
+                                    },
                                     {
                                         text: 'Authorized Signature',
                                         fontSize: 10,
-                                        color: '#4a5568',
-                                        margin: [0, 40, 0, 0],
-                                    },
-                                ],
-                            },
-                            {
-                                width: 'auto',
-                                stack: [
-                                    {
-                                        text: 'PRIME ACADEMY',
-                                        fontSize: 10,
-                                        bold: true,
-                                        color: '#1a365d',
-                                        alignment: 'right',
-                                        margin: [0, 0, 0, 5],
-                                    },
-                                    {
-                                        text: 'This is a computer generated receipt.',
-                                        fontSize: 8,
-                                        color: '#a0aec0',
-                                        alignment: 'right',
-                                        italics: true,
+                                        alignment: 'center',
                                     },
                                 ],
                             },
                         ],
                     },
-                ].filter(Boolean),
+                ],
                 defaultStyle: {
                     font: 'Roboto',
                 },
@@ -439,18 +639,47 @@ const getPayments = async (req, res) => {
             }
             where.status = normalizedStatus;
         }
-        const payments = await models_1.default.PaymentTransaction.findAll({
-            where,
-            include: [
-                { model: models_1.default.User, as: 'student', attributes: ['id', 'name', 'email', 'phone'] },
-                {
-                    model: models_1.default.Enrollment,
-                    as: 'enrollment',
-                    include: [{ model: models_1.default.Batch, as: 'batch', attributes: ['id', 'title'] }],
-                },
-            ],
-            order: [['dueDate', 'DESC'], ['id', 'DESC']],
-        });
+        let payments = [];
+        try {
+            payments = await models_1.default.PaymentTransaction.findAll({
+                where,
+                include: [
+                    {
+                        model: models_1.default.User,
+                        as: 'student',
+                        attributes: ['id', 'name', 'email', 'phone'],
+                        required: false,
+                    },
+                    {
+                        model: models_1.default.Enrollment,
+                        as: 'enrollment',
+                        required: false,
+                        include: [{
+                                model: models_1.default.Batch,
+                                as: 'batch',
+                                attributes: ['id', 'title'],
+                                required: false,
+                            }],
+                    },
+                ],
+                order: [['dueDate', 'DESC'], ['id', 'DESC']],
+            });
+        }
+        catch (queryError) {
+            logger_1.logger.error('Get payments query error:', queryError);
+            // Try without includes if query fails
+            try {
+                payments = await models_1.default.PaymentTransaction.findAll({
+                    where,
+                    order: [['dueDate', 'DESC'], ['id', 'DESC']],
+                });
+                logger_1.logger.warn('Fetched payments without relations due to query error');
+            }
+            catch (fallbackError) {
+                logger_1.logger.error('Get payments fallback error:', fallbackError);
+                throw new Error(`Failed to fetch payments: ${fallbackError.message}`);
+            }
+        }
         res.status(200).json({
             status: 'success',
             data: {
@@ -459,10 +688,16 @@ const getPayments = async (req, res) => {
         });
     }
     catch (error) {
-        logger_1.logger.error('Get payments error', error);
+        logger_1.logger.error('Get payments error:', error);
+        logger_1.logger.error('Error details:', {
+            message: error?.message,
+            stack: error?.stack,
+            name: error?.name,
+        });
         res.status(500).json({
             status: 'error',
             message: 'Failed to load payments',
+            error: process.env.NODE_ENV === 'development' ? error?.message : undefined,
         });
     }
 };
@@ -516,10 +751,36 @@ const createPayment = async (req, res) => {
             return;
         }
         const { studentId, enrollmentId, amount, dueDate, notes, paymentMethod, transactionId } = req.body;
-        if (!studentId || !amount || !dueDate) {
+        if (!studentId || !dueDate) {
             res.status(400).json({
                 status: 'error',
-                message: 'studentId, amount, and dueDate are required',
+                message: 'studentId and dueDate are required',
+            });
+            return;
+        }
+        // Fetch student with profile first to check for fees
+        const student = await models_1.default.User.findByPk(studentId, {
+            include: [
+                {
+                    model: models_1.default.StudentProfile,
+                    as: 'studentProfile',
+                    attributes: ['id', 'documents'],
+                    required: false,
+                },
+            ],
+        });
+        if (!student || student.role !== User_1.UserRole.STUDENT) {
+            res.status(400).json({
+                status: 'error',
+                message: 'Invalid student selected',
+            });
+            return;
+        }
+        // Validate amount
+        if (!amount) {
+            res.status(400).json({
+                status: 'error',
+                message: 'Amount is required',
             });
             return;
         }
@@ -531,20 +792,34 @@ const createPayment = async (req, res) => {
             });
             return;
         }
-        const student = await models_1.default.User.findByPk(studentId);
-        if (!student || student.role !== User_1.UserRole.STUDENT) {
-            res.status(400).json({
-                status: 'error',
-                message: 'Invalid student selected',
-            });
-            return;
-        }
+        let enrollment = null;
         if (enrollmentId) {
-            const enrollment = await models_1.default.Enrollment.findByPk(enrollmentId);
-            if (!enrollment) {
+            try {
+                enrollment = await models_1.default.Enrollment.findByPk(enrollmentId, {
+                    include: [{ model: models_1.default.Batch, as: 'batch', attributes: ['id', 'title'], required: false }],
+                });
+                if (!enrollment) {
+                    res.status(400).json({
+                        status: 'error',
+                        message: 'Invalid enrollment selected',
+                    });
+                    return;
+                }
+                // If amount is not provided, try to get it from enrollment paymentPlan
+                if (!amount && enrollment.paymentPlan) {
+                    const paymentPlan = enrollment.paymentPlan;
+                    const suggestedAmount = paymentPlan.balanceAmount || paymentPlan.totalDeal || paymentPlan.bookingAmount;
+                    if (suggestedAmount && suggestedAmount > 0) {
+                        logger_1.logger.info(`Auto-suggesting amount ${suggestedAmount} from enrollment ${enrollmentId} paymentPlan`);
+                        // Don't auto-set, just log - let frontend handle it
+                    }
+                }
+            }
+            catch (enrollmentError) {
+                logger_1.logger.error('Error fetching enrollment:', enrollmentError);
                 res.status(400).json({
                     status: 'error',
-                    message: 'Invalid enrollment selected',
+                    message: 'Failed to validate enrollment',
                 });
                 return;
             }
@@ -578,6 +853,15 @@ const createPayment = async (req, res) => {
         catch (includeError) {
             logger_1.logger.warn('Failed to fetch payment with relations, using basic payment:', includeError);
             paymentWithRelations = payment;
+        }
+        // Update payment plan balance synchronously to ensure it's updated
+        try {
+            await updatePaymentPlanBalance(studentId, enrollmentId || null);
+            logger_1.logger.info(`Payment plan balance updated for student ${studentId}, enrollment ${enrollmentId || 'none'}`);
+        }
+        catch (err) {
+            logger_1.logger.error('Payment plan balance update failed:', err);
+            // Don't fail the payment creation if balance update fails
         }
         res.status(201).json({
             status: 'success',
@@ -732,6 +1016,24 @@ const updatePayment = async (req, res) => {
             updates.paidAmount = payment.paidAmount || 0;
         }
         await payment.update(updates);
+        // Update payment plan balance if paidAmount or status changed
+        if (updates.paidAmount !== undefined || updates.status !== undefined) {
+            // Refresh payment to get updated enrollmentId
+            const refreshedPayment = await models_1.default.PaymentTransaction.findByPk(payment.id, {
+                attributes: ['studentId', 'enrollmentId'],
+            });
+            if (refreshedPayment) {
+                // Update payment plan balance synchronously to ensure it's updated before response
+                try {
+                    await updatePaymentPlanBalance(refreshedPayment.studentId, refreshedPayment.enrollmentId || null);
+                    logger_1.logger.info(`Payment plan balance updated for student ${refreshedPayment.studentId}, enrollment ${refreshedPayment.enrollmentId || 'none'}`);
+                }
+                catch (err) {
+                    logger_1.logger.error('Payment plan balance update failed:', err);
+                    // Don't fail the payment update if balance update fails
+                }
+            }
+        }
         const updatedPayment = await models_1.default.PaymentTransaction.findByPk(payment.id, {
             include: [
                 { model: models_1.default.User, as: 'student', attributes: ['id', 'name', 'email', 'phone'] },

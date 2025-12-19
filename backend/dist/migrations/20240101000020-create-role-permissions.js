@@ -54,11 +54,24 @@ exports.default = {
                 defaultValue: sequelize_1.DataTypes.NOW,
             },
         });
-        await queryInterface.addIndex('role_permissions', ['roleId', 'module'], {
-            unique: true,
-            name: 'unique_role_module',
-        });
-        await queryInterface.addIndex('role_permissions', ['roleId'], { name: 'idx_roleId' });
+        // Add indexes only if they don't exist
+        try {
+            await queryInterface.addIndex('role_permissions', ['roleId', 'module'], {
+                unique: true,
+                name: 'unique_role_module',
+            });
+        }
+        catch (error) {
+            if (error.original?.code !== 'ER_DUP_KEYNAME')
+                throw error;
+        }
+        try {
+            await queryInterface.addIndex('role_permissions', ['roleId'], { name: 'idx_roleId' });
+        }
+        catch (error) {
+            if (error.original?.code !== 'ER_DUP_KEYNAME')
+                throw error;
+        }
     },
     down: async (queryInterface) => {
         await queryInterface.dropTable('role_permissions');

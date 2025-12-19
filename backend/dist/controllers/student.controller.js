@@ -43,6 +43,68 @@ const sequelize_1 = require("sequelize");
 const User_1 = require("../models/User");
 const models_1 = __importDefault(require("../models"));
 const logger_1 = require("../utils/logger");
+/**
+ * Parse date from Excel - handles Excel serial dates, various string formats, and Date objects
+ * @param dateValue - Date value from Excel (can be number, string, or Date)
+ * @returns Date object or null if invalid
+ */
+function parseExcelDate(dateValue) {
+    if (!dateValue)
+        return null;
+    try {
+        // If it's already a Date object
+        if (dateValue instanceof Date) {
+            return isNaN(dateValue.getTime()) ? null : dateValue;
+        }
+        // If it's a number (Excel serial date)
+        if (typeof dateValue === 'number') {
+            // Excel serial date: days since January 1, 1900
+            // JavaScript Date uses milliseconds since January 1, 1970
+            // Excel epoch: January 1, 1900 = -2208988800000 ms
+            // But Excel incorrectly treats 1900 as a leap year, so we need to adjust
+            const excelEpoch = new Date(1899, 11, 30); // December 30, 1899
+            const date = new Date(excelEpoch.getTime() + dateValue * 24 * 60 * 60 * 1000);
+            return isNaN(date.getTime()) ? null : date;
+        }
+        // If it's a string, try to parse it
+        if (typeof dateValue === 'string') {
+            const trimmed = dateValue.trim();
+            if (!trimmed)
+                return null;
+            // Try ISO format first (YYYY-MM-DD)
+            if (/^\d{4}-\d{2}-\d{2}/.test(trimmed)) {
+                const date = new Date(trimmed);
+                if (!isNaN(date.getTime()))
+                    return date;
+            }
+            // Try DD/MM/YYYY format
+            const ddmmyyyy = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+            if (ddmmyyyy) {
+                const [, day, month, year] = ddmmyyyy;
+                const date = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+                if (!isNaN(date.getTime()))
+                    return date;
+            }
+            // Try MM/DD/YYYY format
+            const mmddyyyy = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+            if (mmddyyyy) {
+                const [, month, day, year] = mmddyyyy;
+                const date = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+                if (!isNaN(date.getTime()))
+                    return date;
+            }
+            // Try generic Date parsing
+            const date = new Date(trimmed);
+            if (!isNaN(date.getTime()))
+                return date;
+        }
+        return null;
+    }
+    catch (error) {
+        logger_1.logger.warn(`Failed to parse date: ${dateValue}`, error);
+        return null;
+    }
+}
 // POST /students/enroll → Create student user, profile, and enrollment in one call
 const completeEnrollment = async (req, res) => {
     const transaction = await models_1.default.sequelize.transaction();
@@ -62,7 +124,7 @@ const completeEnrollment = async (req, res) => {
             });
             return;
         }
-        const { studentName, email, phone, whatsappNumber, dateOfAdmission, localAddress, permanentAddress, emergencyContactNumber, emergencyName, emergencyRelation, courseName, batchId, softwaresIncluded, totalDeal, bookingAmount, balanceAmount, emiPlan, emiPlanDate, complimentarySoftware, complimentaryGift, hasReference, referenceDetails, counselorName, leadSource, walkinDate, masterFaculty, } = req.body;
+        const { studentName, email, phone, whatsappNumber, dateOfAdmission, localAddress, permanentAddress, emergencyContactNumber, emergencyName, emergencyRelation, courseName, batchId, softwaresIncluded, totalDeal, bookingAmount, balanceAmount, emiPlan, emiPlanDate, emiInstallments, complimentarySoftware, complimentaryGift, hasReference, referenceDetails, counselorName, leadSource, walkinDate, masterFaculty, enrollmentDocuments, } = req.body;
         // Validation - Only studentName and phone are required
         if (!studentName || !studentName.trim()) {
             await transaction.rollback();
@@ -122,6 +184,17 @@ const completeEnrollment = async (req, res) => {
         }, { transaction });
         // Create student profile if StudentProfile model exists
         if (models_1.default.StudentProfile) {
+            // Parse batch status fields if provided
+            const parseBatchList = (value) => {
+                if (!value || value === '')
+                    return null;
+                if (Array.isArray(value))
+                    return value.filter((s) => s.trim().length > 0);
+                if (typeof value === 'string') {
+                    return value.split(',').map((s) => s.trim()).filter((s) => s.length > 0);
+                }
+                return null;
+            };
             const profileData = {
                 userId: user.id,
                 dob: dateOfAdmission ? new Date(dateOfAdmission) : null,
@@ -129,53 +202,65 @@ const completeEnrollment = async (req, res) => {
                 softwareList: softwaresIncluded ? softwaresIncluded.split(',').map((s) => s.trim()).filter((s) => s) : null,
                 enrollmentDate: dateOfAdmission ? new Date(dateOfAdmission) : new Date(),
                 status: 'active',
+                finishedBatches: req.body.finishedBatches ? parseBatchList(req.body.finishedBatches) : null,
+                currentBatches: req.body.currentBatches ? parseBatchList(req.body.currentBatches) : null,
+                pendingBatches: req.body.pendingBatches ? parseBatchList(req.body.pendingBatches) : null,
             };
-            // Store additional fields in documents JSON field (only if there are any)
-            const additionalInfo = {};
+            // Store additional fields in documents.enrollmentMetadata (matching bulk upload structure)
+            const enrollmentMetadata = {};
             if (whatsappNumber)
-                additionalInfo.whatsappNumber = whatsappNumber;
-            if (emergencyContactNumber) {
-                additionalInfo.emergencyContact = {
+                enrollmentMetadata.whatsappNumber = whatsappNumber;
+            if (emergencyContactNumber || emergencyName || emergencyRelation) {
+                enrollmentMetadata.emergencyContact = {
                     name: emergencyName || null,
-                    number: emergencyContactNumber,
+                    number: emergencyContactNumber || null,
                     relation: emergencyRelation || null,
                 };
             }
             if (courseName)
-                additionalInfo.courseName = courseName;
+                enrollmentMetadata.courseName = courseName;
             if (totalDeal !== undefined)
-                additionalInfo.totalDeal = totalDeal;
+                enrollmentMetadata.totalDeal = totalDeal;
             if (bookingAmount !== undefined)
-                additionalInfo.bookingAmount = bookingAmount;
+                enrollmentMetadata.bookingAmount = bookingAmount;
             if (balanceAmount !== undefined)
-                additionalInfo.balanceAmount = balanceAmount;
+                enrollmentMetadata.balanceAmount = balanceAmount;
             if (emiPlan !== undefined)
-                additionalInfo.emiPlan = emiPlan;
+                enrollmentMetadata.emiPlan = emiPlan;
             if (emiPlanDate)
-                additionalInfo.emiPlanDate = emiPlanDate;
-            if (complimentarySoftware)
-                additionalInfo.complimentarySoftware = complimentarySoftware;
-            if (complimentaryGift)
-                additionalInfo.complimentaryGift = complimentaryGift;
-            if (hasReference !== undefined)
-                additionalInfo.hasReference = hasReference;
-            if (referenceDetails)
-                additionalInfo.referenceDetails = referenceDetails;
-            if (counselorName)
-                additionalInfo.counselorName = counselorName;
-            if (leadSource)
-                additionalInfo.leadSource = leadSource;
-            if (walkinDate)
-                additionalInfo.walkinDate = walkinDate;
-            if (masterFaculty)
-                additionalInfo.masterFaculty = masterFaculty;
-            if (permanentAddress)
-                additionalInfo.permanentAddress = permanentAddress;
-            if (localAddress)
-                additionalInfo.localAddress = localAddress;
-            if (Object.keys(additionalInfo).length > 0) {
-                profileData.documents = additionalInfo;
+                enrollmentMetadata.emiPlanDate = emiPlanDate;
+            if (emiInstallments && Array.isArray(emiInstallments) && emiInstallments.length > 0) {
+                enrollmentMetadata.emiInstallments = emiInstallments;
             }
+            if (complimentarySoftware)
+                enrollmentMetadata.complimentarySoftware = complimentarySoftware;
+            if (complimentaryGift)
+                enrollmentMetadata.complimentaryGift = complimentaryGift;
+            if (hasReference !== undefined)
+                enrollmentMetadata.hasReference = hasReference;
+            if (referenceDetails)
+                enrollmentMetadata.referenceDetails = referenceDetails;
+            if (counselorName)
+                enrollmentMetadata.counselorName = counselorName;
+            if (leadSource)
+                enrollmentMetadata.leadSource = leadSource;
+            if (walkinDate)
+                enrollmentMetadata.walkinDate = walkinDate;
+            if (masterFaculty)
+                enrollmentMetadata.masterFaculty = masterFaculty;
+            if (permanentAddress)
+                enrollmentMetadata.permanentAddress = permanentAddress;
+            if (localAddress)
+                enrollmentMetadata.localAddress = localAddress;
+            if (dateOfAdmission)
+                enrollmentMetadata.dateOfAdmission = dateOfAdmission;
+            if (enrollmentDocuments && Array.isArray(enrollmentDocuments) && enrollmentDocuments.length > 0) {
+                enrollmentMetadata.enrollmentDocuments = enrollmentDocuments;
+            }
+            // Always store documents with enrollmentMetadata wrapper (matching bulk upload structure)
+            profileData.documents = {
+                enrollmentMetadata,
+            };
             await models_1.default.StudentProfile.create(profileData, { transaction });
         }
         // Create enrollment if batchId is provided
@@ -210,11 +295,27 @@ const completeEnrollment = async (req, res) => {
                     });
                     return;
                 }
+                // Prepare paymentPlan from enrollment metadata
+                const paymentPlan = {};
+                if (totalDeal !== undefined)
+                    paymentPlan.totalDeal = totalDeal;
+                if (bookingAmount !== undefined)
+                    paymentPlan.bookingAmount = bookingAmount;
+                if (balanceAmount !== undefined)
+                    paymentPlan.balanceAmount = balanceAmount;
+                if (emiPlan !== undefined)
+                    paymentPlan.emiPlan = emiPlan;
+                if (emiPlanDate)
+                    paymentPlan.emiPlanDate = emiPlanDate;
+                if (emiInstallments && Array.isArray(emiInstallments) && emiInstallments.length > 0) {
+                    paymentPlan.emiInstallments = emiInstallments;
+                }
                 enrollment = await models_1.default.Enrollment.create({
                     studentId: user.id,
                     batchId,
                     enrollmentDate: dateOfAdmission ? new Date(dateOfAdmission) : new Date(),
                     status: 'active',
+                    paymentPlan: Object.keys(paymentPlan).length > 0 ? paymentPlan : null,
                 }, { transaction });
             }
         }
@@ -486,17 +587,45 @@ const bulkEnrollStudents = async (req, res) => {
             return;
         }
         if (!req.file) {
+            logger_1.logger.error('Bulk enrollment: No file received');
             res.status(400).json({
                 status: 'error',
                 message: 'Excel file is required',
             });
             return;
         }
-        // Parse Excel file
-        const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
+        logger_1.logger.info(`Bulk enrollment: File received - name: ${req.file.originalname}, size: ${req.file.size}, mimetype: ${req.file.mimetype}`);
+        // Parse Excel file with date parsing enabled
+        let workbook;
+        try {
+            workbook = XLSX.read(req.file.buffer, {
+                type: 'buffer',
+                cellDates: true, // Parse dates automatically as Date objects
+            });
+            logger_1.logger.info(`Bulk enrollment: Excel file parsed successfully - sheets: ${workbook.SheetNames.join(', ')}`);
+        }
+        catch (parseError) {
+            logger_1.logger.error('Bulk enrollment: Failed to parse Excel file:', parseError);
+            res.status(400).json({
+                status: 'error',
+                message: `Failed to parse Excel file: ${parseError.message}`,
+            });
+            return;
+        }
         const sheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[sheetName];
-        const rows = XLSX.utils.sheet_to_json(worksheet);
+        // Log available columns for debugging
+        const headerRow = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: null })[0];
+        logger_1.logger.info(`Excel file columns detected: ${headerRow ? headerRow.join(', ') : 'No headers found'}`);
+        const rows = XLSX.utils.sheet_to_json(worksheet, {
+            raw: true, // Get raw values (Date objects for dates, numbers for numbers)
+            defval: null, // Default value for empty cells
+            blankrows: false, // Skip blank rows
+        });
+        logger_1.logger.info(`Total rows parsed from Excel: ${rows.length}`);
+        if (rows.length > 0) {
+            logger_1.logger.info(`First row sample keys: ${Object.keys(rows[0] || {}).join(', ')}`);
+        }
         if (rows.length === 0) {
             res.status(400).json({
                 status: 'error',
@@ -504,6 +633,23 @@ const bulkEnrollStudents = async (req, res) => {
             });
             return;
         }
+        // Helper function to get column value with multiple possible names (case-insensitive)
+        const getColumnValue = (row, possibleNames) => {
+            for (const name of possibleNames) {
+                // Try exact match first
+                if (row[name] !== undefined && row[name] !== null && row[name] !== '') {
+                    return row[name];
+                }
+                // Try case-insensitive match
+                const lowerName = name.toLowerCase();
+                for (const key in row) {
+                    if (key.toLowerCase() === lowerName && row[key] !== undefined && row[key] !== null && row[key] !== '') {
+                        return row[key];
+                    }
+                }
+            }
+            return null;
+        };
         const result = {
             success: 0,
             failed: 0,
@@ -515,20 +661,44 @@ const bulkEnrollStudents = async (req, res) => {
             const rowNumber = i + 2; // +2 because Excel rows start at 1 and we have a header
             const transaction = await models_1.default.sequelize.transaction();
             try {
+                // Log row data for debugging (first row only)
+                if (i === 0) {
+                    logger_1.logger.info(`Row ${rowNumber} raw data:`, JSON.stringify(row, null, 2));
+                    logger_1.logger.info(`Row ${rowNumber} available keys:`, Object.keys(row).join(', '));
+                }
+                // Get required fields with flexible column name matching
+                const studentName = getColumnValue(row, ['studentName', 'Student Name', 'student_name', 'Name', 'name', 'StudentName']);
+                const email = getColumnValue(row, ['email', 'Email', 'EMAIL', 'Email Address', 'emailAddress']);
+                const phone = getColumnValue(row, ['phone', 'Phone', 'PHONE', 'phoneNumber', 'Phone Number', 'phone_number', 'PhoneNumber', 'Mobile', 'mobile', 'Mobile Number']);
+                const dateOfAdmission = getColumnValue(row, ['dateOfAdmission', 'Date of Admission', 'date_of_admission', 'DateOfAdmission', 'admissionDate', 'Admission Date', 'AdmissionDate', 'Date', 'date']);
                 // Validate required fields
-                if (!row.studentName || !row.email || !row.phone || !row.dateOfAdmission) {
+                if (!studentName || !email || !phone || !dateOfAdmission) {
                     await transaction.rollback();
+                    const missingFields = [];
+                    if (!studentName)
+                        missingFields.push('studentName');
+                    if (!email)
+                        missingFields.push('email');
+                    if (!phone)
+                        missingFields.push('phone');
+                    if (!dateOfAdmission)
+                        missingFields.push('dateOfAdmission');
+                    // Log available columns for debugging
+                    const availableColumns = Object.keys(row).join(', ');
+                    const rowValues = Object.entries(row).map(([k, v]) => `${k}:${v}`).join(', ');
+                    logger_1.logger.warn(`Row ${rowNumber} validation failed. Missing: ${missingFields.join(', ')}. Available: ${availableColumns}`);
+                    logger_1.logger.warn(`Row ${rowNumber} values: ${rowValues}`);
                     result.failed++;
                     result.errors.push({
                         row: rowNumber,
-                        email: row.email || 'N/A',
-                        error: 'Missing required fields: studentName, email, phone, or dateOfAdmission',
+                        email: email || 'N/A',
+                        error: `Missing required fields: ${missingFields.join(', ')}. Available columns: ${availableColumns}`,
                     });
                     continue;
                 }
                 // Check if user already exists
                 const existingUser = await models_1.default.User.findOne({
-                    where: { email: row.email },
+                    where: { email: email },
                     transaction
                 });
                 if (existingUser) {
@@ -536,61 +706,139 @@ const bulkEnrollStudents = async (req, res) => {
                     result.failed++;
                     result.errors.push({
                         row: rowNumber,
-                        email: row.email,
+                        email: email,
                         error: 'User with this email already exists',
                     });
                     continue;
                 }
                 // Generate default password (email prefix + '123')
-                const defaultPassword = `${row.email.split('@')[0]}123`;
+                const defaultPassword = `${email.split('@')[0]}123`;
                 const passwordHash = await bcrypt_1.default.hash(defaultPassword, 10);
                 // Create user
                 const user = await models_1.default.User.create({
-                    name: row.studentName,
-                    email: row.email,
-                    phone: row.phone || null,
+                    name: studentName,
+                    email: email,
+                    phone: phone || null,
                     role: User_1.UserRole.STUDENT,
                     passwordHash,
                     isActive: true,
                 }, { transaction });
+                // Parse dateOfAdmission properly from Excel
+                const parsedDateOfAdmission = parseExcelDate(dateOfAdmission);
+                if (!parsedDateOfAdmission) {
+                    await transaction.rollback();
+                    result.failed++;
+                    result.errors.push({
+                        row: rowNumber,
+                        email: email || 'N/A',
+                        error: `Invalid dateOfAdmission format: ${dateOfAdmission}. Please use YYYY-MM-DD, DD/MM/YYYY, or MM/DD/YYYY format`,
+                    });
+                    continue;
+                }
+                // Format date as ISO string for storage in metadata (YYYY-MM-DD)
+                const dateOfAdmissionISO = parsedDateOfAdmission.toISOString().split('T')[0];
+                // Log for debugging (only in development)
+                if (process.env.NODE_ENV === 'development') {
+                    logger_1.logger.info(`Row ${rowNumber}: Parsed dateOfAdmission from "${dateOfAdmission}" to "${dateOfAdmissionISO}"`);
+                }
+                // Parse DOB if provided - check multiple possible column names
+                let dobValue = getColumnValue(row, ['dob', 'DOB', 'dateOfBirth', 'Date of Birth', 'date_of_birth', 'DateOfBirth']);
+                const parsedDob = dobValue ? parseExcelDate(dobValue) : null;
+                if (dobValue && !parsedDob) {
+                    logger_1.logger.warn(`Row ${rowNumber}: Failed to parse dob from "${dobValue}". Accepted formats: YYYY-MM-DD, DD/MM/YYYY, MM/DD/YYYY, or Excel serial date`);
+                }
+                else if (parsedDob) {
+                    logger_1.logger.info(`Row ${rowNumber}: Parsed dob from "${dobValue}" to "${parsedDob.toISOString().split('T')[0]}"`);
+                }
+                else {
+                    logger_1.logger.info(`Row ${rowNumber}: No DOB provided`);
+                }
+                // Handle boolean fields (Excel might store as "Yes"/"No" or true/false)
+                const parseBoolean = (value) => {
+                    if (value === undefined || value === null || value === '')
+                        return undefined;
+                    if (typeof value === 'boolean')
+                        return value;
+                    if (typeof value === 'string') {
+                        const lower = value.toLowerCase().trim();
+                        return lower === 'yes' || lower === 'true' || lower === '1';
+                    }
+                    return Boolean(value);
+                };
                 // Prepare enrollment metadata
                 const enrollmentMetadata = {
-                    whatsappNumber: row.whatsappNumber || row.phone,
-                    emergencyContactNumber: row.emergencyContactNumber,
-                    emergencyName: row.emergencyName,
-                    emergencyRelation: row.emergencyRelation,
-                    courseName: row.courseName,
-                    totalDeal: row.totalDeal,
-                    bookingAmount: row.bookingAmount,
-                    balanceAmount: row.balanceAmount,
-                    emiPlan: row.emiPlan,
-                    emiPlanDate: row.emiPlanDate,
-                    complimentarySoftware: row.complimentarySoftware,
-                    complimentaryGift: row.complimentaryGift,
-                    hasReference: row.hasReference,
-                    referenceDetails: row.referenceDetails,
-                    counselorName: row.counselorName,
-                    leadSource: row.leadSource,
-                    walkinDate: row.walkinDate,
-                    masterFaculty: row.masterFaculty,
+                    dateOfAdmission: dateOfAdmissionISO, // Store in metadata as well
+                    whatsappNumber: row.whatsappNumber || row.phone || null,
+                    courseName: row.courseName || null,
+                    totalDeal: row.totalDeal ? (typeof row.totalDeal === 'string' ? parseFloat(row.totalDeal) : row.totalDeal) : null,
+                    bookingAmount: row.bookingAmount ? (typeof row.bookingAmount === 'string' ? parseFloat(row.bookingAmount) : row.bookingAmount) : null,
+                    balanceAmount: row.balanceAmount ? (typeof row.balanceAmount === 'string' ? parseFloat(row.balanceAmount) : row.balanceAmount) : null,
+                    emiPlan: parseBoolean(row.emiPlan),
+                    emiPlanDate: row.emiPlanDate ? (parseExcelDate(row.emiPlanDate)?.toISOString().split('T')[0] || null) : null,
+                    emiInstallments: row.emiInstallments ? (typeof row.emiInstallments === 'string' ? (() => {
+                        try {
+                            return JSON.parse(row.emiInstallments);
+                        }
+                        catch (e) {
+                            logger_1.logger.warn(`Row ${rowNumber}: Failed to parse emiInstallments JSON: ${row.emiInstallments}`);
+                            return null;
+                        }
+                    })() : (Array.isArray(row.emiInstallments) ? row.emiInstallments : null)) : null,
+                    complimentarySoftware: row.complimentarySoftware || null,
+                    complimentaryGift: row.complimentaryGift || null,
+                    hasReference: parseBoolean(row.hasReference),
+                    referenceDetails: row.referenceDetails || null,
+                    counselorName: row.counselorName || null,
+                    leadSource: row.leadSource || null,
+                    walkinDate: row.walkinDate ? (parseExcelDate(row.walkinDate)?.toISOString().split('T')[0] || null) : null,
+                    masterFaculty: row.masterFaculty || null,
+                    localAddress: row.localAddress || null,
+                    permanentAddress: row.permanentAddress || null,
                 };
+                // Store emergency contact as nested object (matching the structure expected by the frontend)
+                if (row.emergencyContactNumber || row.emergencyName || row.emergencyRelation) {
+                    enrollmentMetadata.emergencyContact = {
+                        number: row.emergencyContactNumber || null,
+                        name: row.emergencyName || null,
+                        relation: row.emergencyRelation || null,
+                    };
+                }
                 const softwareList = row.softwaresIncluded
                     ? row.softwaresIncluded.split(',').map((s) => s.trim()).filter((s) => s.length > 0)
                     : [];
+                // Parse batch status fields (comma-separated software names)
+                const parseBatchList = (value) => {
+                    if (!value || value === '')
+                        return null;
+                    if (Array.isArray(value))
+                        return value.filter((s) => s.trim().length > 0);
+                    if (typeof value === 'string') {
+                        return value.split(',').map((s) => s.trim()).filter((s) => s.length > 0);
+                    }
+                    return null;
+                };
+                const finishedBatches = parseBatchList(row.finishedBatches || row.finished_batches);
+                const currentBatches = parseBatchList(row.currentBatches || row.current_batches);
+                const pendingBatches = parseBatchList(row.pendingBatches || row.pending_batches);
                 // Create student profile
                 if (models_1.default.StudentProfile) {
-                    await models_1.default.StudentProfile.create({
+                    const profileData = {
                         userId: user.id,
-                        dob: row.dateOfAdmission ? new Date(row.dateOfAdmission) : null,
-                        address: `${row.localAddress || ''} | Permanent: ${row.permanentAddress || ''}`.trim() || null,
+                        dob: parsedDob, // Use parsed DOB
+                        address: row.localAddress || null, // Store local address in address field (fallback for view)
                         documents: {
                             enrollmentMetadata,
                         },
                         softwareList: softwareList.length > 0 ? softwareList : null,
                         photoUrl: null,
-                        enrollmentDate: row.dateOfAdmission ? new Date(row.dateOfAdmission) : new Date(),
+                        enrollmentDate: parsedDateOfAdmission, // Use properly parsed date
                         status: 'active',
-                    }, { transaction });
+                        finishedBatches: finishedBatches && finishedBatches.length > 0 ? finishedBatches : null,
+                        currentBatches: currentBatches && currentBatches.length > 0 ? currentBatches : null,
+                        pendingBatches: pendingBatches && pendingBatches.length > 0 ? pendingBatches : null,
+                    };
+                    logger_1.logger.info(`Row ${rowNumber}: Creating student profile with dob: ${parsedDob ? parsedDob.toISOString().split('T')[0] : 'null'}, emergencyContact: ${enrollmentMetadata.emergencyContact ? JSON.stringify(enrollmentMetadata.emergencyContact) : 'null'}`);
+                    await models_1.default.StudentProfile.create(profileData, { transaction });
                 }
                 await transaction.commit();
                 result.success++;
@@ -598,6 +846,7 @@ const bulkEnrollStudents = async (req, res) => {
             catch (error) {
                 await transaction.rollback();
                 logger_1.logger.error(`Error processing row ${rowNumber}:`, error);
+                logger_1.logger.error(`Row ${rowNumber} error stack:`, error.stack);
                 result.failed++;
                 result.errors.push({
                     row: rowNumber,
@@ -614,10 +863,11 @@ const bulkEnrollStudents = async (req, res) => {
     }
     catch (error) {
         logger_1.logger.error('Bulk enrollment error:', error);
+        logger_1.logger.error('Bulk enrollment error stack:', error.stack);
         res.status(500).json({
             status: 'error',
             message: 'Internal server error while processing bulk enrollment',
-            error: error.message,
+            error: process.env.NODE_ENV === 'development' ? error.message : 'Please check server logs for details',
         });
     }
 };
@@ -646,26 +896,37 @@ const downloadEnrollmentTemplate = async (req, res) => {
             return;
         }
         logger_1.logger.info('Creating Excel template...');
-        // Create sample data
+        // Create sample data with all enrollment fields
         const sampleData = [
             {
+                // Basic Information (Required)
                 studentName: 'John Doe',
                 email: 'john.doe@example.com',
                 phone: '+1234567890',
-                whatsappNumber: '+1234567890',
                 dateOfAdmission: '2024-01-15',
+                dob: '1995-05-20', // Date of Birth
+                // Contact Information
+                whatsappNumber: '+1234567890',
                 localAddress: '123 Main St, City, State',
                 permanentAddress: '123 Main St, City, State',
+                // Emergency Contact
                 emergencyContactNumber: '+1234567891',
                 emergencyName: 'Jane Doe',
                 emergencyRelation: 'Mother',
+                // Course Information
                 courseName: 'Graphic Design',
+                softwaresIncluded: 'Photoshop, Illustrator, InDesign',
+                // Batch Status (comma-separated software names)
+                finishedBatches: 'Photoshop, Illustrator', // Software from completed batches
+                currentBatches: 'InDesign', // Software from currently active batches
+                pendingBatches: 'After Effects, Premiere Pro', // Software from upcoming/pending batches (used for suggestions)
+                // Financial Details
                 totalDeal: 50000,
                 bookingAmount: 10000,
                 balanceAmount: 40000,
                 emiPlan: 'Yes',
                 emiPlanDate: '2024-02-15',
-                softwaresIncluded: 'Photoshop, Illustrator, InDesign',
+                // Additional Information
                 complimentarySoftware: 'Adobe Creative Cloud',
                 complimentaryGift: 'Mouse Pad',
                 hasReference: 'Yes',

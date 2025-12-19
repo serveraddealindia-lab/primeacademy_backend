@@ -75,10 +75,43 @@ exports.default = {
                 defaultValue: sequelize_1.DataTypes.NOW,
             },
         });
-        await queryInterface.addIndex('student_leaves', ['studentId'], { name: 'idx_studentId' });
-        await queryInterface.addIndex('student_leaves', ['batchId'], { name: 'idx_batchId' });
-        await queryInterface.addIndex('student_leaves', ['status'], { name: 'idx_status' });
-        await queryInterface.addIndex('student_leaves', ['startDate', 'endDate'], { name: 'idx_dates' });
+        // Add indexes only if they don't exist
+        try {
+            await queryInterface.addIndex('student_leaves', ['studentId'], { name: 'idx_studentId' });
+        }
+        catch (error) {
+            if (error.original?.code !== 'ER_DUP_KEYNAME') {
+                throw error;
+            }
+            // Index already exists, skip
+        }
+        try {
+            await queryInterface.addIndex('student_leaves', ['batchId'], { name: 'idx_batchId' });
+        }
+        catch (error) {
+            if (error.original?.code !== 'ER_DUP_KEYNAME') {
+                throw error;
+            }
+            // Index already exists, skip
+        }
+        try {
+            await queryInterface.addIndex('student_leaves', ['status'], { name: 'idx_status' });
+        }
+        catch (error) {
+            if (error.original?.code !== 'ER_DUP_KEYNAME') {
+                throw error;
+            }
+            // Index already exists, skip
+        }
+        try {
+            await queryInterface.addIndex('student_leaves', ['startDate', 'endDate'], { name: 'idx_dates' });
+        }
+        catch (error) {
+            if (error.original?.code !== 'ER_DUP_KEYNAME') {
+                throw error;
+            }
+            // Index already exists, skip
+        }
     },
     down: async (queryInterface) => {
         await queryInterface.dropTable('student_leaves');

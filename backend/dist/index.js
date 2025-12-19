@@ -40,6 +40,7 @@ const enrollment_routes_1 = __importDefault(require("./routes/enrollment.routes"
 const student_routes_1 = __importDefault(require("./routes/student.routes"));
 const certificate_routes_1 = __importDefault(require("./routes/certificate.routes"));
 const biometric_routes_1 = __importDefault(require("./routes/biometric.routes"));
+const studentSoftwareProgress_routes_1 = __importDefault(require("./routes/studentSoftwareProgress.routes"));
 const error_middleware_1 = require("./middleware/error.middleware");
 const logger_1 = require("./utils/logger");
 dotenv_1.default.config();
@@ -255,6 +256,35 @@ app.use('/receipts', (req, res, next) => {
     index: false,
     dotfiles: 'ignore',
 }));
+// Also serve receipts through /api/receipts/ for frontend compatibility
+app.use('/api/receipts', (req, res, next) => {
+    const origin = req.headers.origin;
+    const allowedOrigins = process.env.FRONTEND_URL?.split(',').map((o) => o.trim()) || [
+        'http://localhost:5173',
+        'http://crm.prashantthakar.com',
+    ];
+    if (origin && allowedOrigins.includes(origin)) {
+        res.setHeader('Access-Control-Allow-Origin', origin);
+    }
+    else {
+        res.setHeader('Access-Control-Allow-Origin', '*');
+    }
+    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    if (req.method === 'OPTIONS') {
+        res.sendStatus(200);
+        return;
+    }
+    next();
+}, express_1.default.static(receiptsStaticPath, {
+    setHeaders: (res, _filePath) => {
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Cache-Control', 'public, max-age=31536000');
+    },
+    index: false,
+    dotfiles: 'ignore',
+}));
 // Serve certificate PDFs statically (must be before API routes to avoid conflicts)
 // This allows direct access to PDF files via /certificates/filename.pdf
 // Use the same path calculation as certificate controller
@@ -406,6 +436,7 @@ app.use('/api/students', student_routes_1.default);
 // Certificate API routes (must be after static file serving)
 app.use('/api/certificates', certificate_routes_1.default);
 app.use('/api/biometric', biometric_routes_1.default);
+app.use('/api/student-software-progress', studentSoftwareProgress_routes_1.default);
 // Debug: Log registered student routes (development only)
 // if (process.env.NODE_ENV === 'development') {
 //   logger.info('Registered student routes: POST /api/students/bulk-enroll, GET /api/students/template');

@@ -39,8 +39,21 @@ exports.default = {
                 defaultValue: sequelize_1.DataTypes.NOW,
             },
         });
-        await queryInterface.addIndex('roles', ['name'], { unique: true, name: 'idx_role_name' });
-        await queryInterface.addIndex('roles', ['isActive'], { name: 'idx_isActive' });
+        // Add indexes only if they don't exist
+        try {
+            await queryInterface.addIndex('roles', ['name'], { unique: true, name: 'idx_role_name' });
+        }
+        catch (error) {
+            if (error.original?.code !== 'ER_DUP_KEYNAME')
+                throw error;
+        }
+        try {
+            await queryInterface.addIndex('roles', ['isActive'], { name: 'idx_isActive' });
+        }
+        catch (error) {
+            if (error.original?.code !== 'ER_DUP_KEYNAME')
+                throw error;
+        }
     },
     down: async (queryInterface) => {
         await queryInterface.dropTable('roles');

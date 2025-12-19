@@ -40,12 +40,31 @@ exports.default = {
                 defaultValue: sequelize_1.DataTypes.NOW,
             },
         });
-        await queryInterface.addIndex('user_roles', ['userId', 'roleId'], {
-            unique: true,
-            name: 'unique_user_role',
-        });
-        await queryInterface.addIndex('user_roles', ['userId'], { name: 'idx_userId' });
-        await queryInterface.addIndex('user_roles', ['roleId'], { name: 'idx_roleId' });
+        // Add indexes only if they don't exist
+        try {
+            await queryInterface.addIndex('user_roles', ['userId', 'roleId'], {
+                unique: true,
+                name: 'unique_user_role',
+            });
+        }
+        catch (error) {
+            if (error.original?.code !== 'ER_DUP_KEYNAME')
+                throw error;
+        }
+        try {
+            await queryInterface.addIndex('user_roles', ['userId'], { name: 'idx_userId' });
+        }
+        catch (error) {
+            if (error.original?.code !== 'ER_DUP_KEYNAME')
+                throw error;
+        }
+        try {
+            await queryInterface.addIndex('user_roles', ['roleId'], { name: 'idx_roleId' });
+        }
+        catch (error) {
+            if (error.original?.code !== 'ER_DUP_KEYNAME')
+                throw error;
+        }
     },
     down: async (queryInterface) => {
         await queryInterface.dropTable('user_roles');

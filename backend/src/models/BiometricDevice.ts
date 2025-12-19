@@ -4,6 +4,7 @@ import sequelize from '../config/database';
 export enum DeviceType {
   PUSH_API = 'push-api',
   PULL_API = 'pull-api',
+  EBIO_SERVER = 'eBioServer',
 }
 
 export enum DeviceStatus {

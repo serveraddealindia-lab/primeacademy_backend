@@ -38,11 +38,10 @@ const paymentController = __importStar(require("../controllers/payment.controlle
 const auth_middleware_1 = require("../middleware/auth.middleware");
 const User_1 = require("../models/User");
 const router = (0, express_1.Router)();
-const adminOnly = (0, auth_middleware_1.requireAuth)([User_1.UserRole.ADMIN, User_1.UserRole.SUPERADMIN]);
-router.get('/', adminOnly, paymentController.getPayments);
-router.get('/:paymentId', adminOnly, paymentController.getPaymentById);
-router.get('/:paymentId/receipt', adminOnly, paymentController.downloadReceipt);
-router.post('/', adminOnly, paymentController.createPayment);
-router.put('/:paymentId', adminOnly, paymentController.updatePayment);
+router.get('/', auth_middleware_1.verifyTokenMiddleware, (0, auth_middleware_1.checkRole)(User_1.UserRole.ADMIN, User_1.UserRole.SUPERADMIN), paymentController.getPayments);
+router.get('/:paymentId', auth_middleware_1.verifyTokenMiddleware, (0, auth_middleware_1.checkRole)(User_1.UserRole.ADMIN, User_1.UserRole.SUPERADMIN), paymentController.getPaymentById);
+router.get('/:paymentId/receipt', auth_middleware_1.verifyTokenMiddleware, (0, auth_middleware_1.checkRole)(User_1.UserRole.ADMIN, User_1.UserRole.SUPERADMIN), paymentController.downloadReceipt);
+router.post('/', auth_middleware_1.verifyTokenMiddleware, (0, auth_middleware_1.checkRole)(User_1.UserRole.ADMIN, User_1.UserRole.SUPERADMIN), paymentController.createPayment);
+router.put('/:paymentId', auth_middleware_1.verifyTokenMiddleware, (0, auth_middleware_1.checkRole)(User_1.UserRole.ADMIN, User_1.UserRole.SUPERADMIN), paymentController.updatePayment);
 exports.default = router;
 //# sourceMappingURL=payment.routes.js.map

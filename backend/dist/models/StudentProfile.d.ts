@@ -10,10 +10,13 @@ export interface StudentProfileAttributes {
     softwareList: string[] | null;
     enrollmentDate: Date | null;
     status: string | null;
+    finishedBatches: string[] | null;
+    currentBatches: string[] | null;
+    pendingBatches: string[] | null;
     createdAt?: Date;
     updatedAt?: Date;
 }
-export interface StudentProfileCreationAttributes extends Optional<StudentProfileAttributes, 'id' | 'dob' | 'address' | 'documents' | 'photoUrl' | 'softwareList' | 'enrollmentDate' | 'status' | 'createdAt' | 'updatedAt'> {
+export interface StudentProfileCreationAttributes extends Optional<StudentProfileAttributes, 'id' | 'dob' | 'address' | 'documents' | 'photoUrl' | 'softwareList' | 'enrollmentDate' | 'status' | 'finishedBatches' | 'currentBatches' | 'pendingBatches' | 'createdAt' | 'updatedAt'> {
 }
 declare class StudentProfile extends Model<StudentProfileAttributes, StudentProfileCreationAttributes> implements StudentProfileAttributes {
     id: number;
@@ -25,6 +28,9 @@ declare class StudentProfile extends Model<StudentProfileAttributes, StudentProf
     softwareList: string[] | null;
     enrollmentDate: Date | null;
     status: string | null;
+    finishedBatches: string[] | null;
+    currentBatches: string[] | null;
+    pendingBatches: string[] | null;
     readonly createdAt: Date;
     readonly updatedAt: Date;
     getUser: BelongsToGetAssociationMixin<User>;

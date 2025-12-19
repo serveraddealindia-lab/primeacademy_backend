@@ -292,6 +292,31 @@ const startSession = async (req, res) => {
             : undefined;
         const scheduledStartTime = todaySchedule?.startTime ?? '00:00:00';
         const scheduledEndTime = todaySchedule?.endTime ?? '00:00:00';
+        // Check if faculty has ANY active session across ALL batches
+        // Faculty can only have one active session at a time
+        const anyActiveSession = await models_1.default.Session.findOne({
+            where: {
+                facultyId: req.user.userId,
+                date: todayDateString(),
+                actualEndAt: null,
+                actualStartAt: { [sequelize_1.Op.ne]: null },
+            },
+            include: [
+                {
+                    model: models_1.default.Batch,
+                    as: 'batch',
+                    attributes: ['id', 'title'],
+                },
+            ],
+        });
+        if (anyActiveSession) {
+            res.status(400).json({
+                status: 'error',
+                message: `You already have an active session running for batch "${anyActiveSession.batch?.title || 'Unknown'}" (Batch #${anyActiveSession.batchId}). Please end that session before starting a new one.`,
+            });
+            return;
+        }
+        // Check for open session in this specific batch (for resuming)
         const openSession = await models_1.default.Session.findOne({
             where: {
                 batchId,

@@ -36,6 +36,38 @@ export const connectToDevice = async (device: BiometricDevice): Promise<boolean>
       }
     }
 
+    if (device.deviceType === DeviceType.EBIO_SERVER) {
+      // For eBioServer, try to connect via IP/Port or API URL
+      try {
+        if (device.apiUrl) {
+          const response = await axios.get(`${device.apiUrl}/api/status`, {
+            timeout: 5000,
+            headers: device.authKey ? { 
+              'Authorization': `Bearer ${device.authKey}`,
+              'API-Version': '1.0'
+            } : {
+              'API-Version': '1.0'
+            },
+          });
+          return response.status === 200;
+        }
+
+        if (device.ipAddress && device.port) {
+          // Try TCP connection
+          const response = await axios.get(`http://${device.ipAddress}:${device.port}/api/status`, {
+            timeout: 5000,
+            headers: {
+              'API-Version': '1.0'
+            }
+          });
+          return response.status === 200;
+        }
+      } catch (error: any) {
+        logger.error(`Failed to connect to eBioServer device ${device.deviceName}:`, error.message);
+        return false;
+      }
+    }
+
     return false;
   } catch (error: any) {
     logger.error(`Failed to connect to device ${device.deviceName}:`, error.message);
@@ -68,6 +100,43 @@ export const fetchLogsFromSDK = async (device: BiometricDevice): Promise<any[]> 
           },
         });
         return response.data?.logs || response.data || [];
+      }
+    }
+
+    if (device.deviceType === DeviceType.EBIO_SERVER) {
+      // For eBioServer, fetch attendance logs
+      try {
+        if (device.apiUrl) {
+          const response = await axios.get(`${device.apiUrl}/api/attendance/logs`, {
+            timeout: 10000,
+            headers: device.authKey ? { 
+              'Authorization': `Bearer ${device.authKey}`,
+              'API-Version': '1.0'
+            } : {
+              'API-Version': '1.0'
+            },
+            params: {
+              since: device.lastSyncAt ? device.lastSyncAt.toISOString() : undefined,
+            },
+          });
+          return response.data?.logs || response.data || [];
+        }
+
+        if (device.ipAddress && device.port) {
+          const response = await axios.get(`http://${device.ipAddress}:${device.port}/api/attendance/logs`, {
+            timeout: 10000,
+            headers: {
+              'API-Version': '1.0'
+            },
+            params: {
+              since: device.lastSyncAt ? device.lastSyncAt.toISOString() : undefined,
+            },
+          });
+          return response.data?.logs || response.data || [];
+        }
+      } catch (error: any) {
+        logger.error(`Failed to fetch logs from eBioServer device ${device.deviceName}:`, error.message);
+        return [];
       }
     }
 
@@ -122,18 +191,53 @@ export const saveLog = async (rawData: {
     // If employeeId not provided, try to find by employeeCode or fingerprintId
     if (!employeeId) {
       if (rawData.employeeCode) {
-        const employeeProfile = await db.EmployeeProfile.findOne({
-          where: { employeeId: rawData.employeeCode },
-          include: [{ model: db.User, as: 'user' }],
+        // First try to find by employeeCode matching user id, email, or phone
+        const user = await db.User.findOne({
+          where: {
+            [Op.or]: [
+              { id: rawData.employeeCode },
+              { email: rawData.employeeCode },
+              { phone: rawData.employeeCode }
+            ],
+            role: {
+              [Op.in]: [UserRole.EMPLOYEE, UserRole.FACULTY]
+            }
+          }
         });
-        if (employeeProfile) {
-          employeeId = employeeProfile.userId;
+        
+        if (user) {
+          employeeId = user.id;
+        } else {
+          // Try to find by employeeId in EmployeeProfile
+          const employeeProfile = await db.EmployeeProfile.findOne({
+            where: { employeeId: rawData.employeeCode },
+            include: [{ model: db.User, as: 'user' }],
+          });
+          if (employeeProfile) {
+            employeeId = employeeProfile.userId;
+          }
         }
       }
 
-      // If still not found, try to find by fingerprintId (if stored in user profile)
-      // This would require adding a fingerprintId field to EmployeeProfile
-      // For now, we'll skip this and require employeeCode
+      // If still not found, try to find by fingerprintId/thumb data
+      if (!employeeId && rawData.fingerprintId) {
+        // Try to find user with matching biometric data in documents
+        const employeeProfiles = await db.EmployeeProfile.findAll({
+          include: [{ model: db.User, as: 'user' }],
+        });
+        
+        for (const profile of employeeProfiles) {
+          if (profile.documents?.biometricData) {
+            const bioData = profile.documents.biometricData;
+            if (bioData.fingerId === rawData.fingerprintId || 
+                bioData.thumbData === rawData.fingerprintId ||
+                bioData.fingerTemplate === rawData.fingerprintId) {
+              employeeId = profile.userId;
+              break;
+            }
+          }
+        }
+      }
     }
 
     if (!employeeId) {
@@ -219,16 +323,16 @@ export const syncDeviceLogs = async (deviceId: number): Promise<{ success: boole
       throw new Error('Device is not active');
     }
 
-    if (device.deviceType === DeviceType.PULL_API) {
+    if (device.deviceType === DeviceType.PULL_API || device.deviceType === DeviceType.EBIO_SERVER) {
       const logs = await fetchLogsFromSDK(device);
       let savedCount = 0;
 
       for (const log of logs) {
         try {
           await saveLog({
-            employeeCode: log.employeeCode || log.employee_id || log.employeeId,
-            fingerprintId: log.fingerprintId || log.fingerprint_id,
-            punchTime: log.punchTime || log.punch_time || log.timestamp,
+            employeeCode: log.employeeCode || log.employee_id || log.employeeId || log.emp_code,
+            fingerprintId: log.fingerprintId || log.fingerprint_id || log.finger_id || log.thumb_data,
+            punchTime: log.punchTime || log.punch_time || log.timestamp || log.datetime,
             deviceId: device.id,
             rawPayload: log,
           });

@@ -150,6 +150,7 @@ export const completeEnrollment = async (
       balanceAmount,
       emiPlan,
       emiPlanDate,
+      emiInstallments,
       complimentarySoftware,
       complimentaryGift,
       hasReference,
@@ -652,6 +653,7 @@ export const bulkEnrollStudents = async (req: AuthRequest, res: Response): Promi
     }
 
     if (!req.file) {
+      logger.error('Bulk enrollment: No file received');
       res.status(400).json({
         status: 'error',
         message: 'Excel file is required',
@@ -659,16 +661,41 @@ export const bulkEnrollStudents = async (req: AuthRequest, res: Response): Promi
       return;
     }
 
+    logger.info(`Bulk enrollment: File received - name: ${req.file.originalname}, size: ${req.file.size}, mimetype: ${req.file.mimetype}`);
+
     // Parse Excel file with date parsing enabled
-    const workbook = XLSX.read(req.file.buffer, { 
+    let workbook;
+    try {
+      workbook = XLSX.read(req.file.buffer, { 
       type: 'buffer',
       cellDates: true, // Parse dates automatically as Date objects
     });
+      logger.info(`Bulk enrollment: Excel file parsed successfully - sheets: ${workbook.SheetNames.join(', ')}`);
+    } catch (parseError: any) {
+      logger.error('Bulk enrollment: Failed to parse Excel file:', parseError);
+      res.status(400).json({
+        status: 'error',
+        message: `Failed to parse Excel file: ${parseError.message}`,
+      });
+      return;
+    }
     const sheetName = workbook.SheetNames[0];
     const worksheet = workbook.Sheets[sheetName];
+    
+    // Log available columns for debugging
+    const headerRow = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: null })[0] as any[];
+    logger.info(`Excel file columns detected: ${headerRow ? headerRow.join(', ') : 'No headers found'}`);
+    
     const rows = XLSX.utils.sheet_to_json(worksheet, {
       raw: true, // Get raw values (Date objects for dates, numbers for numbers)
+      defval: null, // Default value for empty cells
+      blankrows: false, // Skip blank rows
     });
+    
+    logger.info(`Total rows parsed from Excel: ${rows.length}`);
+    if (rows.length > 0) {
+      logger.info(`First row sample keys: ${Object.keys(rows[0] || {}).join(', ')}`);
+    }
 
     if (rows.length === 0) {
       res.status(400).json({
@@ -677,6 +704,24 @@ export const bulkEnrollStudents = async (req: AuthRequest, res: Response): Promi
       });
       return;
     }
+
+    // Helper function to get column value with multiple possible names (case-insensitive)
+    const getColumnValue = (row: any, possibleNames: string[]): any => {
+      for (const name of possibleNames) {
+        // Try exact match first
+        if (row[name] !== undefined && row[name] !== null && row[name] !== '') {
+          return row[name];
+        }
+        // Try case-insensitive match
+        const lowerName = name.toLowerCase();
+        for (const key in row) {
+          if (key.toLowerCase() === lowerName && row[key] !== undefined && row[key] !== null && row[key] !== '') {
+            return row[key];
+          }
+        }
+      }
+      return null;
+    };
 
     const result = {
       success: 0,
@@ -691,21 +736,46 @@ export const bulkEnrollStudents = async (req: AuthRequest, res: Response): Promi
       const transaction = await db.sequelize.transaction();
 
       try {
+        // Log row data for debugging (first row only)
+        if (i === 0) {
+          logger.info(`Row ${rowNumber} raw data:`, JSON.stringify(row, null, 2));
+          logger.info(`Row ${rowNumber} available keys:`, Object.keys(row).join(', '));
+        }
+        
+        // Get required fields with flexible column name matching
+        const studentName = getColumnValue(row, ['studentName', 'Student Name', 'student_name', 'Name', 'name', 'StudentName']);
+        const email = getColumnValue(row, ['email', 'Email', 'EMAIL', 'Email Address', 'emailAddress']);
+        const phone = getColumnValue(row, ['phone', 'Phone', 'PHONE', 'phoneNumber', 'Phone Number', 'phone_number', 'PhoneNumber', 'Mobile', 'mobile', 'Mobile Number']);
+        const dateOfAdmission = getColumnValue(row, ['dateOfAdmission', 'Date of Admission', 'date_of_admission', 'DateOfAdmission', 'admissionDate', 'Admission Date', 'AdmissionDate', 'Date', 'date']);
+
         // Validate required fields
-        if (!row.studentName || !row.email || !row.phone || !row.dateOfAdmission) {
+        if (!studentName || !email || !phone || !dateOfAdmission) {
           await transaction.rollback();
+          const missingFields: string[] = [];
+          if (!studentName) missingFields.push('studentName');
+          if (!email) missingFields.push('email');
+          if (!phone) missingFields.push('phone');
+          if (!dateOfAdmission) missingFields.push('dateOfAdmission');
+          
+          // Log available columns for debugging
+          const availableColumns = Object.keys(row).join(', ');
+          const rowValues = Object.entries(row).map(([k, v]) => `${k}:${v}`).join(', ');
+          
+          logger.warn(`Row ${rowNumber} validation failed. Missing: ${missingFields.join(', ')}. Available: ${availableColumns}`);
+          logger.warn(`Row ${rowNumber} values: ${rowValues}`);
+          
           result.failed++;
           result.errors.push({
             row: rowNumber,
-            email: row.email || 'N/A',
-            error: 'Missing required fields: studentName, email, phone, or dateOfAdmission',
+            email: email || 'N/A',
+            error: `Missing required fields: ${missingFields.join(', ')}. Available columns: ${availableColumns}`,
           });
           continue;
         }
 
         // Check if user already exists
         const existingUser = await db.User.findOne({ 
-          where: { email: row.email },
+          where: { email: email },
           transaction 
         });
         if (existingUser) {
@@ -713,35 +783,35 @@ export const bulkEnrollStudents = async (req: AuthRequest, res: Response): Promi
           result.failed++;
           result.errors.push({
             row: rowNumber,
-            email: row.email,
+            email: email,
             error: 'User with this email already exists',
           });
           continue;
         }
 
         // Generate default password (email prefix + '123')
-        const defaultPassword = `${row.email.split('@')[0]}123`;
+        const defaultPassword = `${email.split('@')[0]}123`;
         const passwordHash = await bcrypt.hash(defaultPassword, 10);
 
         // Create user
         const user = await db.User.create({
-          name: row.studentName,
-          email: row.email,
-          phone: row.phone || null,
+          name: studentName,
+          email: email,
+          phone: phone || null,
           role: UserRole.STUDENT,
           passwordHash,
           isActive: true,
         }, { transaction });
 
         // Parse dateOfAdmission properly from Excel
-        const parsedDateOfAdmission = parseExcelDate(row.dateOfAdmission);
+        const parsedDateOfAdmission = parseExcelDate(dateOfAdmission);
         if (!parsedDateOfAdmission) {
           await transaction.rollback();
           result.failed++;
           result.errors.push({
             row: rowNumber,
-            email: row.email || 'N/A',
-            error: `Invalid dateOfAdmission format: ${row.dateOfAdmission}. Please use YYYY-MM-DD, DD/MM/YYYY, or MM/DD/YYYY format`,
+            email: email || 'N/A',
+            error: `Invalid dateOfAdmission format: ${dateOfAdmission}. Please use YYYY-MM-DD, DD/MM/YYYY, or MM/DD/YYYY format`,
           });
           continue;
         }
@@ -751,11 +821,11 @@ export const bulkEnrollStudents = async (req: AuthRequest, res: Response): Promi
         
         // Log for debugging (only in development)
         if (process.env.NODE_ENV === 'development') {
-          logger.info(`Row ${rowNumber}: Parsed dateOfAdmission from "${row.dateOfAdmission}" to "${dateOfAdmissionISO}"`);
+          logger.info(`Row ${rowNumber}: Parsed dateOfAdmission from "${dateOfAdmission}" to "${dateOfAdmissionISO}"`);
         }
 
         // Parse DOB if provided - check multiple possible column names
-        let dobValue = row.dob || row.dateOfBirth || row.DateOfBirth || row.DOB || row['Date of Birth'] || row['date of birth'];
+        let dobValue = getColumnValue(row, ['dob', 'DOB', 'dateOfBirth', 'Date of Birth', 'date_of_birth', 'DateOfBirth']);
         const parsedDob = dobValue ? parseExcelDate(dobValue) : null;
         
         if (dobValue && !parsedDob) {
@@ -787,7 +857,14 @@ export const bulkEnrollStudents = async (req: AuthRequest, res: Response): Promi
           balanceAmount: row.balanceAmount ? (typeof row.balanceAmount === 'string' ? parseFloat(row.balanceAmount) : row.balanceAmount) : null,
           emiPlan: parseBoolean(row.emiPlan),
           emiPlanDate: row.emiPlanDate ? (parseExcelDate(row.emiPlanDate)?.toISOString().split('T')[0] || null) : null,
-          emiInstallments: row.emiInstallments ? (typeof row.emiInstallments === 'string' ? JSON.parse(row.emiInstallments) : row.emiInstallments) : null,
+          emiInstallments: row.emiInstallments ? (typeof row.emiInstallments === 'string' ? (() => {
+            try {
+              return JSON.parse(row.emiInstallments);
+            } catch (e) {
+              logger.warn(`Row ${rowNumber}: Failed to parse emiInstallments JSON: ${row.emiInstallments}`);
+              return null;
+            }
+          })() : (Array.isArray(row.emiInstallments) ? row.emiInstallments : null)) : null,
           complimentarySoftware: row.complimentarySoftware || null,
           complimentaryGift: row.complimentaryGift || null,
           hasReference: parseBoolean(row.hasReference),
@@ -855,6 +932,7 @@ export const bulkEnrollStudents = async (req: AuthRequest, res: Response): Promi
       } catch (error: any) {
         await transaction.rollback();
         logger.error(`Error processing row ${rowNumber}:`, error);
+        logger.error(`Row ${rowNumber} error stack:`, error.stack);
         result.failed++;
         result.errors.push({
           row: rowNumber,
@@ -871,10 +949,11 @@ export const bulkEnrollStudents = async (req: AuthRequest, res: Response): Promi
     });
   } catch (error: any) {
     logger.error('Bulk enrollment error:', error);
+    logger.error('Bulk enrollment error stack:', error.stack);
     res.status(500).json({
       status: 'error',
       message: 'Internal server error while processing bulk enrollment',
-      error: error.message,
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Please check server logs for details',
     });
   }
 };

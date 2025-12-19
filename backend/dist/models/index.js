@@ -32,6 +32,7 @@ const Certificate_1 = __importDefault(require("./Certificate"));
 const BiometricDevice_1 = __importDefault(require("./BiometricDevice"));
 const AttendanceLog_1 = __importDefault(require("./AttendanceLog"));
 const StudentOrientation_1 = __importDefault(require("./StudentOrientation"));
+const StudentSoftwareProgress_1 = __importDefault(require("./StudentSoftwareProgress"));
 const db = {
     sequelize: database_1.default,
     Sequelize: sequelize_1.Sequelize,
@@ -61,6 +62,7 @@ const db = {
     BiometricDevice: BiometricDevice_1.default,
     AttendanceLog: AttendanceLog_1.default,
     StudentOrientation: StudentOrientation_1.default,
+    StudentSoftwareProgress: StudentSoftwareProgress_1.default,
 };
 // Define associations
 // User associations
@@ -197,5 +199,10 @@ AttendanceLog_1.default.belongsTo(User_1.default, { foreignKey: 'employeeId', as
 AttendanceLog_1.default.belongsTo(BiometricDevice_1.default, { foreignKey: 'deviceId', as: 'device' });
 // StudentOrientation associations
 StudentOrientation_1.default.belongsTo(User_1.default, { foreignKey: 'studentId', as: 'student' });
+// StudentSoftwareProgress associations
+StudentSoftwareProgress_1.default.belongsTo(User_1.default, { foreignKey: 'studentId', as: 'student' });
+StudentSoftwareProgress_1.default.belongsTo(Batch_1.default, { foreignKey: 'batchId', as: 'batch' });
+User_1.default.hasMany(StudentSoftwareProgress_1.default, { foreignKey: 'studentId', as: 'softwareProgress' });
+Batch_1.default.hasMany(StudentSoftwareProgress_1.default, { foreignKey: 'batchId', as: 'studentSoftwareProgress' });
 exports.default = db;
 //# sourceMappingURL=index.js.map
