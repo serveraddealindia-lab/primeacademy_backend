@@ -7,18 +7,20 @@ export interface FacultyProfileAttributes {
   userId: number;
   expertise: Record<string, unknown> | null;
   availability: Record<string, unknown> | null;
+  documents: Record<string, any> | null;
   createdAt?: Date;
   updatedAt?: Date;
 }
 
 export interface FacultyProfileCreationAttributes
-  extends Optional<FacultyProfileAttributes, 'id' | 'expertise' | 'availability' | 'createdAt' | 'updatedAt'> {}
+  extends Optional<FacultyProfileAttributes, 'id' | 'expertise' | 'availability' | 'documents' | 'createdAt' | 'updatedAt'> {}
 
 class FacultyProfile extends Model<FacultyProfileAttributes, FacultyProfileCreationAttributes> implements FacultyProfileAttributes {
   public id!: number;
   public userId!: number;
   public expertise!: Record<string, unknown> | null;
   public availability!: Record<string, unknown> | null;
+  public documents!: Record<string, any> | null;
   public readonly createdAt!: Date;
   public readonly updatedAt!: Date;
 
@@ -50,6 +52,10 @@ FacultyProfile.init(
       allowNull: true,
     },
     availability: {
+      type: DataTypes.JSON,
+      allowNull: true,
+    },
+    documents: {
       type: DataTypes.JSON,
       allowNull: true,
     },

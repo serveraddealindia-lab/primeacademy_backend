@@ -29,6 +29,7 @@ import BiometricDevice from './BiometricDevice';
 import AttendanceLog from './AttendanceLog';
 import StudentOrientation from './StudentOrientation';
 import StudentSoftwareProgress from './StudentSoftwareProgress';
+import Course from './Course';
 
 const db = {
   sequelize,
@@ -60,6 +61,7 @@ const db = {
   AttendanceLog,
   StudentOrientation,
   StudentSoftwareProgress,
+  Course,
 };
 
 // Define associations

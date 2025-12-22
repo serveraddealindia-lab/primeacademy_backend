@@ -209,8 +209,8 @@ export const getUserById = async (
           required: false,
         });
       }
-    } catch (e) {
-      // StudentProfile model not available
+    } catch (e: any) {
+      logger.warn('StudentProfile model not available for include:', e?.message);
     }
     
     try {
@@ -221,8 +221,8 @@ export const getUserById = async (
           required: false,
         });
       }
-    } catch (e) {
-      // FacultyProfile model not available
+    } catch (e: any) {
+      logger.warn('FacultyProfile model not available for include:', e?.message);
     }
     
     try {
@@ -233,8 +233,8 @@ export const getUserById = async (
           required: false,
         });
       }
-    } catch (e) {
-      // EmployeeProfile model not available
+    } catch (e: any) {
+      logger.warn('EmployeeProfile model not available for include:', e?.message);
     }
 
     // Include enrollments for students
@@ -254,8 +254,8 @@ export const getUserById = async (
           ],
         });
       }
-    } catch (e) {
-      // Enrollment model not available
+    } catch (e: any) {
+      logger.warn('Enrollment model not available for include:', e?.message);
     }
 
     const queryOptions: any = {
@@ -267,7 +267,92 @@ export const getUserById = async (
       queryOptions.include = includeOptions;
     }
 
-    const user = await db.User.findByPk(userId, queryOptions);
+    logger.info(`Fetching user ${userId} with includes: ${includeOptions.map((inc: any) => inc.as).join(', ')}`);
+
+    let user;
+    try {
+      user = await db.User.findByPk(userId, queryOptions);
+    } catch (queryError: any) {
+      logger.error('Database query error in getUserById:', queryError);
+      logger.error('Query error details:', {
+        message: queryError?.message,
+        sql: queryError?.sql,
+        original: queryError?.original,
+      });
+      
+      // Try without includes if query fails
+      try {
+        logger.warn('Retrying getUserById without includes due to query error');
+        user = await db.User.findByPk(userId, {
+          attributes: { exclude: ['passwordHash'] },
+        });
+        
+        // Try to fetch profile separately if user is found
+        if (user) {
+          // Fetch employee profile
+          if (user.role === 'employee' && db.EmployeeProfile) {
+            try {
+              const employeeProfile = await db.EmployeeProfile.findOne({ where: { userId: user.id } });
+              if (employeeProfile) {
+                (user as any).employeeProfile = employeeProfile;
+              }
+            } catch (profileError: any) {
+              logger.warn('Failed to fetch employee profile separately:', profileError?.message);
+            }
+          }
+          
+          // Fetch student profile
+          if (user.role === 'student' && db.StudentProfile) {
+            try {
+              const studentProfile = await db.StudentProfile.findOne({ where: { userId: user.id } });
+              if (studentProfile) {
+                (user as any).studentProfile = studentProfile;
+              }
+            } catch (profileError: any) {
+              logger.warn('Failed to fetch student profile separately:', profileError?.message);
+            }
+          }
+          
+          // Fetch faculty profile
+          if (user.role === 'faculty' && db.FacultyProfile) {
+            try {
+              const facultyProfile = await db.FacultyProfile.findOne({ where: { userId: user.id } });
+              if (facultyProfile) {
+                (user as any).facultyProfile = facultyProfile;
+              }
+            } catch (profileError: any) {
+              logger.warn('Failed to fetch faculty profile separately:', profileError?.message);
+            }
+          }
+          
+          // Fetch enrollments separately for students
+          if (user.role === 'student' && db.Enrollment) {
+            try {
+              const enrollments = await db.Enrollment.findAll({
+                where: { studentId: user.id },
+                include: db.Batch ? [
+                  {
+                    model: db.Batch,
+                    as: 'batch',
+                    attributes: ['id', 'title', 'software', 'mode', 'status', 'schedule'],
+                    required: false,
+                  },
+                ] : undefined,
+                limit: 50, // Limit to prevent huge queries
+              });
+              if (enrollments && enrollments.length > 0) {
+                (user as any).enrollments = enrollments;
+              }
+            } catch (enrollmentError: any) {
+              logger.warn('Failed to fetch enrollments separately:', enrollmentError?.message);
+            }
+          }
+        }
+      } catch (fallbackError: any) {
+        logger.error('Fallback query also failed:', fallbackError);
+        throw new Error(`Failed to fetch user: ${fallbackError.message}`);
+      }
+    }
 
     if (!user) {
       res.status(404).json({
@@ -283,11 +368,17 @@ export const getUserById = async (
         user,
       },
     });
-  } catch (error) {
+  } catch (error: any) {
     logger.error('Get user by ID error:', error);
+    logger.error('Error details:', {
+      message: error?.message,
+      stack: error?.stack,
+      name: error?.name,
+    });
     res.status(500).json({
       status: 'error',
       message: 'Internal server error while fetching user',
+      error: process.env.NODE_ENV === 'development' ? error?.message : undefined,
     });
   }
 };
@@ -357,20 +448,41 @@ export const updateUser = async (
 
     // Fetch updated user with relations
     const includeOptions: any[] = [];
-    if (db.StudentProfile) {
-      includeOptions.push({ model: db.StudentProfile, as: 'studentProfile', required: false });
+    try {
+      if (db.StudentProfile) {
+        includeOptions.push({ model: db.StudentProfile, as: 'studentProfile', required: false });
+      }
+    } catch (e) {
+      // StudentProfile not available
     }
-    if (db.FacultyProfile) {
-      includeOptions.push({ model: db.FacultyProfile, as: 'facultyProfile', required: false });
+    try {
+      if (db.FacultyProfile) {
+        includeOptions.push({ model: db.FacultyProfile, as: 'facultyProfile', required: false });
+      }
+    } catch (e) {
+      // FacultyProfile not available
     }
-    if (db.EmployeeProfile) {
-      includeOptions.push({ model: db.EmployeeProfile, as: 'employeeProfile', required: false });
+    try {
+      if (db.EmployeeProfile) {
+        includeOptions.push({ model: db.EmployeeProfile, as: 'employeeProfile', required: false });
+      }
+    } catch (e) {
+      // EmployeeProfile not available
     }
 
-    const updatedUser = await db.User.findByPk(userId, {
-      attributes: { exclude: ['passwordHash'] },
-      include: includeOptions.length > 0 ? includeOptions : undefined,
-    });
+    let updatedUser;
+    try {
+      updatedUser = await db.User.findByPk(userId, {
+        attributes: { exclude: ['passwordHash'] },
+        include: includeOptions.length > 0 ? includeOptions : undefined,
+      });
+    } catch (queryError: any) {
+      logger.error('Error fetching updated user with relations:', queryError);
+      // Fallback: fetch without relations
+      updatedUser = await db.User.findByPk(userId, {
+        attributes: { exclude: ['passwordHash'] },
+      });
+    }
 
     res.status(200).json({
       status: 'success',
@@ -381,6 +493,13 @@ export const updateUser = async (
     });
   } catch (error: any) {
     logger.error('Update user error:', error);
+    logger.error('Error details:', {
+      message: error?.message,
+      stack: error?.stack,
+      name: error?.name,
+      code: error?.parent?.code,
+      sql: error?.parent?.sql,
+    });
     if (error.name === 'SequelizeUniqueConstraintError') {
       res.status(400).json({
         status: 'error',
@@ -391,6 +510,7 @@ export const updateUser = async (
     res.status(500).json({
       status: 'error',
       message: 'Internal server error while updating user',
+      error: process.env.NODE_ENV === 'development' ? error?.message : undefined,
     });
   }
 };
@@ -568,7 +688,7 @@ export const updateStudentProfile = async (
 
 // PUT /api/users/:id/faculty-profile - Update faculty profile
 export const updateFacultyProfile = async (
-  req: AuthRequest & { params: { id: string }; body: { expertise?: string; availability?: string } },
+  req: AuthRequest & { params: { id: string }; body: { expertise?: string; availability?: string; documents?: any; softwareProficiency?: string } },
   res: Response
 ): Promise<void> => {
   try {
@@ -634,8 +754,98 @@ export const updateFacultyProfile = async (
     }
 
     // Update profile fields
-    if (req.body.expertise !== undefined) facultyProfile.expertise = req.body.expertise;
-    if (req.body.availability !== undefined) facultyProfile.availability = req.body.availability;
+    if (req.body.expertise !== undefined) {
+      // Handle both string and object formats
+      if (typeof req.body.expertise === 'string') {
+        facultyProfile.expertise = { description: req.body.expertise };
+      } else if (req.body.expertise !== null) {
+        facultyProfile.expertise = req.body.expertise;
+      } else {
+        facultyProfile.expertise = null;
+      }
+    }
+    if (req.body.availability !== undefined) {
+      // Handle both string and object formats
+      if (typeof req.body.availability === 'string') {
+        facultyProfile.availability = { schedule: req.body.availability };
+      } else if (req.body.availability !== null) {
+        facultyProfile.availability = req.body.availability;
+      } else {
+        facultyProfile.availability = null;
+      }
+    }
+    
+    // Handle documents field - ensure it's a valid object
+    if (req.body.documents !== undefined) {
+      try {
+        let documentsData = req.body.documents;
+        
+        // If documents is a string, try to parse it
+        if (typeof documentsData === 'string') {
+          try {
+            documentsData = JSON.parse(documentsData);
+          } catch (parseError) {
+            logger.warn('Failed to parse documents string:', parseError);
+            documentsData = {};
+          }
+        }
+        
+        // Ensure documents is an object or null
+        if (documentsData === null || (typeof documentsData === 'object' && !Array.isArray(documentsData))) {
+          // Deep clone to avoid circular references and ensure it's serializable
+          try {
+            // Use JSON parse/stringify to ensure clean serializable object
+            const serialized = JSON.parse(JSON.stringify(documentsData));
+            facultyProfile.documents = serialized;
+          } catch (serializeError: any) {
+            logger.error('Error serializing documents:', serializeError);
+            // If serialization fails, try to clean the object
+            const cleaned = Object.keys(documentsData).reduce((acc: any, key) => {
+              try {
+                const value = documentsData[key];
+                // Only include serializable values
+                if (value !== undefined && typeof value !== 'function') {
+                  acc[key] = value;
+                }
+              } catch (e) {
+                logger.warn(`Skipping non-serializable key: ${key}`);
+              }
+              return acc;
+            }, {});
+            facultyProfile.documents = cleaned;
+          }
+        } else {
+          logger.warn('Invalid documents format, using empty object');
+          facultyProfile.documents = {};
+        }
+      } catch (docError: any) {
+        logger.error('Error processing documents field:', docError);
+        logger.error('Documents data that caused error:', JSON.stringify(req.body.documents, null, 2));
+        // Keep existing documents if there's an error
+        if (!facultyProfile.documents) {
+          facultyProfile.documents = {};
+        }
+      }
+    }
+    
+    // Handle softwareProficiency if sent separately (though it should be in documents)
+    if (req.body.softwareProficiency !== undefined && req.body.documents === undefined) {
+      // If documents not provided, merge softwareProficiency into existing documents
+      const existingDocuments = facultyProfile.documents || {};
+      facultyProfile.documents = {
+        ...existingDocuments,
+        softwareProficiency: req.body.softwareProficiency,
+      };
+    }
+
+    // Log what we're about to save for debugging
+    logger.info('Saving faculty profile:', {
+      userId,
+      hasExpertise: !!facultyProfile.expertise,
+      hasAvailability: !!facultyProfile.availability,
+      hasDocuments: !!facultyProfile.documents,
+      documentsKeys: facultyProfile.documents ? Object.keys(facultyProfile.documents) : [],
+    });
 
     await facultyProfile.save();
 
@@ -658,11 +868,18 @@ export const updateFacultyProfile = async (
         user: updatedUser,
       },
     });
-  } catch (error) {
+  } catch (error: any) {
     logger.error('Update faculty profile error:', error);
+    logger.error('Error details:', {
+      message: error?.message,
+      stack: error?.stack,
+      userId: req.params.id,
+      body: req.body,
+    });
     res.status(500).json({
       status: 'error',
       message: 'Internal server error while updating faculty profile',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
     });
   }
 };
@@ -779,6 +996,54 @@ export const updateEmployeeProfile = async (
     if (req.body.city !== undefined) employeeProfile.city = req.body.city;
     if (req.body.state !== undefined) employeeProfile.state = req.body.state;
     if (req.body.postalCode !== undefined) employeeProfile.postalCode = req.body.postalCode;
+
+    // Handle documents field (e.g., emergencyContact, photo, etc.)
+    if ((req as any).body.documents !== undefined) {
+      try {
+        let documentsData = (req as any).body.documents;
+
+        // If documents is a string, try to parse it
+        if (typeof documentsData === 'string') {
+          try {
+            documentsData = JSON.parse(documentsData);
+          } catch (parseError) {
+            logger.warn('Failed to parse employee documents string:', parseError);
+            documentsData = {};
+          }
+        }
+
+        // Ensure documents is an object or null
+        if (documentsData === null || (typeof documentsData === 'object' && !Array.isArray(documentsData))) {
+          try {
+            const serialized = JSON.parse(JSON.stringify(documentsData));
+            (employeeProfile as any).documents = serialized;
+          } catch (serializeError: any) {
+            logger.error('Error serializing employee documents:', serializeError);
+            const cleaned = Object.keys(documentsData).reduce((acc: any, key) => {
+              try {
+                const value = (documentsData as any)[key];
+                if (value !== undefined && typeof value !== 'function') {
+                  acc[key] = value;
+                }
+              } catch {
+                logger.warn(`Skipping non-serializable employee documents key: ${key}`);
+              }
+              return acc;
+            }, {});
+            (employeeProfile as any).documents = cleaned;
+          }
+        } else {
+          logger.warn('Invalid employee documents format, using empty object');
+          (employeeProfile as any).documents = {};
+        }
+      } catch (docError: any) {
+        logger.error('Error processing employee documents field:', docError);
+        logger.error('Employee documents data that caused error:', JSON.stringify((req as any).body.documents, null, 2));
+        if (!(employeeProfile as any).documents) {
+          (employeeProfile as any).documents = {};
+        }
+      }
+    }
 
     await employeeProfile.save();
 

@@ -35,6 +35,7 @@ import studentAttendanceRoutes from './routes/studentAttendance.routes';
 import enrollmentRoutes from './routes/enrollment.routes';
 import studentRoutes from './routes/student.routes';
 import certificateRoutes from './routes/certificate.routes';
+import courseRoutes from './routes/course.routes';
 import biometricRoutes from './routes/biometric.routes';
 import studentSoftwareProgressRoutes from './routes/studentSoftwareProgress.routes';
 import { notFoundHandler, errorHandler } from './middleware/error.middleware';
@@ -434,9 +435,6 @@ app.use('/api/sessions', sessionRoutes);
 // app.use('/api/reports', reportRoutes);
 app.use('/api', portfolioRoutes);
 app.use('/api/payments', paymentRoutes);
-if (process.env.NODE_ENV === 'development') {
-  logger.info('Payment routes registered: GET /api/payments, GET /api/payments/:id, POST /api/payments, PUT /api/payments/:id');
-}
 // app.use('/api/approvals', approvalRoutes);
 app.use('/api/upload', uploadRoutes);
 if (process.env.NODE_ENV === 'development') {
@@ -458,13 +456,23 @@ app.use('/api/enrollments', enrollmentRoutes);
 app.use('/api/students', studentRoutes);
 // Certificate API routes (must be after static file serving)
 app.use('/api/certificates', certificateRoutes);
+app.use('/api/courses', courseRoutes);
 app.use('/api/biometric', biometricRoutes);
 app.use('/api/student-software-progress', studentSoftwareProgressRoutes);
 
-// Debug: Log registered student routes (development only)
-// if (process.env.NODE_ENV === 'development') {
-//   logger.info('Registered student routes: POST /api/students/bulk-enroll, GET /api/students/template');
-// }
+// Log registered routes for debugging
+logger.info('=== Registered API Routes ===');
+logger.info('Student routes:');
+logger.info('  POST /api/students/unified-import');
+logger.info('  GET /api/students/template');
+logger.info('  POST /api/students/bulk-enroll');
+logger.info('  POST /api/students/enroll');
+logger.info('Payment routes:');
+logger.info('  POST /api/payments/bulk-upload');
+logger.info('  POST /api/payments/:paymentId/generate-receipt');
+logger.info('  GET /api/payments');
+logger.info('  POST /api/payments');
+logger.info('============================');
 
 // Error handling middleware (must be last)
 app.use(notFoundHandler);
