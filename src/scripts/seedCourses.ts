@@ -78,3 +78,5 @@ async function seedCourses() {
 
 seedCourses();
 
+
+

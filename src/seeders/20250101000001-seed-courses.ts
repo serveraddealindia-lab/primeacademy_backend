@@ -56,9 +56,7 @@ export default {
     // Insert courses, ignoring duplicates
     for (const course of courses) {
       try {
-        await queryInterface.bulkInsert('courses', [course], {
-          ignoreDuplicates: true,
-        });
+        await queryInterface.bulkInsert('courses', [course]);
       } catch (error: any) {
         if (error.name === 'SequelizeUniqueConstraintError' || error.code === 'ER_DUP_ENTRY') {
           console.log(`Course "${course.name}" already exists, skipping`);
@@ -75,4 +73,6 @@ export default {
     await queryInterface.bulkDelete('courses', {}, {});
   },
 };
+
+
 

@@ -5,7 +5,7 @@ import db from '../models';
 import { logger } from '../utils/logger';
 
 // GET /courses → Get all courses
-export const getAllCourses = async (req: AuthRequest, res: Response): Promise<void> => {
+export const getAllCourses = async (_req: AuthRequest, res: Response): Promise<void> => {
   try {
     const courses = await db.Course.findAll({
       order: [['name', 'ASC']],
