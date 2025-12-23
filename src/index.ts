@@ -44,7 +44,7 @@ import { logger } from './utils/logger';
 dotenv.config();
 
 const app = express();
-const PORT = process.env.PORT || 3001;
+const PORT = parseInt(process.env.PORT || '3001', 10);
 
 // Middleware
 app.use(helmet());
@@ -52,7 +52,9 @@ app.use(helmet());
 const corsOptions = {
   origin: process.env.FRONTEND_URL?.split(',').map((origin) => origin.trim()) || [
     'http://localhost:5173',
+    'https://localhost:5173',
     'http://crm.prashantthakar.com',
+    'https://crm.prashantthakar.com',
   ],
   credentials: true,
   optionsSuccessStatus: 200,
@@ -493,11 +495,18 @@ const startServer = async () => {
       logger.info('Database models synchronized.');
     }
 
-    // Start server
-    app.listen(PORT, () => {
-      logger.info(`Server is running on port ${PORT}`);
-      logger.info(`Environment: ${process.env.NODE_ENV || 'development'}`);
-    });
+    // Start server - listen on 0.0.0.0 for production (allows external connections via nginx)
+    if (process.env.NODE_ENV === 'production') {
+      app.listen(PORT, '0.0.0.0', () => {
+        logger.info(`Server is running on 0.0.0.0:${PORT}`);
+        logger.info(`Environment: ${process.env.NODE_ENV || 'development'}`);
+      });
+    } else {
+      app.listen(PORT, () => {
+        logger.info(`Server is running on port ${PORT}`);
+        logger.info(`Environment: ${process.env.NODE_ENV || 'development'}`);
+      });
+    }
   } catch (error) {
     logger.error('Unable to start server:', error);
     process.exit(1);
@@ -518,4 +527,3 @@ process.on('SIGINT', async () => {
   await sequelize.close();
   process.exit(0);
 });
-
