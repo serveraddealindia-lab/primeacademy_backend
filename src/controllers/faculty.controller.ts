@@ -63,196 +63,227 @@ export const createFaculty = async (
       return;
     }
 
-    // Validate required fields from documents
-    if (documents) {
-      const { personalInfo, employmentInfo, bankInfo, emergencyInfo } = documents;
+    // Validate required fields from documents - documents object is required
+    if (!documents) {
+      res.status(400).json({
+        status: 'error',
+        message: 'Documents object with personalInfo, employmentInfo, bankInfo, and emergencyInfo is required',
+      });
+      return;
+    }
+
+    const { personalInfo, employmentInfo, bankInfo, emergencyInfo } = documents;
       
-      // Validate personal information
-      if (personalInfo) {
-        if (!personalInfo.gender) {
-          res.status(400).json({
-            status: 'error',
-            message: 'Gender is required',
-          });
-          return;
-        }
-        if (!personalInfo.dateOfBirth) {
-          res.status(400).json({
-            status: 'error',
-            message: 'Date of Birth is required',
-          });
-          return;
-        }
-        if (!personalInfo.nationality) {
-          res.status(400).json({
-            status: 'error',
-            message: 'Nationality is required',
-          });
-          return;
-        }
-        if (!personalInfo.maritalStatus) {
-          res.status(400).json({
-            status: 'error',
-            message: 'Marital Status is required',
-          });
-          return;
-        }
-        if (!personalInfo.address) {
-          res.status(400).json({
-            status: 'error',
-            message: 'Address is required',
-          });
-          return;
-        }
-        if (!personalInfo.city) {
-          res.status(400).json({
-            status: 'error',
-            message: 'City is required',
-          });
-          return;
-        }
-        if (!personalInfo.state) {
-          res.status(400).json({
-            status: 'error',
-            message: 'State is required',
-          });
-          return;
-        }
-        if (!personalInfo.postalCode) {
-          res.status(400).json({
-            status: 'error',
-            message: 'Postal Code is required',
-          });
-          return;
-        }
-      }
+    // Validate personal information - REQUIRED
+    if (!personalInfo) {
+      res.status(400).json({
+        status: 'error',
+        message: 'Personal information is required',
+      });
+      return;
+    }
 
-      // Validate employment information
-      if (employmentInfo) {
-        if (!employmentInfo.department) {
-          res.status(400).json({
-            status: 'error',
-            message: 'Department is required',
-          });
-          return;
-        }
-        if (!employmentInfo.designation) {
-          res.status(400).json({
-            status: 'error',
-            message: 'Designation is required',
-          });
-          return;
-        }
-        if (!employmentInfo.dateOfJoining) {
-          res.status(400).json({
-            status: 'error',
-            message: 'Date of Joining is required',
-          });
-          return;
-        }
-        if (!employmentInfo.employmentType) {
-          res.status(400).json({
-            status: 'error',
-            message: 'Employment Type is required',
-          });
-          return;
-        }
-        if (!employmentInfo.workLocation) {
-          res.status(400).json({
-            status: 'error',
-            message: 'Work Location is required',
-          });
-          return;
-        }
-      }
+    if (!personalInfo.gender || !personalInfo.gender.trim()) {
+      res.status(400).json({
+        status: 'error',
+        message: 'Gender is required',
+      });
+      return;
+    }
+    if (!personalInfo.dateOfBirth || !personalInfo.dateOfBirth.trim()) {
+      res.status(400).json({
+        status: 'error',
+        message: 'Date of Birth is required',
+      });
+      return;
+    }
+    if (!personalInfo.nationality || !personalInfo.nationality.trim()) {
+      res.status(400).json({
+        status: 'error',
+        message: 'Nationality is required',
+      });
+      return;
+    }
+    if (!personalInfo.maritalStatus || !personalInfo.maritalStatus.trim()) {
+      res.status(400).json({
+        status: 'error',
+        message: 'Marital Status is required',
+      });
+      return;
+    }
+    if (!personalInfo.address || !personalInfo.address.trim()) {
+      res.status(400).json({
+        status: 'error',
+        message: 'Address is required',
+      });
+      return;
+    }
+    if (!personalInfo.city || !personalInfo.city.trim()) {
+      res.status(400).json({
+        status: 'error',
+        message: 'City is required',
+      });
+      return;
+    }
+    if (!personalInfo.state || !personalInfo.state.trim()) {
+      res.status(400).json({
+        status: 'error',
+        message: 'State is required',
+      });
+      return;
+    }
+    if (!personalInfo.postalCode || !personalInfo.postalCode.trim()) {
+      res.status(400).json({
+        status: 'error',
+        message: 'Postal Code is required',
+      });
+      return;
+    }
 
-      // Validate bank information
-      if (bankInfo) {
-        if (!bankInfo.bankName) {
-          res.status(400).json({
-            status: 'error',
-            message: 'Bank Name is required',
-          });
-          return;
-        }
-        if (!bankInfo.accountNumber) {
-          res.status(400).json({
-            status: 'error',
-            message: 'Account Number is required',
-          });
-          return;
-        }
-        if (!bankInfo.ifscCode) {
-          res.status(400).json({
-            status: 'error',
-            message: 'IFSC Code is required',
-          });
-          return;
-        }
-        if (!bankInfo.branch) {
-          res.status(400).json({
-            status: 'error',
-            message: 'Branch is required',
-          });
-          return;
-        }
-        if (!bankInfo.panNumber) {
-          res.status(400).json({
-            status: 'error',
-            message: 'PAN Number is required',
-          });
-          return;
-        }
-        // Validate PAN format (10 characters, alphanumeric)
-        if (bankInfo.panNumber && !/^[A-Z]{5}[0-9]{4}[A-Z]{1}$/.test(bankInfo.panNumber.toUpperCase())) {
-          res.status(400).json({
-            status: 'error',
-            message: 'Invalid PAN Number format. PAN should be 10 characters (e.g., ABCDE1234F)',
-          });
-          return;
-        }
-        // Validate IFSC format (11 characters)
-        if (bankInfo.ifscCode && !/^[A-Z]{4}0[A-Z0-9]{6}$/.test(bankInfo.ifscCode.toUpperCase())) {
-          res.status(400).json({
-            status: 'error',
-            message: 'Invalid IFSC Code format. IFSC should be 11 characters (e.g., ABCD0123456)',
-          });
-          return;
-        }
-      }
+    // Validate employment information - REQUIRED
+    if (!employmentInfo) {
+      res.status(400).json({
+        status: 'error',
+        message: 'Employment information is required',
+      });
+      return;
+    }
 
-      // Validate emergency contact information
-      if (emergencyInfo) {
-        if (!emergencyInfo.emergencyContactName) {
-          res.status(400).json({
-            status: 'error',
-            message: 'Emergency Contact Name is required',
-          });
-          return;
-        }
-        if (!emergencyInfo.emergencyRelationship) {
-          res.status(400).json({
-            status: 'error',
-            message: 'Emergency Relationship is required',
-          });
-          return;
-        }
-        if (!emergencyInfo.emergencyPhoneNumber) {
-          res.status(400).json({
-            status: 'error',
-            message: 'Emergency Phone Number is required',
-          });
-          return;
-        }
-        // Validate phone number format (10 digits)
-        if (emergencyInfo.emergencyPhoneNumber && !/^[0-9]{10}$/.test(emergencyInfo.emergencyPhoneNumber.replace(/[\s-]/g, ''))) {
-          res.status(400).json({
-            status: 'error',
-            message: 'Invalid Emergency Phone Number format. Please enter a valid 10-digit phone number',
-          });
-          return;
-        }
-      }
+    if (!employmentInfo.department || !employmentInfo.department.trim()) {
+      res.status(400).json({
+        status: 'error',
+        message: 'Department is required',
+      });
+      return;
+    }
+    if (!employmentInfo.designation || !employmentInfo.designation.trim()) {
+      res.status(400).json({
+        status: 'error',
+        message: 'Designation is required',
+      });
+      return;
+    }
+    if (!employmentInfo.dateOfJoining || !employmentInfo.dateOfJoining.trim()) {
+      res.status(400).json({
+        status: 'error',
+        message: 'Date of Joining is required',
+      });
+      return;
+    }
+    if (!employmentInfo.employmentType || !employmentInfo.employmentType.trim()) {
+      res.status(400).json({
+        status: 'error',
+        message: 'Employment Type is required',
+      });
+      return;
+    }
+    if (!employmentInfo.workLocation || !employmentInfo.workLocation.trim()) {
+      res.status(400).json({
+        status: 'error',
+        message: 'Work Location is required',
+      });
+      return;
+    }
+
+    // Validate bank information - REQUIRED
+    if (!bankInfo) {
+      res.status(400).json({
+        status: 'error',
+        message: 'Bank information is required',
+      });
+      return;
+    }
+
+    if (!bankInfo.bankName || !bankInfo.bankName.trim()) {
+      res.status(400).json({
+        status: 'error',
+        message: 'Bank Name is required',
+      });
+      return;
+    }
+    if (!bankInfo.accountNumber || !bankInfo.accountNumber.trim()) {
+      res.status(400).json({
+        status: 'error',
+        message: 'Account Number is required',
+      });
+      return;
+    }
+    if (!bankInfo.ifscCode || !bankInfo.ifscCode.trim()) {
+      res.status(400).json({
+        status: 'error',
+        message: 'IFSC Code is required',
+      });
+      return;
+    }
+    if (!bankInfo.branch || !bankInfo.branch.trim()) {
+      res.status(400).json({
+        status: 'error',
+        message: 'Branch is required',
+      });
+      return;
+    }
+    if (!bankInfo.panNumber || !bankInfo.panNumber.trim()) {
+      res.status(400).json({
+        status: 'error',
+        message: 'PAN Number is required',
+      });
+      return;
+    }
+    // Validate PAN format (10 characters, alphanumeric)
+    if (!/^[A-Z]{5}[0-9]{4}[A-Z]{1}$/.test(bankInfo.panNumber.toUpperCase())) {
+      res.status(400).json({
+        status: 'error',
+        message: 'Invalid PAN Number format. PAN should be 10 characters (e.g., ABCDE1234F)',
+      });
+      return;
+    }
+    // Validate IFSC format (11 characters)
+    if (!/^[A-Z]{4}0[A-Z0-9]{6}$/.test(bankInfo.ifscCode.toUpperCase())) {
+      res.status(400).json({
+        status: 'error',
+        message: 'Invalid IFSC Code format. IFSC should be 11 characters (e.g., ABCD0123456)',
+      });
+      return;
+    }
+
+    // Validate emergency contact information - REQUIRED
+    if (!emergencyInfo) {
+      res.status(400).json({
+        status: 'error',
+        message: 'Emergency contact information is required',
+      });
+      return;
+    }
+
+    if (!emergencyInfo.emergencyContactName || !emergencyInfo.emergencyContactName.trim()) {
+      res.status(400).json({
+        status: 'error',
+        message: 'Emergency Contact Name is required',
+      });
+      return;
+    }
+    if (!emergencyInfo.emergencyRelationship || !emergencyInfo.emergencyRelationship.trim()) {
+      res.status(400).json({
+        status: 'error',
+        message: 'Emergency Relationship is required',
+      });
+      return;
+    }
+    if (!emergencyInfo.emergencyPhoneNumber || !emergencyInfo.emergencyPhoneNumber.trim()) {
+      res.status(400).json({
+        status: 'error',
+        message: 'Emergency Phone Number is required',
+      });
+      return;
+    }
+    // Validate phone number format (10 digits)
+    const emergencyPhoneCleaned = emergencyInfo.emergencyPhoneNumber.replace(/[\s-]/g, '');
+    if (!/^[0-9]{10}$/.test(emergencyPhoneCleaned)) {
+      res.status(400).json({
+        status: 'error',
+        message: 'Invalid Emergency Phone Number format. Please enter a valid 10-digit phone number',
+      });
+      return;
     }
 
     // Validate expertise and availability

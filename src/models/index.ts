@@ -130,6 +130,7 @@ Batch.belongsToMany(User, {
   foreignKey: 'batchId',
   otherKey: 'facultyId',
 });
+Batch.belongsTo(Course, { foreignKey: 'courseId', as: 'course' });
 
 BatchFacultyAssignment.belongsTo(Batch, { foreignKey: 'batchId', as: 'batch' });
 BatchFacultyAssignment.belongsTo(User, { foreignKey: 'facultyId', as: 'faculty' });
@@ -230,6 +231,9 @@ StudentSoftwareProgress.belongsTo(User, { foreignKey: 'studentId', as: 'student'
 StudentSoftwareProgress.belongsTo(Batch, { foreignKey: 'batchId', as: 'batch' });
 User.hasMany(StudentSoftwareProgress, { foreignKey: 'studentId', as: 'softwareProgress' });
 Batch.hasMany(StudentSoftwareProgress, { foreignKey: 'batchId', as: 'studentSoftwareProgress' });
+
+// Course associations
+Course.hasMany(Batch, { foreignKey: 'courseId', as: 'batches' });
 
 export default db;
 

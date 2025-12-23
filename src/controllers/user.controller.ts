@@ -1,4 +1,5 @@
 import { Response } from 'express';
+import bcrypt from 'bcrypt';
 import { AuthRequest } from '../middleware/auth.middleware';
 import db from '../models';
 import { UserRole } from '../models/User';
@@ -651,7 +652,27 @@ export const updateStudentProfile = async (
     if (req.body.dob !== undefined) studentProfile.dob = req.body.dob ? new Date(req.body.dob) : null;
     if (req.body.address !== undefined) studentProfile.address = req.body.address;
     if (req.body.photoUrl !== undefined) studentProfile.photoUrl = req.body.photoUrl;
-    if (req.body.softwareList !== undefined) studentProfile.softwareList = req.body.softwareList;
+    if (req.body.softwareList !== undefined) {
+      // Handle softwareList - ensure it's an array or null
+      if (req.body.softwareList === null || req.body.softwareList === '') {
+        studentProfile.softwareList = null;
+      } else if (Array.isArray(req.body.softwareList)) {
+        // Filter out empty strings and trim
+        const filtered = req.body.softwareList
+          .map((s: string) => typeof s === 'string' ? s.trim() : String(s).trim())
+          .filter((s: string) => s.length > 0);
+        studentProfile.softwareList = filtered.length > 0 ? filtered : null;
+      } else if (typeof req.body.softwareList === 'string') {
+        // Handle comma-separated string
+        const softwareArray = req.body.softwareList
+          .split(',')
+          .map((s: string) => s.trim())
+          .filter((s: string) => s.length > 0);
+        studentProfile.softwareList = softwareArray.length > 0 ? softwareArray : null;
+      } else {
+        studentProfile.softwareList = null;
+      }
+    }
     if (req.body.enrollmentDate !== undefined) studentProfile.enrollmentDate = req.body.enrollmentDate ? new Date(req.body.enrollmentDate) : null;
     if (req.body.status !== undefined) studentProfile.status = req.body.status;
     if (req.body.documents !== undefined) studentProfile.documents = req.body.documents;
@@ -1209,6 +1230,95 @@ export const getModulesList = async (req: AuthRequest, res: Response): Promise<v
     res.status(500).json({
       status: 'error',
       message: 'Internal server error while fetching modules list',
+    });
+  }
+};
+
+// POST /api/users/:id/reset-password - Reset user password (Admin/SuperAdmin only)
+export const resetUserPassword = async (
+  req: AuthRequest & { params: { id: string }; body: { newPassword?: string } },
+  res: Response
+): Promise<void> => {
+  try {
+    if (!req.user) {
+      res.status(401).json({
+        status: 'error',
+        message: 'Authentication required',
+      });
+      return;
+    }
+
+    // Only Admin or SuperAdmin can reset passwords
+    if (req.user.role !== UserRole.ADMIN && req.user.role !== UserRole.SUPERADMIN) {
+      res.status(403).json({
+        status: 'error',
+        message: 'Only admins can reset user passwords',
+      });
+      return;
+    }
+
+    const userId = parseInt(req.params.id, 10);
+    if (isNaN(userId)) {
+      res.status(400).json({
+        status: 'error',
+        message: 'Invalid user ID',
+      });
+      return;
+    }
+
+    const user = await db.User.findByPk(userId);
+    if (!user) {
+      res.status(404).json({
+        status: 'error',
+        message: 'User not found',
+      });
+      return;
+    }
+
+    // Generate a new password if not provided
+    let newPassword: string;
+    if (req.body.newPassword) {
+      if (req.body.newPassword.length < 6) {
+        res.status(400).json({
+          status: 'error',
+          message: 'Password must be at least 6 characters long',
+        });
+        return;
+      }
+      newPassword = req.body.newPassword;
+    } else {
+      // Generate a random password
+      const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
+      newPassword = '';
+      for (let i = 0; i < 12; i++) {
+        newPassword += chars.charAt(Math.floor(Math.random() * chars.length));
+      }
+    }
+
+    // Hash the new password
+    const saltRounds = 10;
+    const passwordHash = await bcrypt.hash(newPassword, saltRounds);
+
+    // Update user password
+    user.passwordHash = passwordHash;
+    await user.save();
+
+    logger.info(`Password reset for user ${user.id} (${user.email}) by admin ${req.user.userId}`);
+
+    res.status(200).json({
+      status: 'success',
+      message: 'Password reset successfully',
+      data: {
+        newPassword: newPassword, // Return the new password so admin can share it with user
+        userId: user.id,
+        email: user.email,
+      },
+    });
+  } catch (error: any) {
+    logger.error('Reset password error:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Internal server error while resetting password',
     });
   }
 };

@@ -683,21 +683,53 @@ const ensureAdminAccess = (req: AuthRequest, res: Response): boolean => {
 
 export const getPayments = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    if (!ensureAdminAccess(req, res)) {
+    if (!req.user) {
+      res.status(401).json({
+        status: 'error',
+        message: 'Authentication required',
+      });
       return;
     }
 
     const { studentId, status } = req.query;
     const where: Record<string, any> = {};
 
-    if (studentId) {
-      const parsedId = Number(studentId);
-      if (Number.isNaN(parsedId)) {
-        res.status(400).json({ status: 'error', message: 'Invalid studentId' });
+    // Check if user is admin/superadmin or student viewing their own payments
+    const isAdmin = req.user.role === UserRole.ADMIN || req.user.role === UserRole.SUPERADMIN;
+    const isStudent = req.user.role === UserRole.STUDENT;
+
+    // If student, they can only view their own payments
+    if (isStudent) {
+      // Force studentId to be the logged-in user's ID
+      // Use userId if available, otherwise fall back to id
+      const studentUserId = req.user.userId || (req.user as any).id;
+      if (!studentUserId) {
+        res.status(400).json({
+          status: 'error',
+          message: 'User ID not found',
+        });
         return;
       }
-      where.studentId = parsedId;
-      logger.info(`Fetching payments for studentId: ${parsedId} (original: ${studentId}, type: ${typeof studentId})`);
+      where.studentId = studentUserId;
+      logger.info(`Student ${studentUserId} viewing their own payments`);
+    } else if (!isAdmin) {
+      // Non-admin, non-student users (faculty, employees) cannot view payments
+      res.status(403).json({
+        status: 'error',
+        message: 'Only admins and students can view payments',
+      });
+      return;
+    } else {
+      // Admin can view all payments or filter by studentId
+      if (studentId) {
+        const parsedId = Number(studentId);
+        if (Number.isNaN(parsedId)) {
+          res.status(400).json({ status: 'error', message: 'Invalid studentId' });
+          return;
+        }
+        where.studentId = parsedId;
+        logger.info(`Admin fetching payments for studentId: ${parsedId} (original: ${studentId}, type: ${typeof studentId})`);
+      }
     }
 
     if (status) {

@@ -6,6 +6,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { AuthRequest } from '../middleware/auth.middleware';
 import { UserRole } from '../models/User';
+import { PaymentStatus } from '../models/PaymentTransaction';
 import db from '../models';
 import { logger } from '../utils/logger';
 
@@ -205,6 +206,15 @@ export const completeEnrollment = async (
       }
     }
     
+    if (!whatsappNumber || !whatsappNumber.trim()) {
+      validationErrors.push('WhatsApp number is required');
+    } else {
+      const whatsappCleaned = whatsappNumber.replace(/\D/g, '');
+      if (whatsappCleaned.length !== 10) {
+        validationErrors.push('Please enter a valid 10-digit WhatsApp number');
+      }
+    }
+    
     if (!dateOfAdmission || !dateOfAdmission.trim()) {
       validationErrors.push('Date of Admission is required');
     } else {
@@ -244,6 +254,10 @@ export const completeEnrollment = async (
       validationErrors.push('Course Name is required');
     }
     
+    if (!batchId) {
+      validationErrors.push('Batch ID is required');
+    }
+    
     if (!softwaresIncluded || !softwaresIncluded.trim()) {
       validationErrors.push('At least one software must be selected');
     }
@@ -256,8 +270,16 @@ export const completeEnrollment = async (
       validationErrors.push('Booking Amount is required');
     }
     
+    if (balanceAmount === undefined || balanceAmount === null || balanceAmount < 0) {
+      validationErrors.push('Balance Amount is required');
+    }
+    
     if (bookingAmount && totalDeal && bookingAmount > totalDeal) {
       validationErrors.push('Booking Amount cannot be greater than Total Deal Amount');
+    }
+    
+    if (balanceAmount && totalDeal && bookingAmount && (balanceAmount + bookingAmount) !== totalDeal) {
+      validationErrors.push('Balance Amount + Booking Amount must equal Total Deal Amount');
     }
     
     if (emiPlan) {
@@ -404,7 +426,9 @@ export const completeEnrollment = async (
         userId: user.id,
         dob: dateOfAdmission ? new Date(dateOfAdmission) : null,
         address: localAddress || permanentAddress || null,
-        softwareList: softwaresIncluded ? softwaresIncluded.split(',').map((s: string) => s.trim()).filter((s: string) => s) : null,
+        softwareList: softwaresIncluded && softwaresIncluded.trim() 
+          ? softwaresIncluded.split(',').map((s: string) => s.trim()).filter((s: string) => s.length > 0) 
+          : null,
         enrollmentDate: dateOfAdmission ? new Date(dateOfAdmission) : new Date(),
         status: 'active',
         finishedBatches: req.body.finishedBatches ? parseBatchList(req.body.finishedBatches) : null,
@@ -511,6 +535,61 @@ export const completeEnrollment = async (
           },
           { transaction }
         );
+
+        // Create payment transactions based on enrollment payment details
+        if (enrollment && (bookingAmount || (emiPlan && emiInstallments && emiInstallments.length > 0))) {
+          // Create payment for booking amount (if provided)
+          if (bookingAmount && bookingAmount > 0) {
+            try {
+              await db.PaymentTransaction.create(
+                {
+                  studentId: user.id,
+                  enrollmentId: enrollment.id,
+                  amount: bookingAmount,
+                  paidAmount: bookingAmount, // Booking amount is considered as paid
+                  dueDate: dateOfAdmission ? new Date(dateOfAdmission) : new Date(),
+                  status: PaymentStatus.PAID,
+                  notes: 'Initial booking amount from enrollment',
+                },
+                { transaction }
+              );
+              logger.info(`Created booking payment: studentId=${user.id}, enrollmentId=${enrollment.id}, amount=${bookingAmount}`);
+            } catch (paymentError: any) {
+              logger.error('Error creating booking payment:', paymentError);
+              // Don't fail enrollment if payment creation fails, but log it
+            }
+          }
+
+          // Create payment transactions for EMI installments (if EMI plan is enabled)
+          if (emiPlan && emiInstallments && Array.isArray(emiInstallments) && emiInstallments.length > 0) {
+            for (const installment of emiInstallments) {
+              if (installment.amount && installment.amount > 0) {
+                try {
+                  const dueDate = installment.dueDate 
+                    ? new Date(installment.dueDate) 
+                    : (emiPlanDate ? new Date(emiPlanDate) : new Date());
+                  
+                  await db.PaymentTransaction.create(
+                    {
+                      studentId: user.id,
+                      enrollmentId: enrollment.id,
+                      amount: installment.amount,
+                      paidAmount: 0,
+                      dueDate: dueDate,
+                      status: PaymentStatus.PENDING,
+                      notes: `EMI Installment - Month ${installment.month || 'N/A'}`,
+                    },
+                    { transaction }
+                  );
+                  logger.info(`Created EMI payment: studentId=${user.id}, enrollmentId=${enrollment.id}, amount=${installment.amount}, month=${installment.month}`);
+                } catch (paymentError: any) {
+                  logger.error(`Error creating EMI payment for month ${installment.month}:`, paymentError);
+                  // Continue creating other installments even if one fails
+                }
+              }
+            }
+          }
+        }
       }
     }
 
@@ -1813,6 +1892,125 @@ export const bulkEnrollStudents = async (req: AuthRequest, res: Response): Promi
 };
 
 // GET /students/template → Download unified student template (admin only)
+// GET /students/:id/attendance - Get student's own attendance (students can view their own)
+export const getStudentAttendance = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    if (!req.user) {
+      res.status(401).json({
+        status: 'error',
+        message: 'Authentication required',
+      });
+      return;
+    }
+
+    const studentId = parseInt(req.params.id, 10);
+    if (Number.isNaN(studentId)) {
+      res.status(400).json({
+        status: 'error',
+        message: 'Invalid student ID',
+      });
+      return;
+    }
+
+    // Check if user is the student themselves or an admin
+    const isStudent = req.user.role === UserRole.STUDENT;
+    const isAdmin = req.user.role === UserRole.ADMIN || req.user.role === UserRole.SUPERADMIN;
+
+    if (isStudent && req.user.userId !== studentId) {
+      res.status(403).json({
+        status: 'error',
+        message: 'You can only view your own attendance',
+      });
+      return;
+    }
+
+    if (!isStudent && !isAdmin) {
+      res.status(403).json({
+        status: 'error',
+        message: 'Only students and admins can view attendance',
+      });
+      return;
+    }
+
+    // Get date filters
+    const { from, to } = req.query;
+    const where: any = { studentId };
+
+    // Build date filter if provided
+    if (from || to) {
+      where['$session.date$'] = {};
+      if (from) {
+        where['$session.date$'][Op.gte] = new Date(from as string);
+      }
+      if (to) {
+        const toDate = new Date(to as string);
+        toDate.setHours(23, 59, 59, 999); // End of day
+        where['$session.date$'][Op.lte] = toDate;
+      }
+    }
+
+    const attendances = await db.Attendance.findAll({
+      where,
+      include: [
+        {
+          model: db.Session,
+          as: 'session',
+          required: true,
+          include: [
+            {
+              model: db.Batch,
+              as: 'batch',
+              attributes: ['id', 'title', 'software'],
+              required: false,
+            },
+          ],
+        },
+        {
+          model: db.User,
+          as: 'student',
+          attributes: ['id', 'name', 'email'],
+          required: false,
+        },
+      ],
+      order: [[{ model: db.Session, as: 'session' }, 'date', 'DESC']],
+    });
+
+    res.status(200).json({
+      status: 'success',
+      data: {
+        attendances: attendances.map((attendance: any) => {
+          const att = attendance.toJSON();
+          return {
+            id: att.id,
+            sessionId: att.sessionId,
+            studentId: att.studentId,
+            status: att.status,
+            isManual: att.isManual,
+            markedBy: att.markedBy,
+            markedAt: att.markedAt,
+            createdAt: att.createdAt,
+            updatedAt: att.updatedAt,
+            session: att.session ? {
+              id: att.session.id,
+              date: att.session.date,
+              topic: att.session.topic,
+              batchId: att.session.batchId,
+              batch: att.session.batch,
+            } : null,
+            student: att.student,
+          };
+        }),
+      },
+    });
+  } catch (error) {
+    logger.error('Get student attendance error:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Failed to fetch student attendance',
+    });
+  }
+};
+
 export const downloadUnifiedTemplate = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     logger.info('Download unified template request received');

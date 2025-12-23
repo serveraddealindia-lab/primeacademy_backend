@@ -376,7 +376,15 @@ export const getStudentDetails = async (req: AuthRequest, res: Response): Promis
             {
               model: db.Batch,
               as: 'batch',
-              attributes: ['id', 'title', 'software', 'mode', 'status', 'schedule'],
+              attributes: ['id', 'title', 'software', 'mode', 'status', 'schedule', 'courseId'],
+              include: [
+                {
+                  model: db.Course,
+                  as: 'course',
+                  attributes: ['id', 'name', 'software'],
+                  required: false,
+                },
+              ],
             },
           ],
         },
@@ -419,6 +427,8 @@ export const getStudentDetails = async (req: AuthRequest, res: Response): Promis
                     mode: enrollment.batch.mode,
                     status: enrollment.batch.status,
                     schedule: enrollment.batch.schedule,
+                    courseId: enrollment.batch.courseId,
+                    course: enrollment.batch.course || null,
                   }
                 : null,
             })) || [],

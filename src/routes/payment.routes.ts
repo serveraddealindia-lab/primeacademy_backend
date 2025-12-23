@@ -27,7 +27,8 @@ const upload = multer({
 });
 
 // GET routes
-router.get('/', verifyTokenMiddleware, checkRole(UserRole.ADMIN, UserRole.SUPERADMIN), paymentController.getPayments);
+// Allow students to view their own payments - access control handled in controller
+router.get('/', verifyTokenMiddleware, paymentController.getPayments);
 router.get('/:paymentId/receipt', verifyTokenMiddleware, checkRole(UserRole.ADMIN, UserRole.SUPERADMIN), paymentController.downloadReceipt);
 router.get('/:paymentId', verifyTokenMiddleware, checkRole(UserRole.ADMIN, UserRole.SUPERADMIN), paymentController.getPaymentById);
 

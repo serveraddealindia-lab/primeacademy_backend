@@ -90,5 +90,13 @@ router.get(
   studentController.getCourseNames
 );
 
+// GET /students/:id/attendance → Get student's own attendance (students can view their own)
+// IMPORTANT: This must be before any other /:id routes to avoid route conflicts
+router.get(
+  '/:id/attendance',
+  verifyTokenMiddleware,
+  studentController.getStudentAttendance
+);
+
 export default router;
 

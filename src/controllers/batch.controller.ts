@@ -18,17 +18,68 @@ export const createBatch = async (req: AuthRequest, res: Response): Promise<void
       return;
     }
 
-    const { title, software, mode, startDate, endDate, maxCapacity, schedule, status, facultyIds, studentIds } =
+    const { title, software, mode, startDate, endDate, maxCapacity, schedule, status, facultyIds, studentIds, courseId } =
       req.body;
 
-    // Validation
-    if (!title || !mode || !startDate || !endDate || !maxCapacity) {
+    // Validation - All fields required
+    if (!title || !title.trim()) {
       res.status(400).json({
         status: 'error',
-        message: 'Title, mode, startDate, endDate, and maxCapacity are required',
+        message: 'Title is required',
       });
       return;
     }
+
+    if (!software || !software.trim()) {
+      res.status(400).json({
+        status: 'error',
+        message: 'Software is required',
+      });
+      return;
+    }
+
+    if (!mode) {
+      res.status(400).json({
+        status: 'error',
+        message: 'Mode is required',
+      });
+      return;
+    }
+
+    if (!startDate) {
+      res.status(400).json({
+        status: 'error',
+        message: 'Start date is required',
+      });
+      return;
+    }
+
+    if (!endDate) {
+      res.status(400).json({
+        status: 'error',
+        message: 'End date is required',
+      });
+      return;
+    }
+
+    if (!maxCapacity) {
+      res.status(400).json({
+        status: 'error',
+        message: 'Max capacity is required',
+      });
+      return;
+    }
+
+    // Validate status - required
+    if (!status || !status.trim()) {
+      res.status(400).json({
+        status: 'error',
+        message: 'Status is required',
+      });
+      return;
+    }
+    
+    const batchStatus = status.trim();
 
     // Validate mode
     if (!Object.values(BatchMode).includes(mode)) {
@@ -155,20 +206,41 @@ export const createBatch = async (req: AuthRequest, res: Response): Promise<void
       }
     }
 
+    // Validate courseId if provided
+    if (courseId !== undefined && courseId !== null) {
+      const courseIdNum = Number(courseId);
+      if (isNaN(courseIdNum) || courseIdNum <= 0) {
+        res.status(400).json({
+          status: 'error',
+          message: 'Invalid course ID',
+        });
+        return;
+      }
+      const course = await db.Course.findByPk(courseIdNum);
+      if (!course) {
+        res.status(400).json({
+          status: 'error',
+          message: `Course with ID ${courseIdNum} not found`,
+        });
+        return;
+      }
+    }
+
     // Create batch with transaction
     const transaction = await db.sequelize.transaction();
     try {
       const batch = await db.Batch.create(
         {
-          title,
-          software: software || null,
+          title: title.trim(),
+          software: software.trim(),
           mode,
           startDate: start,
           endDate: end,
           maxCapacity,
           schedule: schedule || null,
-          status: status || null,
+          status: batchStatus,
           createdByAdminId: req.user.userId,
+          courseId: courseId ? Number(courseId) : null,
         },
         { transaction }
       );
@@ -209,6 +281,13 @@ export const createBatch = async (req: AuthRequest, res: Response): Promise<void
             })
           : [];
 
+      // Fetch course if courseId exists
+      const course = batch.courseId
+        ? await db.Course.findByPk(batch.courseId, {
+            attributes: ['id', 'name', 'software'],
+          })
+        : null;
+
       res.status(201).json({
         status: 'success',
         message: 'Batch created successfully',
@@ -224,6 +303,12 @@ export const createBatch = async (req: AuthRequest, res: Response): Promise<void
             schedule: batch.schedule,
             status: batch.status,
             createdByAdminId: batch.createdByAdminId,
+            courseId: batch.courseId,
+            course: course ? {
+              id: course.id,
+              name: course.name,
+              software: course.software,
+            } : null,
             createdAt: batch.createdAt,
             updatedAt: batch.updatedAt,
           },
@@ -1091,6 +1176,12 @@ export const getAllBatches = async (req: AuthRequest, res: Response): Promise<vo
           through: { attributes: [] },
           required: false,
         },
+        {
+          model: db.Course,
+          as: 'course',
+          attributes: ['id', 'name', 'software'],
+          required: false,
+        },
       ],
       order: [['createdAt', 'DESC']],
     });
@@ -1127,6 +1218,12 @@ export const getAllBatches = async (req: AuthRequest, res: Response): Promise<vo
         currentEnrollment: batch.enrollments?.length || 0,
         schedule: batch.schedule,
         status: batch.status,
+        courseId: batch.courseId,
+        course: batch.course ? {
+          id: batch.course.id,
+          name: batch.course.name,
+          software: batch.course.software,
+        } : null,
         createdBy: batch.admin
           ? {
               id: batch.admin.id,
@@ -1211,6 +1308,12 @@ export const getBatchById = async (req: AuthRequest, res: Response): Promise<voi
           through: { attributes: [] },
           required: false,
         },
+        {
+          model: db.Course,
+          as: 'course',
+          attributes: ['id', 'name', 'software'],
+          required: false,
+        },
       ],
     });
 
@@ -1234,6 +1337,12 @@ export const getBatchById = async (req: AuthRequest, res: Response): Promise<voi
       currentEnrollment: (batch as any).enrollments?.length || 0,
       schedule: batch.schedule,
       status: batch.status,
+      courseId: batch.courseId,
+      course: (batch as any).course ? {
+        id: (batch as any).course.id,
+        name: (batch as any).course.name,
+        software: (batch as any).course.software,
+      } : null,
       createdBy: (batch as any).admin
         ? {
             id: (batch as any).admin.id,
@@ -1338,6 +1447,31 @@ export const updateBatch = async (req: AuthRequest, res: Response): Promise<void
       facultyIds,
       studentIds,
     } = req.body;
+
+    // Validation - All fields required for update
+    if (title !== undefined && (!title || !title.trim())) {
+      res.status(400).json({
+        status: 'error',
+        message: 'Title is required and cannot be empty',
+      });
+      return;
+    }
+
+    if (software !== undefined && (!software || !software.trim())) {
+      res.status(400).json({
+        status: 'error',
+        message: 'Software is required and cannot be empty',
+      });
+      return;
+    }
+
+    if (status !== undefined && (!status || !status.trim())) {
+      res.status(400).json({
+        status: 'error',
+        message: 'Status is required and cannot be empty',
+      });
+      return;
+    }
 
     // Validate mode if provided
     if (mode && !Object.values(BatchMode).includes(mode)) {
@@ -1473,14 +1607,14 @@ export const updateBatch = async (req: AuthRequest, res: Response): Promise<void
     try {
       await batch.update(
         {
-          title: title !== undefined ? title : batch.title,
-          software: software !== undefined ? software : batch.software,
+          title: title !== undefined ? title.trim() : batch.title,
+          software: software !== undefined ? software.trim() : batch.software,
           mode: mode !== undefined ? mode : batch.mode,
           startDate: startDate ? new Date(startDate) : batch.startDate,
           endDate: endDate ? new Date(endDate) : batch.endDate,
           maxCapacity: maxCapacity !== undefined ? maxCapacity : batch.maxCapacity,
           schedule: schedule !== undefined ? schedule : batch.schedule,
-          status: status !== undefined ? status : batch.status,
+          status: status !== undefined ? status.trim() : batch.status,
         },
         { transaction }
       );
