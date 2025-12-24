@@ -186,8 +186,27 @@ export const completeEnrollment = async (
     
     // Helper function to safely check string values
     const isEmptyString = (value: any): boolean => {
-      return !value || (typeof value === 'string' && !value.trim());
+      if (value === null || value === undefined) return true;
+      if (typeof value === 'string') return !value.trim();
+      if (typeof value === 'number') return false; // Numbers are not empty
+      if (Array.isArray(value)) return value.length === 0;
+      return !value;
     };
+    
+    // Log received data for debugging (in production, only log structure, not sensitive data)
+    logger.info('Complete enrollment request received:', {
+      hasStudentName: !!studentName,
+      hasEmail: !!email,
+      hasPhone: !!phone,
+      hasWhatsappNumber: !!whatsappNumber,
+      hasDateOfAdmission: !!dateOfAdmission,
+      hasBatchId: !!batchId,
+      hasCourseName: !!courseName,
+      hasSoftwaresIncluded: !!softwaresIncluded,
+      totalDealType: typeof totalDeal,
+      bookingAmountType: typeof bookingAmount,
+      balanceAmountType: typeof balanceAmount,
+    });
     
     if (isEmptyString(studentName)) {
       validationErrors.push('Student name is required');
@@ -216,8 +235,13 @@ export const completeEnrollment = async (
     if (isEmptyString(whatsappNumber)) {
       validationErrors.push('WhatsApp number is required');
     } else {
-      const whatsappStr = String(whatsappNumber);
-      const whatsappCleaned = whatsappStr.replace(/\D/g, '');
+      const whatsappStr = String(whatsappNumber || '');
+      // Remove country code if present (e.g., +91, 91)
+      let whatsappCleaned = whatsappStr.replace(/^\+?91\s*/, '').replace(/\D/g, '');
+      // If still has country code pattern, remove it
+      if (whatsappCleaned.length > 10) {
+        whatsappCleaned = whatsappCleaned.slice(-10); // Take last 10 digits
+      }
       if (whatsappCleaned.length !== 10) {
         validationErrors.push('Please enter a valid 10-digit WhatsApp number');
       }
@@ -264,7 +288,11 @@ export const completeEnrollment = async (
       validationErrors.push('Course Name is required');
     }
     
-    if (!batchId || (typeof batchId === 'number' && batchId <= 0)) {
+    // Batch ID can come as string or number
+    const batchIdNum = batchId !== null && batchId !== undefined 
+      ? (typeof batchId === 'string' ? parseInt(batchId, 10) : Number(batchId))
+      : 0;
+    if (!batchId || isNaN(batchIdNum) || batchIdNum <= 0) {
       validationErrors.push('Batch ID is required');
     }
     
@@ -272,27 +300,40 @@ export const completeEnrollment = async (
       validationErrors.push('At least one software must be selected');
     }
     
-    const totalDealNum = typeof totalDeal === 'string' ? parseFloat(totalDeal) : (totalDeal || 0);
-    if (!totalDeal || totalDealNum <= 0) {
+    // Handle number fields - they might come as strings or numbers
+    const totalDealNum = totalDeal !== null && totalDeal !== undefined 
+      ? (typeof totalDeal === 'string' ? parseFloat(String(totalDeal).replace(/[^\d.-]/g, '')) : Number(totalDeal))
+      : 0;
+    if (totalDeal === null || totalDeal === undefined || isNaN(totalDealNum) || totalDealNum <= 0) {
       validationErrors.push('Total Deal Amount is required and must be greater than 0');
     }
     
-    const bookingAmountNum = typeof bookingAmount === 'string' ? parseFloat(bookingAmount) : (bookingAmount ?? 0);
-    if (bookingAmount === undefined || bookingAmount === null || bookingAmountNum < 0) {
-      validationErrors.push('Booking Amount is required');
+    const bookingAmountNum = bookingAmount !== null && bookingAmount !== undefined
+      ? (typeof bookingAmount === 'string' ? parseFloat(String(bookingAmount).replace(/[^\d.-]/g, '')) : Number(bookingAmount))
+      : 0;
+    if (bookingAmount === null || bookingAmount === undefined || isNaN(bookingAmountNum) || bookingAmountNum < 0) {
+      validationErrors.push('Booking Amount is required and must be 0 or greater');
     }
     
-    const balanceAmountNum = typeof balanceAmount === 'string' ? parseFloat(balanceAmount) : (balanceAmount ?? 0);
-    if (balanceAmount === undefined || balanceAmount === null || balanceAmountNum < 0) {
-      validationErrors.push('Balance Amount is required');
+    const balanceAmountNum = balanceAmount !== null && balanceAmount !== undefined
+      ? (typeof balanceAmount === 'string' ? parseFloat(String(balanceAmount).replace(/[^\d.-]/g, '')) : Number(balanceAmount))
+      : 0;
+    if (balanceAmount === null || balanceAmount === undefined || isNaN(balanceAmountNum) || balanceAmountNum < 0) {
+      validationErrors.push('Balance Amount is required and must be 0 or greater');
     }
     
     if (bookingAmount && totalDeal && bookingAmount > totalDeal) {
       validationErrors.push('Booking Amount cannot be greater than Total Deal Amount');
     }
     
-    if (balanceAmount && totalDeal && bookingAmount && (balanceAmount + bookingAmount) !== totalDeal) {
-      validationErrors.push('Balance Amount + Booking Amount must equal Total Deal Amount');
+    // Validate balance + booking = total deal (with tolerance for floating point)
+    if (balanceAmountNum && totalDealNum && bookingAmountNum) {
+      const sum = balanceAmountNum + bookingAmountNum;
+      const difference = Math.abs(sum - totalDealNum);
+      // Allow small difference due to floating point precision (0.01)
+      if (difference > 0.01) {
+        validationErrors.push(`Balance Amount (${balanceAmountNum}) + Booking Amount (${bookingAmountNum}) = ${sum}, but Total Deal Amount is ${totalDealNum}`);
+      }
     }
     
     if (emiPlan) {
@@ -336,6 +377,23 @@ export const completeEnrollment = async (
     
     if (validationErrors.length > 0) {
       await transaction.rollback();
+      logger.warn('Student enrollment validation failed:', {
+        errorCount: validationErrors.length,
+        errors: validationErrors,
+        receivedData: {
+          hasStudentName: !!studentName,
+          hasEmail: !!email,
+          hasPhone: !!phone,
+          hasWhatsappNumber: !!whatsappNumber,
+          hasDateOfAdmission: !!dateOfAdmission,
+          hasBatchId: !!batchId,
+          hasCourseName: !!courseName,
+          hasSoftwaresIncluded: !!softwaresIncluded,
+          totalDeal: totalDeal,
+          bookingAmount: bookingAmount,
+          balanceAmount: balanceAmount,
+        },
+      });
       res.status(400).json({
         status: 'error',
         message: 'Validation failed',
