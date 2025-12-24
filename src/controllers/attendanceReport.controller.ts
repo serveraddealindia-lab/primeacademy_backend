@@ -558,7 +558,7 @@ export const getStudentDetails = async (req: AuthRequest, res: Response): Promis
             model: db.StudentProfile,
             as: 'studentProfile',
             required: false,
-            // Don't specify attributes - get all fields that exist
+            attributes: { exclude: ['serialNo'] }, // Exclude serialNo column
           },
           {
             model: db.Enrollment,
@@ -597,7 +597,7 @@ export const getStudentDetails = async (req: AuthRequest, res: Response): Promis
               model: db.StudentProfile,
               as: 'studentProfile',
               required: false,
-              // Use raw query to avoid column specification issues
+              attributes: { exclude: ['serialNo'] }, // Exclude serialNo column
             },
             {
               model: db.Enrollment,
