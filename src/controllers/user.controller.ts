@@ -1,12 +1,10 @@
 import { Response } from 'express';
 import bcrypt from 'bcrypt';
-import { Op } from 'sequelize';
 import { AuthRequest } from '../middleware/auth.middleware';
 import db from '../models';
 import { UserRole } from '../models/User';
 import { logger } from '../utils/logger';
 import { generateToken } from '../utils/jwt';
-import { StudentProfileAttributes } from '../models/StudentProfile';
 
 // GET /api/users - Get all users with optional filters
 export const getAllUsers = async (
