@@ -870,11 +870,29 @@ export const updateFacultyProfile = async (
     // Track if any fields are being updated
     let hasUpdates = false;
 
+    // Extract dateOfBirth from top level or from documents.personalInfo
+    let dateOfBirthValue = req.body.dateOfBirth;
+    if (dateOfBirthValue === undefined && req.body.documents?.personalInfo?.dateOfBirth) {
+      dateOfBirthValue = req.body.documents.personalInfo.dateOfBirth;
+    }
+
     // Update profile fields
-    if (req.body.dateOfBirth !== undefined) {
+    if (dateOfBirthValue !== undefined) {
       hasUpdates = true;
-      if (req.body.dateOfBirth) {
-        const dobDate = new Date(req.body.dateOfBirth);
+      if (dateOfBirthValue) {
+        // Handle both string and Date formats
+        let dobDate: Date;
+        if (typeof dateOfBirthValue === 'string') {
+          // If it's already in YYYY-MM-DD format, use it directly
+          if (/^\d{4}-\d{2}-\d{2}$/.test(dateOfBirthValue)) {
+            dobDate = new Date(dateOfBirthValue + 'T00:00:00'); // Add time to avoid timezone issues
+          } else {
+            dobDate = new Date(dateOfBirthValue);
+          }
+        } else {
+          dobDate = new Date(dateOfBirthValue);
+        }
+        
         if (isNaN(dobDate.getTime())) {
           res.status(400).json({
             status: 'error',
@@ -909,9 +927,31 @@ export const updateFacultyProfile = async (
         const year = dobDate.getFullYear();
         const month = String(dobDate.getMonth() + 1).padStart(2, '0');
         const day = String(dobDate.getDate()).padStart(2, '0');
-        facultyProfile.dateOfBirth = `${year}-${month}-${day}` as any;
+        const formattedDate = `${year}-${month}-${day}`;
+        
+        // Check if dateOfBirth column exists before trying to set it
+        try {
+          // Try to set the dateOfBirth field
+          if ('dateOfBirth' in facultyProfile) {
+            (facultyProfile as any).dateOfBirth = formattedDate;
+          } else {
+            logger.warn('dateOfBirth column does not exist in faculty_profiles table. Migration may not have been run.');
+            // Don't fail, just log a warning
+          }
+        } catch (error: any) {
+          logger.error('Error setting dateOfBirth:', error);
+          // If column doesn't exist, log but don't fail the entire update
+          if (error.message && error.message.includes('dateOfBirth')) {
+            logger.warn('dateOfBirth column may not exist. Please run migration: 20251223000000-add-dateOfBirth-to-faculty-profiles');
+          } else {
+            throw error; // Re-throw if it's a different error
+          }
+        }
       } else {
-        facultyProfile.dateOfBirth = null;
+        // Set to null if explicitly provided as empty
+        if ('dateOfBirth' in facultyProfile) {
+          (facultyProfile as any).dateOfBirth = null;
+        }
       }
     }
     if (req.body.expertise !== undefined) {

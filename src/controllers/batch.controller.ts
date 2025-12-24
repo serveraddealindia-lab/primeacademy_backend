@@ -1492,6 +1492,17 @@ export const getBatchById = async (req: AuthRequest, res: Response): Promise<voi
     }
 
     // Transform the data
+    // Parse schedule if it's a string (shouldn't happen with JSON type, but handle it anyway)
+    let parsedSchedule = batch.schedule;
+    if (typeof batch.schedule === 'string') {
+      try {
+        parsedSchedule = JSON.parse(batch.schedule);
+      } catch (e) {
+        logger.warn('Failed to parse schedule JSON:', e);
+        parsedSchedule = null;
+      }
+    }
+    
     const batchData = {
       id: batch.id,
       title: batch.title,
@@ -1501,7 +1512,7 @@ export const getBatchById = async (req: AuthRequest, res: Response): Promise<voi
       endDate: batch.endDate,
       maxCapacity: batch.maxCapacity,
       currentEnrollment: (batch as any).enrollments?.length || 0,
-      schedule: batch.schedule,
+      schedule: parsedSchedule,
       status: batch.status,
       courseId: batch.courseId,
       course: (batch as any).course ? {

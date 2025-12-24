@@ -101,6 +101,11 @@ export const createEmployeeProfile = async (
     city?: string;
     state?: string;
     postalCode?: string;
+    address?: string;
+    emergencyContactName?: string;
+    emergencyRelationship?: string;
+    emergencyPhoneNumber?: string;
+    emergencyAlternatePhone?: string;
   } },
   res: Response
 ): Promise<void> => {
@@ -290,6 +295,25 @@ export const createEmployeeProfile = async (
       return;
     }
 
+    // Prepare documents object for emergency contact and address
+    const documents: any = {};
+    
+    // Store address if provided
+    if (profileData.address && profileData.address.trim()) {
+      documents.address = profileData.address.trim();
+    }
+    
+    // Store emergency contact information if provided
+    if (profileData.emergencyContactName || profileData.emergencyRelationship || 
+        profileData.emergencyPhoneNumber || profileData.emergencyAlternatePhone) {
+      documents.emergencyContact = {
+        emergencyContactName: profileData.emergencyContactName?.trim() || null,
+        emergencyRelationship: profileData.emergencyRelationship?.trim() || null,
+        emergencyPhoneNumber: profileData.emergencyPhoneNumber?.trim() || null,
+        emergencyAlternatePhone: profileData.emergencyAlternatePhone?.trim() || null,
+      };
+    }
+
     // Create employee profile
     const employeeProfile = await db.EmployeeProfile.create({
       userId,
@@ -312,6 +336,7 @@ export const createEmployeeProfile = async (
       city: profileData.city.trim(),
       state: profileData.state.trim(),
       postalCode: profileData.postalCode.trim(),
+      documents: Object.keys(documents).length > 0 ? documents : null,
     });
 
     // Fetch created profile with user

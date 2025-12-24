@@ -503,8 +503,17 @@ const startServer = async () => {
   try {
     // Test database connection
     await sequelize.authenticate();
-    await runPendingMigrations();
     logger.info('Database connection established successfully.');
+
+    // Run migrations - but don't crash if they fail
+    try {
+      await runPendingMigrations();
+    } catch (migrationError: unknown) {
+      // Log the error but continue server startup
+      const errorMessage = migrationError instanceof Error ? migrationError.message : String(migrationError);
+      logger.error('Migration failed, but continuing server startup:', errorMessage);
+      logger.warn('Server will start without applying migrations. Please check and fix migrations manually.');
+    }
 
     // Sync database (use { force: true } only in development to drop and recreate tables)
     // In production, use migrations instead
@@ -527,7 +536,23 @@ const startServer = async () => {
     }
   } catch (error) {
     logger.error('Unable to start server:', error);
-    process.exit(1);
+    // Only exit if it's a critical error (database connection failure)
+    const errorMessage = String(error);
+    if (errorMessage.includes('ECONNREFUSED') || errorMessage.includes('authentication')) {
+      logger.error('Critical database connection error. Server cannot start without database.');
+      process.exit(1);
+    } else {
+      logger.warn('Non-critical error. Server will attempt to start anyway.');
+      // Try to start server even with non-critical errors
+      try {
+        app.listen(PORT, '0.0.0.0', () => {
+          logger.warn(`Server started with warnings. Some features may not work correctly.`);
+        });
+      } catch (listenError) {
+        logger.error('Failed to start server:', listenError);
+        process.exit(1);
+      }
+    }
   }
 };
 
