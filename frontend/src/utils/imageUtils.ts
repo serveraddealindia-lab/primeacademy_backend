@@ -5,19 +5,93 @@
 export const getImageUrl = (imageUrl: string | null | undefined): string | null => {
   if (!imageUrl) return null;
   
+  // First, aggressively clean any malformed URLs with duplicate domains in the path
+  // This handles cases like: https://crm.prashantthakar.com/.prashantthakar.com/api/uploads/...
+  if (imageUrl.includes('://')) {
+    // It's a full URL - check for duplicate domains in path
+    try {
+      const urlObj = new URL(imageUrl);
+      const hostname = urlObj.hostname;
+      let pathname = urlObj.pathname;
+      
+      // Extract root domain from hostname (e.g., "prashantthakar.com" from "crm.prashantthakar.com")
+      const hostnameParts = hostname.split('.');
+      const rootDomain = hostnameParts.length >= 2 
+        ? hostnameParts.slice(-2).join('.') 
+        : hostname;
+      
+      // More aggressive cleaning: Remove any domain-like segment from path (with or without leading dot)
+      // This handles: /.prashantthakar.com/api/uploads/... or /prashantthakar.com/api/uploads/...
+      const domainPattern = /^\/\.?([a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}(\/|$)/;
+      if (domainPattern.test(pathname)) {
+        // Check if the domain in path matches the hostname or root domain
+        const match = pathname.match(/^\/\.?([a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}/);
+        if (match) {
+          const domainInPath = match[0].replace(/^\/\.?/, '');
+          const domainInPathParts = domainInPath.split('.');
+          const rootDomainInPath = domainInPathParts.length >= 2 
+            ? domainInPathParts.slice(-2).join('.') 
+            : domainInPath;
+          
+          // If domains match, remove the domain segment from path
+          if (rootDomainInPath === rootDomain || domainInPath === hostname || 
+              domainInPath.includes(hostname) || hostname.includes(domainInPath) ||
+              hostname.includes(rootDomainInPath) || rootDomainInPath.includes(rootDomain)) {
+            pathname = pathname.replace(/^\/\.?([a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}(\/|$)/, '/');
+            urlObj.pathname = pathname;
+            imageUrl = urlObj.toString();
+          }
+        }
+      }
+      
+      // Also check for domain segments anywhere in the path (not just at start)
+      const pathParts = pathname.split('/').filter(p => p);
+      const cleanedParts = pathParts.filter(part => {
+        const cleanPart = part.startsWith('.') ? part.substring(1) : part;
+        const domainPattern2 = /^([a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$/;
+        if (domainPattern2.test(cleanPart)) {
+          const domainParts = cleanPart.split('.');
+          const rootDomainInPart = domainParts.length >= 2 
+            ? domainParts.slice(-2).join('.') 
+            : cleanPart;
+          // Remove if it matches the hostname or root domain
+          return !(rootDomainInPart === rootDomain || cleanPart === hostname || 
+                   cleanPart.includes(hostname) || hostname.includes(cleanPart) ||
+                   hostname.includes(rootDomainInPart) || rootDomainInPart.includes(rootDomain));
+        }
+        return true;
+      });
+      
+      if (cleanedParts.length !== pathParts.length) {
+        urlObj.pathname = '/' + cleanedParts.join('/');
+        imageUrl = urlObj.toString();
+      }
+    } catch (e) {
+      // If URL parsing fails, try aggressive string replacement
+      // Remove any domain-like segment from path (with or without leading dot)
+      imageUrl = imageUrl.replace(/\/\.?([a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}(\/|$)/g, '/');
+    }
+  }
+  
   // If already a full URL (http/https), clean it and return
   if (imageUrl.startsWith('http://') || imageUrl.startsWith('https://')) {
     // Clean duplicate domains from path
     try {
       const urlObj = new URL(imageUrl);
-      const domainPattern = /^([a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}/;
+      const domainPattern3 = /^([a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$/;
       let pathname = urlObj.pathname;
+      
+      // Remove leading dot-domain patterns (e.g., /.prashantthakar.com or /.prashantthakar.com/)
+      // This regex handles both with and without trailing slash
+      pathname = pathname.replace(/^\/\.([a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}(\/|$)/, '/');
+      
       const pathParts = pathname.split('/').filter(p => p);
       
-      // Remove any domain-like segments from the path
+      // Remove any domain-like segments from the path (including those with leading dots)
       const cleanedParts = pathParts.filter(part => {
-        // Skip domain-like segments (but keep actual path segments)
-        return !domainPattern.test(part);
+        // Skip domain-like segments (with or without leading dot)
+        const cleanPart = part.startsWith('.') ? part.substring(1) : part;
+        return !domainPattern3.test(cleanPart);
       });
       
       if (cleanedParts.length !== pathParts.length) {
@@ -31,8 +105,12 @@ export const getImageUrl = (imageUrl: string | null | undefined): string | null 
       urlObj.pathname = urlObj.pathname.replace(/\/api\/uploads(\/|$)/g, '/uploads$1');
       return urlObj.toString();
     } catch (e) {
-      // If URL parsing fails, return as is
-      return imageUrl;
+      // If URL parsing fails, try manual cleaning
+      let cleaned = imageUrl;
+      // Remove .prashantthakar.com or similar from path (with or without trailing slash)
+      cleaned = cleaned.replace(/\/\.([a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}(\/|$)/g, '/');
+      cleaned = cleaned.replace(/\/api\/uploads(\/|$)/g, '/uploads$1');
+      return cleaned;
     }
   }
   
@@ -49,20 +127,27 @@ export const getImageUrl = (imageUrl: string | null | undefined): string | null 
     cleanedUrl = cleanedUrl.substring(1);
   }
   
-  // Remove leading slash if it's followed by a domain
+  // Remove leading slash if it's followed by a domain (with or without leading dot)
   if (cleanedUrl.startsWith('/')) {
-    const domainPattern = /^([a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}/;
+    const domainPattern4 = /^([a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$/;
+    // Remove .domain.com pattern from start of path (with or without trailing slash)
+    cleanedUrl = cleanedUrl.replace(/^\/\.([a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}(\/|$)/, '/');
+    
     const pathParts = cleanedUrl.split('/').filter(p => p);
-    if (pathParts.length > 0 && domainPattern.test(pathParts[0])) {
-      // First segment is a domain - remove it
-      pathParts.shift();
-      cleanedUrl = '/' + pathParts.join('/');
+    if (pathParts.length > 0) {
+      // Check if first part is a domain (with or without leading dot)
+      const firstPart = pathParts[0].startsWith('.') ? pathParts[0].substring(1) : pathParts[0];
+      if (domainPattern4.test(firstPart)) {
+        // First segment is a domain - remove it
+        pathParts.shift();
+        cleanedUrl = '/' + pathParts.join('/');
+      }
     }
   }
   
   // Check if URL contains a domain name at the start (e.g., prashantthakar.com/api/uploads/...)
-  const domainPattern = /^([a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}/;
-  if (domainPattern.test(cleanedUrl)) {
+  const domainPattern5 = /^([a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$/;
+  if (domainPattern5.test(cleanedUrl)) {
     // URL starts with a domain name - add protocol if missing
     const isProduction = window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1';
     const protocol = isProduction ? 'https://' : 'http://';
@@ -78,10 +163,17 @@ export const getImageUrl = (imageUrl: string | null | undefined): string | null 
     try {
       const urlObj = new URL(cleanedUrl);
       let pathname = urlObj.pathname;
+      
+      // Remove leading dot-domain patterns (e.g., /.prashantthakar.com or /.prashantthakar.com/)
+      pathname = pathname.replace(/^\/\.([a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}(\/|$)/, '/');
+      
       const pathParts = pathname.split('/').filter(p => p);
       
-      // Remove any domain-like segments from the path
-      const cleanedParts = pathParts.filter(part => !domainPattern.test(part));
+      // Remove any domain-like segments from the path (including those with leading dots)
+      const cleanedParts = pathParts.filter(part => {
+        const cleanPart = part.startsWith('.') ? part.substring(1) : part;
+        return !domainPattern5.test(cleanPart);
+      });
       
       if (cleanedParts.length !== pathParts.length) {
         urlObj.pathname = '/' + cleanedParts.join('/');
@@ -127,9 +219,16 @@ export const getImageUrl = (imageUrl: string | null | undefined): string | null 
   // Clean up the relative path
   let relativePath = cleanedUrl.startsWith('/') ? cleanedUrl : `/${cleanedUrl}`;
   
-  // Remove any domain-like segments from the beginning of the path
+  // Remove leading dot-domain patterns (e.g., /.prashantthakar.com or /.prashantthakar.com/)
+  relativePath = relativePath.replace(/^\/\.([a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}(\/|$)/, '/');
+  
+  // Remove any domain-like segments from the beginning of the path (including dot-domains)
   const pathParts = relativePath.split('/').filter(p => p);
-  const cleanedParts = pathParts.filter(part => !domainPattern.test(part));
+  const domainPattern6 = /^([a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$/;
+  const cleanedParts = pathParts.filter(part => {
+    const cleanPart = part.startsWith('.') ? part.substring(1) : part;
+    return !domainPattern6.test(cleanPart);
+  });
   relativePath = '/' + cleanedParts.join('/');
   
   // Remove /api from uploads paths

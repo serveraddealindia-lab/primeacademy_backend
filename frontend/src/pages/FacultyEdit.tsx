@@ -143,18 +143,19 @@ export const FacultyEdit: React.FC = () => {
       console.log('Faculty profile update success:', response);
       
       // Update the query cache with the new data from the response
-      if (response?.data?.user) {
-        const updatedUser = response.data.user;
+      // Response structure: { data: { user: { ... } } } or { data: { facultyProfile: { user: ... } } }
+      const updatedUser = response?.data?.user || response?.data?.facultyProfile?.user;
+      if (updatedUser) {
         queryClient.setQueryData(['faculty', id], (oldData: any) => {
           if (!oldData) {
             return {
               user: updatedUser,
-              profile: updatedUser.facultyProfile || null,
+              profile: updatedUser.facultyProfile || response?.data?.facultyProfile || null,
             };
           }
           return {
             user: updatedUser,
-            profile: updatedUser.facultyProfile || oldData.profile,
+            profile: updatedUser.facultyProfile || response?.data?.facultyProfile || oldData.profile,
           };
         });
       }
