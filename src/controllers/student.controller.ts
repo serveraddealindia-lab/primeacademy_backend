@@ -288,12 +288,13 @@ export const completeEnrollment = async (
       validationErrors.push('Course Name is required');
     }
     
-    // Batch ID can come as string or number
-    const batchIdNum = batchId !== null && batchId !== undefined 
-      ? (typeof batchId === 'string' ? parseInt(batchId, 10) : Number(batchId))
-      : 0;
-    if (!batchId || isNaN(batchIdNum) || batchIdNum <= 0) {
-      validationErrors.push('Batch ID is required');
+    // Batch ID is optional - student can be enrolled without being assigned to a batch
+    // But if provided, it must be valid
+    if (batchId !== null && batchId !== undefined) {
+      const batchIdNum = typeof batchId === 'string' ? parseInt(batchId, 10) : Number(batchId);
+      if (isNaN(batchIdNum) || batchIdNum <= 0) {
+        validationErrors.push('Batch ID must be a valid positive number');
+      }
     }
     
     if (isEmptyString(softwaresIncluded)) {
