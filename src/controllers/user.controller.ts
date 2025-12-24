@@ -6,6 +6,7 @@ import db from '../models';
 import { UserRole } from '../models/User';
 import { logger } from '../utils/logger';
 import { generateToken } from '../utils/jwt';
+import { generateSerialNumber } from '../utils/serialNumber';
 
 // GET /api/users - Get all users with optional filters
 export const getAllUsers = async (
@@ -647,29 +648,84 @@ export const updateStudentProfile = async (
     // Get or create student profile
     let studentProfile = await db.StudentProfile.findOne({ where: { userId } });
     if (!studentProfile) {
-      studentProfile = await db.StudentProfile.create({ userId });
+      const profileData: any = { userId };
+      // Auto-generate serialNo for new profile
+      try {
+        const autoSerialNo = await generateSerialNumber();
+        if (autoSerialNo) {
+          profileData.serialNo = autoSerialNo;
+          logger.info(`Auto-generated serialNo ${autoSerialNo} for new student profile userId=${userId}`);
+        }
+      } catch (serialNoError: any) {
+        // If serialNo generation fails, just skip it (no error)
+        logger.warn(`Could not auto-generate serialNo for userId=${userId}:`, serialNoError?.message);
+      }
+      studentProfile = await db.StudentProfile.create(profileData);
     }
 
-    // Update profile fields
-    if (req.body.serialNo !== undefined) {
-      // Check for uniqueness if serialNo is being set
-      if (req.body.serialNo && req.body.serialNo.trim()) {
-        const existingProfile = await db.StudentProfile.findOne({
-          where: {
-            serialNo: req.body.serialNo.trim(),
-            userId: { [Op.ne]: userId }, // Exclude current user
-          },
-        });
-        if (existingProfile) {
-          res.status(400).json({
-            status: 'error',
-            message: 'Serial number already exists',
-          });
-          return;
+    // Track if serialNo update should be skipped
+    let skipSerialNo = false;
+    
+    // Auto-generate serialNo if it doesn't exist and wasn't provided
+    try {
+      const needsSerialNo = !studentProfile.serialNo && req.body.serialNo === undefined;
+      if (needsSerialNo) {
+        const autoSerialNo = await generateSerialNumber();
+        if (autoSerialNo) {
+          studentProfile.serialNo = autoSerialNo;
+          logger.info(`Auto-generated serialNo ${autoSerialNo} for userId=${userId}`);
         }
-        studentProfile.serialNo = req.body.serialNo.trim();
+      }
+    } catch (autoGenError: any) {
+      // If auto-generation fails (e.g., column doesn't exist), just skip it
+      if (autoGenError?.name === 'SequelizeDatabaseError' || 
+          autoGenError?.parent?.code === 'ER_BAD_FIELD_ERROR' ||
+          autoGenError?.message?.includes('Unknown column') ||
+          autoGenError?.message?.includes('serialNo')) {
+        logger.warn(`serialNo column may not exist, skipping auto-generation for userId=${userId}`);
+        skipSerialNo = true;
       } else {
-        studentProfile.serialNo = null;
+        // Log but don't fail - serialNo is optional
+        logger.warn(`Error auto-generating serialNo for userId=${userId}:`, autoGenError?.message);
+      }
+    }
+    
+    // Update profile fields - handle manual serialNo update if provided
+    if (req.body.serialNo !== undefined) {
+      try {
+        // Check for uniqueness if serialNo is being set
+        if (req.body.serialNo && req.body.serialNo.trim()) {
+          const existingProfile = await db.StudentProfile.findOne({
+            where: {
+              serialNo: req.body.serialNo.trim(),
+              userId: { [Op.ne]: userId }, // Exclude current user
+            },
+          });
+          if (existingProfile) {
+            res.status(400).json({
+              status: 'error',
+              message: 'Serial number already exists',
+            });
+            return;
+          }
+          studentProfile.serialNo = req.body.serialNo.trim();
+        } else {
+          // If explicitly set to empty/null, allow it
+          studentProfile.serialNo = null;
+        }
+      } catch (serialNoError: any) {
+        // If serialNo column doesn't exist in database, log warning and skip
+        // This allows the update to continue with other fields
+        if (serialNoError?.name === 'SequelizeDatabaseError' || 
+            serialNoError?.parent?.code === 'ER_BAD_FIELD_ERROR' ||
+            serialNoError?.message?.includes('Unknown column') ||
+            serialNoError?.message?.includes('serialNo')) {
+          logger.warn(`serialNo column may not exist in database, skipping serialNo update for userId=${userId}:`, serialNoError?.message);
+          skipSerialNo = true;
+        } else {
+          // Re-throw if it's a different error (like validation)
+          throw serialNoError;
+        }
       }
     }
     if (req.body.dob !== undefined) {
@@ -734,7 +790,32 @@ export const updateStudentProfile = async (
     if (req.body.status !== undefined) studentProfile.status = req.body.status;
     if (req.body.documents !== undefined) studentProfile.documents = req.body.documents;
 
-    await studentProfile.save();
+    // Save the profile, excluding serialNo if it had an error
+    try {
+      if (skipSerialNo) {
+        // Get list of changed fields excluding serialNo
+        const changedFields = Object.keys(studentProfile.changed() || {}).filter(field => field !== 'serialNo');
+        if (changedFields.length > 0) {
+          await studentProfile.save({ fields: changedFields });
+        } else {
+          // No fields to update, just fetch the user
+          logger.info(`No fields to update for student profile userId=${userId} (serialNo skipped)`);
+        }
+      } else {
+        await studentProfile.save();
+      }
+    } catch (saveError: any) {
+      // If save fails due to serialNo, try again without it
+      if (saveError?.message?.includes('serialNo') || saveError?.parent?.message?.includes('serialNo')) {
+        logger.warn(`Save failed due to serialNo, retrying without serialNo for userId=${userId}`);
+        const changedFields = Object.keys(studentProfile.changed() || {}).filter(field => field !== 'serialNo');
+        if (changedFields.length > 0) {
+          await studentProfile.save({ fields: changedFields });
+        }
+      } else {
+        throw saveError;
+      }
+    }
 
     // Fetch updated user with profile
     const updatedUser = await db.User.findByPk(userId, {
@@ -755,11 +836,61 @@ export const updateStudentProfile = async (
         user: updatedUser,
       },
     });
-  } catch (error) {
+  } catch (error: any) {
     logger.error('Update student profile error:', error);
+    logger.error('Error details:', {
+      message: error?.message,
+      name: error?.name,
+      stack: error?.stack,
+      userId: req.params.id,
+      body: req.body ? {
+        hasSerialNo: !!req.body.serialNo,
+        hasDob: !!req.body.dob,
+        hasAddress: !!req.body.address,
+        hasPhotoUrl: !!req.body.photoUrl,
+        hasSoftwareList: !!req.body.softwareList,
+        hasEnrollmentDate: !!req.body.enrollmentDate,
+        hasStatus: !!req.body.status,
+        hasDocuments: !!req.body.documents,
+        documentsType: req.body.documents ? typeof req.body.documents : 'undefined',
+        softwareListType: req.body.softwareList ? typeof req.body.softwareList : 'undefined',
+      } : 'No body',
+    });
+    
+    // Check for specific error types
+    if (error?.name === 'SequelizeValidationError') {
+      const validationErrors = error.errors?.map((e: any) => `${e.path}: ${e.message}`).join(', ') || 'Validation error';
+      res.status(400).json({
+        status: 'error',
+        message: `Validation error: ${validationErrors}`,
+        errors: error.errors,
+      });
+      return;
+    }
+    
+    if (error?.name === 'SequelizeDatabaseError') {
+      res.status(400).json({
+        status: 'error',
+        message: `Database error: ${error?.parent?.sqlMessage || error.message}`,
+        error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+      });
+      return;
+    }
+    
+    if (error?.name === 'SequelizeUniqueConstraintError') {
+      const field = error.errors?.[0]?.path || 'field';
+      res.status(400).json({
+        status: 'error',
+        message: `A profile with this ${field} already exists`,
+        error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+      });
+      return;
+    }
+    
     res.status(500).json({
       status: 'error',
       message: 'Internal server error while updating student profile',
+      error: process.env.NODE_ENV === 'development' ? error?.message : undefined,
     });
   }
 };
@@ -947,10 +1078,29 @@ export const updateFacultyProfile = async (
             throw error; // Re-throw if it's a different error
           }
         }
+        
+        // Also ensure dateOfBirth is stored in documents.personalInfo for frontend compatibility
+        if (facultyProfile.documents && typeof facultyProfile.documents === 'object') {
+          if (!facultyProfile.documents.personalInfo) {
+            (facultyProfile.documents as any).personalInfo = {};
+          }
+          (facultyProfile.documents as any).personalInfo.dateOfBirth = formattedDate;
+        } else if (!facultyProfile.documents) {
+          // If documents doesn't exist, create it with personalInfo
+          facultyProfile.documents = {
+            personalInfo: {
+              dateOfBirth: formattedDate,
+            },
+          };
+        }
       } else {
         // Set to null if explicitly provided as empty
         if ('dateOfBirth' in facultyProfile) {
           (facultyProfile as any).dateOfBirth = null;
+        }
+        // Also remove from documents.personalInfo
+        if (facultyProfile.documents && typeof facultyProfile.documents === 'object' && (facultyProfile.documents as any).personalInfo) {
+          (facultyProfile.documents as any).personalInfo.dateOfBirth = null;
         }
       }
     }
@@ -1177,27 +1327,72 @@ export const updateFacultyProfile = async (
         errors: saveError?.errors,
       });
       
-      // Provide more specific error messages
-      if (saveError?.name === 'SequelizeValidationError') {
-        const validationErrors = saveError.errors?.map((e: any) => e.message).join(', ') || 'Validation error';
-        res.status(400).json({
-          status: 'error',
-          message: `Validation error: ${validationErrors}`,
-          errors: saveError.errors,
-        });
-        return;
-      }
+      // Check if error is due to missing dateOfBirth column
+      const errorMessage = (saveError?.parent?.sqlMessage || saveError?.message || '').toLowerCase();
+      const isDateOfBirthError = (errorMessage.includes("dateofbirth") || errorMessage.includes("date_of_birth")) &&
+                                 errorMessage.includes("unknown column");
       
-      if (saveError?.name === 'SequelizeDatabaseError') {
-        res.status(400).json({
-          status: 'error',
-          message: `Database error: ${saveError?.parent?.sqlMessage || saveError.message}`,
-          error: process.env.NODE_ENV === 'development' ? saveError.message : undefined,
-        });
-        return;
+      if (isDateOfBirthError && facultyProfile.dateOfBirth !== undefined) {
+        logger.warn('dateOfBirth column does not exist in database. Removing from update and retrying...');
+        // Get all changed fields except dateOfBirth
+        const changedFields = facultyProfile.changed() || [];
+        const fieldsToSave = changedFields.filter((field: string) => field !== 'dateOfBirth');
+        
+        // Remove dateOfBirth from the model instance
+        delete (facultyProfile as any).dateOfBirth;
+        // Also remove it from changed fields tracking
+        if (facultyProfile.changed('dateOfBirth')) {
+          facultyProfile.setDataValue('dateOfBirth', undefined as any);
+        }
+        
+        try {
+          // Retry save without dateOfBirth - use fields option to only save changed fields (excluding dateOfBirth)
+          const defaultFields = ['expertise', 'availability', 'documents', 'updatedAt'];
+          const fieldsToUpdate = fieldsToSave.length > 0 ? fieldsToSave : defaultFields;
+          const savedProfile = await facultyProfile.save({ fields: fieldsToUpdate as any });
+          logger.info('Faculty profile saved successfully after removing dateOfBirth:', {
+            userId,
+            profileId: savedProfile.id,
+            updatedAt: savedProfile.updatedAt,
+          });
+          logger.warn('Please run migration: 20251223000000-add-dateOfBirth-to-faculty-profiles to add the dateOfBirth column');
+          // Continue with the rest of the function - don't return or throw
+        } catch (retryError: any) {
+          logger.error('Error saving faculty profile after retry:', retryError);
+          // If retry also fails, handle it as a regular database error
+          if (retryError?.name === 'SequelizeDatabaseError') {
+            res.status(400).json({
+              status: 'error',
+              message: `Database error: ${retryError?.parent?.sqlMessage || retryError.message}`,
+              error: process.env.NODE_ENV === 'development' ? retryError.message : undefined,
+            });
+            return;
+          }
+          throw retryError;
+        }
+      } else {
+        // Provide more specific error messages
+        if (saveError?.name === 'SequelizeValidationError') {
+          const validationErrors = saveError.errors?.map((e: any) => e.message).join(', ') || 'Validation error';
+          res.status(400).json({
+            status: 'error',
+            message: `Validation error: ${validationErrors}`,
+            errors: saveError.errors,
+          });
+          return;
+        }
+        
+        if (saveError?.name === 'SequelizeDatabaseError') {
+          res.status(400).json({
+            status: 'error',
+            message: `Database error: ${saveError?.parent?.sqlMessage || saveError.message}`,
+            error: process.env.NODE_ENV === 'development' ? saveError.message : undefined,
+          });
+          return;
+        }
+        
+        throw saveError;
       }
-      
-      throw saveError;
     }
 
     // Reload the profile to ensure we have the latest data

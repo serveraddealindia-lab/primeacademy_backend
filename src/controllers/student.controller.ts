@@ -9,6 +9,7 @@ import { UserRole } from '../models/User';
 import { PaymentStatus } from '../models/PaymentTransaction';
 import db from '../models';
 import { logger } from '../utils/logger';
+import { generateSerialNumber } from '../utils/serialNumber';
 
 /**
  * Parse date from Excel - handles Excel serial dates, various string formats, and Date objects
@@ -575,8 +576,22 @@ export const completeEnrollment = async (
         enrollmentMetadata,
       };
 
+      // Auto-generate serialNo if not provided
+      if (!profileData.serialNo) {
+        try {
+          const autoSerialNo = await generateSerialNumber();
+          if (autoSerialNo) {
+            profileData.serialNo = autoSerialNo;
+            logger.info(`Auto-generated serialNo ${autoSerialNo} for new student userId=${user.id}`);
+          }
+        } catch (serialNoError: any) {
+          // If serialNo generation fails (e.g., column doesn't exist), just skip it
+          logger.warn(`Could not auto-generate serialNo for userId=${user.id}:`, serialNoError?.message);
+        }
+      }
+
       const studentProfile = await db.StudentProfile.create(profileData, { transaction });
-      logger.info(`Created student profile: userId=${user.id}, profileId=${studentProfile.id}, status=${studentProfile.status}`);
+      logger.info(`Created student profile: userId=${user.id}, profileId=${studentProfile.id}, status=${studentProfile.status}, serialNo=${studentProfile.serialNo || 'N/A'}`);
     } else {
       logger.warn(`StudentProfile model not found - profile not created for userId=${user.id}`);
     }
@@ -1963,7 +1978,7 @@ export const bulkEnrollStudents = async (req: AuthRequest, res: Response): Promi
 
         // Create student profile
         if (db.StudentProfile) {
-          const profileData = {
+          const profileData: any = {
             userId: user.id,
             dob: parsedDob, // Use parsed DOB
             address: row.localAddress || null, // Store local address in address field (fallback for view)
@@ -1979,7 +1994,20 @@ export const bulkEnrollStudents = async (req: AuthRequest, res: Response): Promi
             pendingBatches: pendingBatches && pendingBatches.length > 0 ? pendingBatches : null,
           };
 
-          logger.info(`Row ${rowNumber}: Creating student profile with dob: ${parsedDob ? parsedDob.toISOString().split('T')[0] : 'null'}, emergencyContact: ${enrollmentMetadata.emergencyContact ? JSON.stringify(enrollmentMetadata.emergencyContact) : 'null'}`);
+          // Auto-generate serialNo if not provided
+          if (!profileData.serialNo) {
+            try {
+              const autoSerialNo = await generateSerialNumber();
+              if (autoSerialNo) {
+                profileData.serialNo = autoSerialNo;
+              }
+            } catch (serialNoError: any) {
+              // If serialNo generation fails, just skip it (no error)
+              logger.warn(`Row ${rowNumber}: Could not auto-generate serialNo:`, serialNoError?.message);
+            }
+          }
+
+          logger.info(`Row ${rowNumber}: Creating student profile with dob: ${parsedDob ? parsedDob.toISOString().split('T')[0] : 'null'}, emergencyContact: ${enrollmentMetadata.emergencyContact ? JSON.stringify(enrollmentMetadata.emergencyContact) : 'null'}, serialNo: ${profileData.serialNo || 'N/A'}`);
 
           await db.StudentProfile.create(profileData, { transaction });
         }

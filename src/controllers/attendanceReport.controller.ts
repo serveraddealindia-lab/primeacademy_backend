@@ -545,37 +545,84 @@ export const getStudentDetails = async (req: AuthRequest, res: Response): Promis
     }
 
     // Now fetch with all associations
-    const student = await db.User.findOne({
-      where: {
-        id: studentId,
-        role: UserRole.STUDENT,
-      },
-      attributes: ['id', 'name', 'email', 'phone', 'avatarUrl', 'isActive', 'createdAt', 'updatedAt'],
-      include: [
-        {
-          model: db.StudentProfile,
-          as: 'studentProfile',
-          required: false,
+    let student;
+    try {
+      student = await db.User.findOne({
+        where: {
+          id: studentId,
+          role: UserRole.STUDENT,
         },
-        {
-          model: db.Enrollment,
-          as: 'enrollments',
+        attributes: ['id', 'name', 'email', 'phone', 'avatarUrl', 'isActive', 'createdAt', 'updatedAt'],
+        include: [
+          {
+            model: db.StudentProfile,
+            as: 'studentProfile',
+            required: false,
+            // Don't specify attributes - get all fields that exist
+          },
+          {
+            model: db.Enrollment,
+            as: 'enrollments',
+            include: [
+              {
+                model: db.Batch,
+                as: 'batch',
+                attributes: ['id', 'title', 'software', 'mode', 'status', 'schedule', 'courseId'],
+                include: (db.Course ? [{
+                  model: db.Course,
+                  as: 'course',
+                  attributes: ['id', 'name', 'software'],
+                  required: false,
+                }] : []) as any[],
+              },
+            ],
+          },
+        ],
+      });
+    } catch (queryError: any) {
+      // If query fails due to missing column (like serialNo), try without specifying attributes
+      if (queryError?.parent?.code === 'ER_BAD_FIELD_ERROR' || 
+          queryError?.message?.includes('Unknown column') ||
+          queryError?.message?.includes('serialNo')) {
+        logger.warn(`Query failed due to missing column, retrying with raw query for student ${studentId}:`, queryError?.message);
+        // Try again with raw query to get all available fields
+        student = await db.User.findOne({
+          where: {
+            id: studentId,
+            role: UserRole.STUDENT,
+          },
+          attributes: ['id', 'name', 'email', 'phone', 'avatarUrl', 'isActive', 'createdAt', 'updatedAt'],
           include: [
             {
-              model: db.Batch,
-              as: 'batch',
-              attributes: ['id', 'title', 'software', 'mode', 'status', 'schedule', 'courseId'],
-              include: (db.Course ? [{
-                model: db.Course,
-                as: 'course',
-                attributes: ['id', 'name', 'software'],
-                required: false,
-              }] : []) as any[],
+              model: db.StudentProfile,
+              as: 'studentProfile',
+              required: false,
+              // Use raw query to avoid column specification issues
+            },
+            {
+              model: db.Enrollment,
+              as: 'enrollments',
+              include: [
+                {
+                  model: db.Batch,
+                  as: 'batch',
+                  attributes: ['id', 'title', 'software', 'mode', 'status', 'schedule', 'courseId'],
+                  include: (db.Course ? [{
+                    model: db.Course,
+                    as: 'course',
+                    attributes: ['id', 'name', 'software'],
+                    required: false,
+                  }] : []) as any[],
+                },
+              ],
             },
           ],
-        },
-      ],
-    });
+          raw: false, // Keep as false to get proper model instances
+        });
+      } else {
+        throw queryError;
+      }
+    }
 
     if (!student) {
       res.status(404).json({
@@ -588,7 +635,7 @@ export const getStudentDetails = async (req: AuthRequest, res: Response): Promis
     const studentJson = student.toJSON() as any;
 
     // Parse documents if it's a string (MySQL JSON fields sometimes come as strings)
-    let studentProfile = studentJson.studentProfile;
+    const studentProfile = studentJson.studentProfile;
     if (studentProfile?.documents && typeof studentProfile.documents === 'string') {
       try {
         studentProfile.documents = JSON.parse(studentProfile.documents);
@@ -597,6 +644,26 @@ export const getStudentDetails = async (req: AuthRequest, res: Response): Promis
         studentProfile.documents = null;
       }
     }
+    
+    // Ensure all profile fields are included even if some columns don't exist
+    // This helps with backward compatibility when new columns are added
+    const safeStudentProfile = studentProfile ? {
+      id: studentProfile.id,
+      userId: studentProfile.userId,
+      serialNo: studentProfile.serialNo || null,
+      dob: studentProfile.dob || null,
+      address: studentProfile.address || null,
+      documents: studentProfile.documents || null,
+      photoUrl: studentProfile.photoUrl || null,
+      softwareList: studentProfile.softwareList || null,
+      enrollmentDate: studentProfile.enrollmentDate || null,
+      status: studentProfile.status || null,
+      finishedBatches: studentProfile.finishedBatches || null,
+      currentBatches: studentProfile.currentBatches || null,
+      pendingBatches: studentProfile.pendingBatches || null,
+      createdAt: studentProfile.createdAt || null,
+      updatedAt: studentProfile.updatedAt || null,
+    } : null;
 
     // Enrich enrollments with paymentPlan from enrollmentMetadata if available
     const enrichedEnrollments = await Promise.all(
@@ -622,8 +689,8 @@ export const getStudentDetails = async (req: AuthRequest, res: Response): Promis
 
         // If paymentPlan doesn't exist, try to get from studentProfile documents
         if (!enrollmentData.paymentPlan || Object.keys(enrollmentData.paymentPlan).length === 0) {
-          if (studentProfile?.documents) {
-            const documents = studentProfile.documents;
+          if (safeStudentProfile?.documents) {
+            const documents = safeStudentProfile.documents;
             const metadata = documents?.enrollmentMetadata;
             if (metadata) {
               enrollmentData.paymentPlan = {
@@ -654,7 +721,7 @@ export const getStudentDetails = async (req: AuthRequest, res: Response): Promis
           isActive: student.isActive,
           createdAt: student.createdAt,
           updatedAt: student.updatedAt,
-          studentProfile: studentProfile || null,
+          studentProfile: safeStudentProfile,
           enrollments: enrichedEnrollments,
         },
       },
