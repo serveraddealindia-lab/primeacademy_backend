@@ -7,6 +7,7 @@ import { UserRole } from '../models/User';
 import { logger } from '../utils/logger';
 import { generateToken } from '../utils/jwt';
 import { generateSerialNumber } from '../utils/serialNumber';
+import { StudentProfileAttributes } from '../models/StudentProfile';
 
 // GET /api/users - Get all users with optional filters
 export const getAllUsers = async (
@@ -794,7 +795,7 @@ export const updateStudentProfile = async (
     try {
       if (skipSerialNo) {
         // Get list of changed fields excluding serialNo
-        const changedFields = Object.keys(studentProfile.changed() || {}).filter(field => field !== 'serialNo');
+        const changedFields = Object.keys(studentProfile.changed() || {}).filter(field => field !== 'serialNo') as Array<keyof StudentProfileAttributes>;
         if (changedFields.length > 0) {
           await studentProfile.save({ fields: changedFields });
         } else {
@@ -808,7 +809,7 @@ export const updateStudentProfile = async (
       // If save fails due to serialNo, try again without it
       if (saveError?.message?.includes('serialNo') || saveError?.parent?.message?.includes('serialNo')) {
         logger.warn(`Save failed due to serialNo, retrying without serialNo for userId=${userId}`);
-        const changedFields = Object.keys(studentProfile.changed() || {}).filter(field => field !== 'serialNo');
+        const changedFields = Object.keys(studentProfile.changed() || {}).filter(field => field !== 'serialNo') as Array<keyof StudentProfileAttributes>;
         if (changedFields.length > 0) {
           await studentProfile.save({ fields: changedFields });
         }
