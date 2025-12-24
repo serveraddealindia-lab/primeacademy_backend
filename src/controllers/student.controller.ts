@@ -323,17 +323,19 @@ export const completeEnrollment = async (
       validationErrors.push('Balance Amount is required and must be 0 or greater');
     }
     
-    if (bookingAmount && totalDeal && bookingAmount > totalDeal) {
-      validationErrors.push('Booking Amount cannot be greater than Total Deal Amount');
+    // Validate booking amount doesn't exceed total deal
+    if (bookingAmountNum && totalDealNum && bookingAmountNum > totalDealNum) {
+      validationErrors.push(`Booking Amount (${bookingAmountNum}) cannot be greater than Total Deal Amount (${totalDealNum})`);
     }
     
     // Validate balance + booking = total deal (with tolerance for floating point)
-    if (balanceAmountNum && totalDealNum && bookingAmountNum) {
+    // Only validate if all three values are provided and valid
+    if (balanceAmountNum > 0 && totalDealNum > 0 && bookingAmountNum >= 0) {
       const sum = balanceAmountNum + bookingAmountNum;
       const difference = Math.abs(sum - totalDealNum);
       // Allow small difference due to floating point precision (0.01)
       if (difference > 0.01) {
-        validationErrors.push(`Balance Amount (${balanceAmountNum}) + Booking Amount (${bookingAmountNum}) = ${sum}, but Total Deal Amount is ${totalDealNum}`);
+        validationErrors.push(`Balance Amount (${balanceAmountNum}) + Booking Amount (${bookingAmountNum}) = ${sum}, but Total Deal Amount is ${totalDealNum}. The sum must equal the total deal.`);
       }
     }
     
@@ -383,21 +385,38 @@ export const completeEnrollment = async (
         errors: validationErrors,
         receivedData: {
           hasStudentName: !!studentName,
+          studentName: studentName,
           hasEmail: !!email,
+          email: email,
           hasPhone: !!phone,
+          phone: phone,
           hasWhatsappNumber: !!whatsappNumber,
+          whatsappNumber: whatsappNumber,
           hasDateOfAdmission: !!dateOfAdmission,
+          dateOfAdmission: dateOfAdmission,
           hasBatchId: !!batchId,
+          batchId: batchId,
           hasCourseName: !!courseName,
+          courseName: courseName,
           hasSoftwaresIncluded: !!softwaresIncluded,
+          softwaresIncluded: softwaresIncluded,
           totalDeal: totalDeal,
+          totalDealType: typeof totalDeal,
           bookingAmount: bookingAmount,
+          bookingAmountType: typeof bookingAmount,
           balanceAmount: balanceAmount,
+          balanceAmountType: typeof balanceAmount,
+          hasCounselorName: !!counselorName,
+          counselorName: counselorName,
+          hasLeadSource: !!leadSource,
+          leadSource: leadSource,
+          hasMasterFaculty: !!masterFaculty,
+          masterFaculty: masterFaculty,
         },
       });
       res.status(400).json({
         status: 'error',
-        message: 'Validation failed',
+        message: `Validation failed: ${validationErrors.join('; ')}`,
         errors: validationErrors,
       });
       return;
