@@ -301,8 +301,12 @@ export const completeEnrollment = async (
       validationErrors.push('Lead Source is required');
     }
     
+    // Auto-fill current date if Walk-in is selected and date is empty
+    let finalWalkinDate = walkinDate;
     if (leadSource === 'Walk-in' && (!walkinDate || !walkinDate.trim())) {
-      validationErrors.push('Walk-in Date is required when Lead Source is Walk-in');
+      // Auto-fill with current date
+      const today = new Date();
+      finalWalkinDate = today.toISOString().split('T')[0];
     } else if (walkinDate) {
       const walkinDateRegex = /^\d{4}-\d{2}-\d{2}$/;
       if (!walkinDateRegex.test(walkinDate.trim())) {
@@ -461,7 +465,7 @@ export const completeEnrollment = async (
       if (referenceDetails) enrollmentMetadata.referenceDetails = referenceDetails;
       if (counselorName) enrollmentMetadata.counselorName = counselorName;
       if (leadSource) enrollmentMetadata.leadSource = leadSource;
-      if (walkinDate) enrollmentMetadata.walkinDate = walkinDate;
+      if (finalWalkinDate) enrollmentMetadata.walkinDate = finalWalkinDate;
       if (masterFaculty) enrollmentMetadata.masterFaculty = masterFaculty;
       if (permanentAddress) enrollmentMetadata.permanentAddress = permanentAddress;
       if (localAddress) enrollmentMetadata.localAddress = localAddress;

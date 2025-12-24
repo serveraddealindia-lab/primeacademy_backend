@@ -97,6 +97,38 @@ export const createFaculty = async (
       });
       return;
     }
+    
+    // Validate Date of Birth - must be at least 18 years old
+    const dobDate = new Date(personalInfo.dateOfBirth);
+    if (isNaN(dobDate.getTime())) {
+      res.status(400).json({
+        status: 'error',
+        message: 'Invalid date of birth format',
+      });
+      return;
+    }
+    if (dobDate > new Date()) {
+      res.status(400).json({
+        status: 'error',
+        message: 'Date of birth cannot be in the future',
+      });
+      return;
+    }
+    // Check if age is at least 18
+    const today = new Date();
+    let age = today.getFullYear() - dobDate.getFullYear();
+    const monthDiff = today.getMonth() - dobDate.getMonth();
+    const dayDiff = today.getDate() - dobDate.getDate();
+    if (monthDiff < 0 || (monthDiff === 0 && dayDiff < 0)) {
+      age--;
+    }
+    if (age < 18) {
+      res.status(400).json({
+        status: 'error',
+        message: 'Faculty must be at least 18 years old',
+      });
+      return;
+    }
     if (!personalInfo.nationality || !personalInfo.nationality.trim()) {
       res.status(400).json({
         status: 'error',
@@ -312,6 +344,7 @@ export const createFaculty = async (
     // Create faculty profile
     const facultyProfile = await db.FacultyProfile.create({
       userId,
+      dateOfBirth: personalInfo.dateOfBirth ? new Date(personalInfo.dateOfBirth) : null,
       expertise: typeof expertise === 'string' ? { description: expertise } : expertise,
       availability: typeof availability === 'string' ? { schedule: availability } : availability,
       documents: Object.keys(documentsData).length > 0 ? documentsData : null,
@@ -411,24 +444,45 @@ export const updateFacultyProfile = async (
 
     // Update fields
     if (expertise !== undefined) {
-      facultyProfile.expertise = expertise || null;
+      // Handle both string and object formats
+      if (typeof expertise === 'string') {
+        facultyProfile.expertise = { description: expertise };
+      } else if (expertise !== null) {
+        facultyProfile.expertise = expertise;
+      } else {
+        facultyProfile.expertise = null;
+      }
     }
     if (availability !== undefined) {
-      facultyProfile.availability = availability || null;
+      // Handle both string and object formats
+      if (typeof availability === 'string') {
+        facultyProfile.availability = { schedule: availability };
+      } else if (availability !== null) {
+        facultyProfile.availability = availability;
+      } else {
+        facultyProfile.availability = null;
+      }
     }
 
     await facultyProfile.save();
 
     // Fetch updated profile with user
-    const updatedProfile = await db.FacultyProfile.findByPk(facultyProfile.id, {
-      include: [
-        {
-          model: db.User,
-          as: 'user',
-          attributes: ['id', 'name', 'email', 'phone', 'role', 'isActive'],
-        },
-      ],
-    });
+    let updatedProfile;
+    try {
+      updatedProfile = await db.FacultyProfile.findByPk(facultyProfile.id, {
+        include: [
+          {
+            model: db.User,
+            as: 'user',
+            attributes: ['id', 'name', 'email', 'phone', 'role', 'isActive'],
+          },
+        ],
+      });
+    } catch (queryError: any) {
+      logger.error('Error fetching updated faculty profile with user:', queryError);
+      // Fallback: fetch without user association
+      updatedProfile = await db.FacultyProfile.findByPk(facultyProfile.id);
+    }
 
     res.status(200).json({
       status: 'success',
@@ -445,11 +499,21 @@ export const updateFacultyProfile = async (
         },
       },
     });
-  } catch (error) {
+  } catch (error: any) {
     logger.error('Update faculty profile error:', error);
+    logger.error('Error details:', {
+      message: error?.message,
+      stack: error?.stack,
+      name: error?.name,
+      code: error?.parent?.code,
+      sql: error?.parent?.sql,
+      facultyProfileId: req.params.id,
+      body: req.body,
+    });
     res.status(500).json({
       status: 'error',
       message: 'Internal server error while updating faculty profile',
+      error: process.env.NODE_ENV === 'development' ? error?.message : undefined,
     });
   }
 };

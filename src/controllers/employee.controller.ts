@@ -141,6 +141,27 @@ export const createEmployeeProfile = async (
 
     if (!profileData.dateOfBirth || !profileData.dateOfBirth.trim()) {
       validationErrors.push('Date of Birth is required');
+    } else {
+      const dobDate = new Date(profileData.dateOfBirth);
+      if (isNaN(dobDate.getTime())) {
+        validationErrors.push('Invalid date of birth format');
+      } else {
+        if (dobDate > new Date()) {
+          validationErrors.push('Date of birth cannot be in the future');
+        } else {
+          // Check if age is at least 18
+          const today = new Date();
+          let age = today.getFullYear() - dobDate.getFullYear();
+          const monthDiff = today.getMonth() - dobDate.getMonth();
+          const dayDiff = today.getDate() - dobDate.getDate();
+          if (monthDiff < 0 || (monthDiff === 0 && dayDiff < 0)) {
+            age--;
+          }
+          if (age < 18) {
+            validationErrors.push('Employee must be at least 18 years old');
+          }
+        }
+      }
     }
 
     if (!profileData.nationality || !profileData.nationality.trim()) {

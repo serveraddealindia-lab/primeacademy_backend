@@ -262,17 +262,18 @@ export const getAllStudents = async (req: AuthRequest, res: Response): Promise<v
     }
 
     // Get all students (no pagination limit for student management)
+    // Include all student profile fields including documents
     const students = await db.User.findAll({
       where: {
         role: UserRole.STUDENT,
       },
-      attributes: ['id', 'name', 'email', 'phone', 'avatarUrl', 'isActive', 'createdAt'],
+      attributes: ['id', 'name', 'email', 'phone', 'avatarUrl', 'isActive', 'createdAt', 'updatedAt'],
       include: [
         {
           model: db.StudentProfile,
           as: 'studentProfile',
           required: false,
-          attributes: ['id', 'softwareList', 'status'],
+          // Include all student profile fields
         },
       ],
       order: [['createdAt', 'DESC']],
@@ -283,17 +284,47 @@ export const getAllStudents = async (req: AuthRequest, res: Response): Promise<v
     res.status(200).json({
       status: 'success',
       data: {
-        students: students.map((student) => ({
-          id: student.id,
-          name: student.name,
-          email: student.email,
-          phone: student.phone,
-          avatarUrl: student.avatarUrl,
-          isActive: student.isActive,
-          createdAt: student.createdAt,
-          softwareList: (student as any).studentProfile?.softwareList || [],
-          profileStatus: (student as any).studentProfile?.status || null,
-        })),
+        students: students.map((student) => {
+          const studentJson = student.toJSON() as any;
+          const studentProfile = studentJson.studentProfile;
+          
+          // Parse documents if it's a string (MySQL JSON fields sometimes come as strings)
+          if (studentProfile?.documents && typeof studentProfile.documents === 'string') {
+            try {
+              studentProfile.documents = JSON.parse(studentProfile.documents);
+            } catch (e) {
+              logger.warn(`Failed to parse documents JSON for student ${student.id}:`, e);
+              studentProfile.documents = null;
+            }
+          }
+
+          return {
+            id: student.id,
+            name: student.name,
+            email: student.email,
+            phone: student.phone,
+            avatarUrl: student.avatarUrl,
+            isActive: student.isActive,
+            createdAt: student.createdAt,
+            updatedAt: student.updatedAt,
+            studentProfile: studentProfile ? {
+              id: studentProfile.id,
+              userId: studentProfile.userId,
+              dob: studentProfile.dob,
+              address: studentProfile.address,
+              documents: studentProfile.documents,
+              photoUrl: studentProfile.photoUrl,
+              softwareList: studentProfile.softwareList || [],
+              enrollmentDate: studentProfile.enrollmentDate,
+              status: studentProfile.status,
+              finishedBatches: studentProfile.finishedBatches || [],
+              currentBatches: studentProfile.currentBatches || [],
+              pendingBatches: studentProfile.pendingBatches || [],
+              createdAt: studentProfile.createdAt,
+              updatedAt: studentProfile.updatedAt,
+            } : null,
+          };
+        }),
         totalCount: students.length,
       },
     });
@@ -377,14 +408,12 @@ export const getStudentDetails = async (req: AuthRequest, res: Response): Promis
               model: db.Batch,
               as: 'batch',
               attributes: ['id', 'title', 'software', 'mode', 'status', 'schedule', 'courseId'],
-              include: [
-                {
-                  model: db.Course,
-                  as: 'course',
-                  attributes: ['id', 'name', 'software'],
-                  required: false,
-                },
-              ],
+              include: (db.Course ? [{
+                model: db.Course,
+                as: 'course',
+                attributes: ['id', 'name', 'software'],
+                required: false,
+              }] : []) as any[],
             },
           ],
         },
@@ -401,6 +430,61 @@ export const getStudentDetails = async (req: AuthRequest, res: Response): Promis
 
     const studentJson = student.toJSON() as any;
 
+    // Parse documents if it's a string (MySQL JSON fields sometimes come as strings)
+    let studentProfile = studentJson.studentProfile;
+    if (studentProfile?.documents && typeof studentProfile.documents === 'string') {
+      try {
+        studentProfile.documents = JSON.parse(studentProfile.documents);
+      } catch (e) {
+        logger.warn(`Failed to parse documents JSON for student ${studentId}:`, e);
+        studentProfile.documents = null;
+      }
+    }
+
+    // Enrich enrollments with paymentPlan from enrollmentMetadata if available
+    const enrichedEnrollments = await Promise.all(
+      (studentJson.enrollments || []).map(async (enrollment: any) => {
+        const enrollmentData: any = {
+          id: enrollment.id,
+          status: enrollment.status,
+          enrollmentDate: enrollment.enrollmentDate,
+          paymentPlan: enrollment.paymentPlan || null,
+          batch: enrollment.batch
+            ? {
+                id: enrollment.batch.id,
+                title: enrollment.batch.title,
+                software: enrollment.batch.software,
+                mode: enrollment.batch.mode,
+                status: enrollment.batch.status,
+                schedule: enrollment.batch.schedule,
+                courseId: enrollment.batch.courseId,
+                course: enrollment.batch.course || null,
+              }
+            : null,
+        };
+
+        // If paymentPlan doesn't exist, try to get from studentProfile documents
+        if (!enrollmentData.paymentPlan || Object.keys(enrollmentData.paymentPlan).length === 0) {
+          if (studentProfile?.documents) {
+            const documents = studentProfile.documents;
+            const metadata = documents?.enrollmentMetadata;
+            if (metadata) {
+              enrollmentData.paymentPlan = {
+                totalDeal: metadata.totalDeal !== undefined && metadata.totalDeal !== null ? Number(metadata.totalDeal) : null,
+                bookingAmount: metadata.bookingAmount !== undefined && metadata.bookingAmount !== null ? Number(metadata.bookingAmount) : null,
+                balanceAmount: metadata.balanceAmount !== undefined && metadata.balanceAmount !== null ? Number(metadata.balanceAmount) : null,
+                emiPlan: metadata.emiPlan || false,
+                emiPlanDate: metadata.emiPlanDate || null,
+                emiInstallments: metadata.emiInstallments || null,
+              };
+            }
+          }
+        }
+
+        return enrollmentData;
+      })
+    );
+
     res.status(200).json({
       status: 'success',
       data: {
@@ -413,33 +497,25 @@ export const getStudentDetails = async (req: AuthRequest, res: Response): Promis
           isActive: student.isActive,
           createdAt: student.createdAt,
           updatedAt: student.updatedAt,
-          studentProfile: studentJson.studentProfile || null,
-          enrollments:
-            studentJson.enrollments?.map((enrollment: any) => ({
-              id: enrollment.id,
-              status: enrollment.status,
-              enrollmentDate: enrollment.enrollmentDate,
-              batch: enrollment.batch
-                ? {
-                    id: enrollment.batch.id,
-                    title: enrollment.batch.title,
-                    software: enrollment.batch.software,
-                    mode: enrollment.batch.mode,
-                    status: enrollment.batch.status,
-                    schedule: enrollment.batch.schedule,
-                    courseId: enrollment.batch.courseId,
-                    course: enrollment.batch.course || null,
-                  }
-                : null,
-            })) || [],
+          studentProfile: studentProfile || null,
+          enrollments: enrichedEnrollments,
         },
       },
     });
-  } catch (error) {
+  } catch (error: any) {
     logger.error('Get student details error:', error);
+    logger.error('Error stack:', error?.stack);
+    logger.error('Error details:', {
+      message: error?.message,
+      name: error?.name,
+      code: error?.code,
+      sqlState: error?.parent?.sqlState,
+      sqlMessage: error?.parent?.sqlMessage,
+    });
     res.status(500).json({
       status: 'error',
       message: 'Internal server error while fetching student details',
+      error: process.env.NODE_ENV === 'development' ? error?.message : undefined,
     });
   }
 };

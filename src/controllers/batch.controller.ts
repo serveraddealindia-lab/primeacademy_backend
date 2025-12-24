@@ -18,7 +18,7 @@ export const createBatch = async (req: AuthRequest, res: Response): Promise<void
       return;
     }
 
-    const { title, software, mode, startDate, endDate, maxCapacity, schedule, status, facultyIds, studentIds, courseId } =
+    const { title, software, mode, startDate, endDate, maxCapacity, schedule, status, facultyIds, studentIds, exceptionStudentIds, courseId } =
       req.body;
 
     // Validation - All fields required
@@ -307,13 +307,28 @@ export const createBatch = async (req: AuthRequest, res: Response): Promise<void
       // Enroll students if provided
       if (normalizedStudentIds.length > 0) {
         try {
+          // Normalize exception student IDs
+          let normalizedExceptionStudentIds: number[] = [];
+          if (exceptionStudentIds !== undefined) {
+            if (!Array.isArray(exceptionStudentIds)) {
+              normalizedExceptionStudentIds = [];
+            } else {
+              normalizedExceptionStudentIds = exceptionStudentIds
+                .map((id: any) => {
+                  const numId = typeof id === 'string' ? parseInt(id, 10) : id;
+                  return isNaN(numId) ? null : numId;
+                })
+                .filter((id: any) => id !== null && id !== undefined) as number[];
+            }
+          }
+          
           const enrollmentRows = normalizedStudentIds.map((studentId) => ({
             studentId,
             batchId: batch.id,
             enrollmentDate: new Date(),
-            status: 'active',
+            status: normalizedExceptionStudentIds.includes(studentId) ? 'exception' : 'active',
           }));
-          logger.info(`Enrolling ${enrollmentRows.length} students into batch ${batch.id}`);
+          logger.info(`Enrolling ${enrollmentRows.length} students into batch ${batch.id} (${normalizedExceptionStudentIds.length} as exceptions)`);
           await db.Enrollment.bulkCreate(enrollmentRows, {
             transaction,
             ignoreDuplicates: true,
@@ -1000,10 +1015,20 @@ export const suggestCandidates = async (req: AuthRequest, res: Response): Promis
           })
           .filter((payment: any) => payment.studentId === studentId);
 
+        // Check for pending payments (including EMIs and next batch fees)
+        const pendingPayments = payments
+          .filter((payment: any) => payment.studentId === studentId);
+
         const hasOverdueFees = overduePayments.length > 0;
+        const hasPendingFees = pendingPayments.length > 0;
         const totalOverdueAmount = overduePayments.reduce((sum: number, payment: any) => {
           const amount = Number(payment.amount) || 0;
           return sum + (isNaN(amount) ? 0 : amount);
+        }, 0);
+        const totalPendingAmount = pendingPayments.reduce((sum: number, payment: any) => {
+          const amount = Number(payment.amount) || 0;
+          const paid = Number(payment.paidAmount) || 0;
+          return sum + (isNaN(amount) ? 0 : (amount - paid));
         }, 0);
 
         // Check for conflicting enrollments (overlapping batch dates)
@@ -1053,6 +1078,10 @@ export const suggestCandidates = async (req: AuthRequest, res: Response): Promis
         } else if (hasOverdueFees) {
           status = 'fees_overdue';
           statusMessage = `Fees overdue (₹${totalOverdueAmount.toFixed(2)})`;
+        } else if (hasPendingFees) {
+          // Mark as pending fees (needs exception)
+          status = 'pending_fees';
+          statusMessage = `Pending fees/EMI (₹${totalPendingAmount.toFixed(2)})`;
         } else if (isBusy) {
           status = 'busy';
           const conflictDetails: string[] = [];
@@ -1078,7 +1107,9 @@ export const suggestCandidates = async (req: AuthRequest, res: Response): Promis
           status,
           statusMessage,
           hasOverdueFees,
+          hasPendingFees,
           totalOverdueAmount: hasOverdueFees ? totalOverdueAmount : 0,
+          totalPendingAmount: hasPendingFees ? totalPendingAmount : 0,
           conflictingBatches: conflictingEnrollments
             .map((enrollment) => (enrollment as any).batch)
             .filter((enrollmentBatch): enrollmentBatch is { id: number; title: string; startDate: Date; endDate: Date } => !!enrollmentBatch)
@@ -1100,19 +1131,22 @@ export const suggestCandidates = async (req: AuthRequest, res: Response): Promis
           status: 'no_orientation',
           statusMessage: 'Error processing student data',
           hasOverdueFees: false,
+          hasPendingFees: false,
           totalOverdueAmount: 0,
+          totalPendingAmount: 0,
           conflictingBatches: [],
           conflictingSessions: [],
         };
       }
     }).filter((candidate) => candidate !== null && candidate !== undefined);
 
-    // Sort candidates: available first, then no_orientation, then busy, then fees_overdue
+    // Sort candidates: available first, then no_orientation, then busy, then pending_fees, then fees_overdue
     const statusOrder: { [key: string]: number } = { 
       available: 1, 
       no_orientation: 2, 
       busy: 3, 
-      fees_overdue: 4 
+      pending_fees: 4,
+      fees_overdue: 5 
     };
     candidates.sort((a, b) => {
       return (statusOrder[a.status] || 99) - (statusOrder[b.status] || 99);
@@ -1137,6 +1171,7 @@ export const suggestCandidates = async (req: AuthRequest, res: Response): Promis
           available: candidates.filter((c) => c.status === 'available').length,
           noOrientation: candidates.filter((c) => c.status === 'no_orientation').length,
           busy: candidates.filter((c) => c.status === 'busy').length,
+          pendingFees: candidates.filter((c) => c.status === 'pending_fees').length,
           feesOverdue: candidates.filter((c) => c.status === 'fees_overdue').length,
         },
       },
@@ -1586,6 +1621,7 @@ export const updateBatch = async (req: AuthRequest, res: Response): Promise<void
       status,
       facultyIds,
       studentIds,
+      exceptionStudentIds,
     } = req.body;
 
     // Validation - All fields required for update
@@ -1800,18 +1836,63 @@ export const updateBatch = async (req: AuthRequest, res: Response): Promise<void
           });
         }
 
+        // Normalize exception student IDs
+        let normalizedExceptionStudentIds: number[] = [];
+        if (exceptionStudentIds !== undefined) {
+          if (!Array.isArray(exceptionStudentIds)) {
+            normalizedExceptionStudentIds = [];
+          } else {
+            normalizedExceptionStudentIds = exceptionStudentIds
+              .map((id) => Number(id))
+              .filter((id) => !Number.isNaN(id) && id > 0);
+          }
+        }
+
         const toAdd = finalIds.filter((id: number) => !existingIds.includes(id));
         if (toAdd.length > 0) {
           const enrollmentRows = toAdd.map((studentId: number) => ({
             studentId,
             batchId: batch.id,
             enrollmentDate: new Date(),
-            status: 'active',
+            status: normalizedExceptionStudentIds.includes(studentId) ? 'exception' : 'active',
           }));
           await db.Enrollment.bulkCreate(enrollmentRows, {
             transaction,
             ignoreDuplicates: true,
           });
+          logger.info(`Enrolled ${enrollmentRows.length} students into batch ${batch.id} (${normalizedExceptionStudentIds.length} as exceptions)`);
+        }
+
+        // Update status for existing enrollments if exceptionStudentIds is provided
+        if (exceptionStudentIds !== undefined) {
+          const toUpdateException = finalIds.filter((id: number) => existingIds.includes(id) && normalizedExceptionStudentIds.includes(id));
+          const toUpdateActive = finalIds.filter((id: number) => existingIds.includes(id) && !normalizedExceptionStudentIds.includes(id));
+          
+          if (toUpdateException.length > 0) {
+            await db.Enrollment.update(
+              { status: 'exception' },
+              {
+                where: {
+                  batchId: batch.id,
+                  studentId: { [Op.in]: toUpdateException },
+                },
+                transaction,
+              }
+            );
+          }
+          
+          if (toUpdateActive.length > 0) {
+            await db.Enrollment.update(
+              { status: 'active' },
+              {
+                where: {
+                  batchId: batch.id,
+                  studentId: { [Op.in]: toUpdateActive },
+                },
+                transaction,
+              }
+            );
+          }
         }
       }
 

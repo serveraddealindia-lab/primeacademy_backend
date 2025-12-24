@@ -271,6 +271,7 @@ app.use('/receipts', (req, res, next) => {
 }));
 
 // Also serve receipts through /api/receipts/ for frontend compatibility
+// Custom handler to properly decode filenames with special characters
 app.use('/api/receipts', (req, res, next) => {
   const origin = req.headers.origin;
   const allowedOrigins = process.env.FRONTEND_URL?.split(',').map((o) => o.trim()) || [
@@ -293,6 +294,22 @@ app.use('/api/receipts', (req, res, next) => {
     return;
   }
   
+  // For GET requests, handle filename decoding
+  if (req.method === 'GET' && req.path) {
+    // Decode the filename from the URL path
+    const decodedPath = decodeURIComponent(req.path);
+    const filepath = path.join(receiptsStaticPath, decodedPath);
+    
+    // Check if file exists
+    if (fs.existsSync(filepath) && fs.statSync(filepath).isFile()) {
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Cache-Control', 'public, max-age=31536000');
+      res.sendFile(filepath);
+      return;
+    }
+  }
+  
+  // Fall back to static middleware for other cases
   next();
 }, express.static(receiptsStaticPath, {
   setHeaders: (res, _filePath) => {

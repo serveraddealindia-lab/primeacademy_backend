@@ -210,7 +210,9 @@ const generateReceiptPDF = async (
 
       const printer = new PdfPrinter(fonts);
 
-      const filename = `receipt_${receiptNumber.replace(/\//g, '_')}_${Date.now()}.pdf`;
+      // Sanitize receipt number for filename - replace special characters that break URLs
+      const sanitizedReceiptNumber = receiptNumber.replace(/\//g, '_').replace(/#/g, 'PRI').replace(/[^a-zA-Z0-9_-]/g, '_');
+      const filename = `receipt_${sanitizedReceiptNumber}_${Date.now()}.pdf`;
       const filepath = path.join(receiptsDir, filename);
 
       // Load rupee symbol image - try multiple formats and paths
@@ -641,6 +643,43 @@ const generateReceiptPDF = async (
 
 const formatPayment = (payment: any) => {
   const json = payment.toJSON();
+  
+  // Extract paymentPlan from enrollment or studentProfile
+  let paymentPlan = null;
+  if (json.enrollment?.paymentPlan) {
+    // Use enrollment paymentPlan, ensuring it has all fields
+    paymentPlan = {
+      totalDeal: json.enrollment.paymentPlan.totalDeal !== undefined && json.enrollment.paymentPlan.totalDeal !== null ? Number(json.enrollment.paymentPlan.totalDeal) : null,
+      bookingAmount: json.enrollment.paymentPlan.bookingAmount !== undefined && json.enrollment.paymentPlan.bookingAmount !== null ? Number(json.enrollment.paymentPlan.bookingAmount) : null,
+      balanceAmount: json.enrollment.paymentPlan.balanceAmount !== undefined && json.enrollment.paymentPlan.balanceAmount !== null ? Number(json.enrollment.paymentPlan.balanceAmount) : null,
+      emiPlan: json.enrollment.paymentPlan.emiPlan !== undefined ? json.enrollment.paymentPlan.emiPlan : null,
+      emiPlanDate: json.enrollment.paymentPlan.emiPlanDate || null,
+      emiInstallments: json.enrollment.paymentPlan.emiInstallments && Array.isArray(json.enrollment.paymentPlan.emiInstallments) ? json.enrollment.paymentPlan.emiInstallments : null,
+    };
+  } else if (json.student?.studentProfile?.documents) {
+    // Try to get paymentPlan from studentProfile documents
+    let documents = json.student.studentProfile.documents;
+    if (typeof documents === 'string') {
+      try {
+        documents = JSON.parse(documents);
+      } catch (e) {
+        logger.warn(`Failed to parse documents JSON for payment ${json.id}:`, e);
+        documents = null;
+      }
+    }
+    const metadata = documents?.enrollmentMetadata;
+    if (metadata) {
+      paymentPlan = {
+        totalDeal: metadata.totalDeal !== undefined && metadata.totalDeal !== null ? Number(metadata.totalDeal) : null,
+        bookingAmount: metadata.bookingAmount !== undefined && metadata.bookingAmount !== null ? Number(metadata.bookingAmount) : null,
+        balanceAmount: metadata.balanceAmount !== undefined && metadata.balanceAmount !== null ? Number(metadata.balanceAmount) : null,
+        emiPlan: metadata.emiPlan !== undefined ? metadata.emiPlan : null,
+        emiPlanDate: metadata.emiPlanDate || null,
+        emiInstallments: metadata.emiInstallments && Array.isArray(metadata.emiInstallments) ? metadata.emiInstallments : null,
+      };
+    }
+  }
+  
   return {
     id: json.id,
     studentId: json.studentId,
@@ -665,8 +704,10 @@ const formatPayment = (payment: any) => {
                 title: json.enrollment.batch.title,
               }
             : null,
+          paymentPlan: json.enrollment.paymentPlan || null,
         }
       : null,
+    paymentPlan: paymentPlan, // Add paymentPlan at payment level for easier access
   };
 };
 
@@ -759,6 +800,14 @@ export const getPayments = async (req: AuthRequest, res: Response): Promise<void
             as: 'student', 
             attributes: ['id', 'name', 'email', 'phone'],
             required: false,
+            include: [
+              {
+                model: db.StudentProfile,
+                as: 'studentProfile',
+                attributes: ['id', 'documents'],
+                required: false,
+              },
+            ],
           },
           {
             model: db.Enrollment,

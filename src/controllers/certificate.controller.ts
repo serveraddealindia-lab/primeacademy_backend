@@ -1,6 +1,5 @@
 import { Response } from 'express';
-// @ts-ignore - pdfmake doesn't have type definitions
-import PdfPrinter from 'pdfmake';
+import puppeteer from 'puppeteer';
 import path from 'path';
 import fs from 'fs';
 import { AuthRequest } from '../middleware/auth.middleware';
@@ -33,7 +32,7 @@ const generateCertificateNumber = (studentName: string, courseName: string): str
   return `PA/${courseInitial}/${initials}/${year}${month}${day}`;
 };
 
-// Generate PDF certificate using pdfmake - Exact match to reference image
+// Generate PDF certificate using HTML template with Puppeteer - Exact match to reference image
 const generateCertificatePDF = async (
   studentName: string,
   courseName: string,
@@ -42,237 +41,56 @@ const generateCertificatePDF = async (
   monthOfCompletion: string,
   certificateNumber: string
 ): Promise<string> => {
-  return new Promise((resolve, reject) => {
+  return new Promise(async (resolve, reject) => {
+    let browser;
     try {
-      // Import fonts (pdfmake uses default fonts, but we can configure custom ones)
-      const fonts = {
-        Roboto: {
-          normal: 'Helvetica',
-          bold: 'Helvetica-Bold',
-          italics: 'Helvetica-Oblique',
-          bolditalics: 'Helvetica-BoldOblique',
-        },
-      };
-
-      const printer = new PdfPrinter(fonts);
-
+      // Read HTML template
+      const templatePath = path.join(__dirname, '../templates/certificate.html');
+      let htmlTemplate = fs.readFileSync(templatePath, 'utf-8');
+      
+      // Replace placeholders with actual data
+      htmlTemplate = htmlTemplate.replace('{{STUDENT_NAME}}', studentName.toUpperCase());
+      htmlTemplate = htmlTemplate.replace('{{COURSE_NAME}}', courseName);
+      htmlTemplate = htmlTemplate.replace('{{SOFTWARE_COVERED}}', softwareCovered.join(', '));
+      htmlTemplate = htmlTemplate.replace('{{GRADE}}', grade);
+      htmlTemplate = htmlTemplate.replace('{{MONTH_OF_COMPLETION}}', monthOfCompletion);
+      htmlTemplate = htmlTemplate.replace('{{CERTIFICATE_NUMBER}}', certificateNumber);
+      
+      // Launch Puppeteer
+      browser = await puppeteer.launch({
+        headless: true,
+        args: ['--no-sandbox', '--disable-setuid-sandbox'],
+      });
+      
+      const page = await browser.newPage();
+      
+      // Set content and wait for fonts/styles to load
+      await page.setContent(htmlTemplate, { waitUntil: 'networkidle0' });
+      
+      // Generate PDF
       const filename = `certificate_${certificateNumber.replace(/\//g, '_')}_${Date.now()}.pdf`;
       const filepath = path.join(certificatesDir, filename);
-
-      // Colors matching reference image exactly
-      const goldColor = '#D4AF37';
-      const darkGoldColor = '#B8860B';
-      const beigeColor = '#F5F5DC';
-      const orangeColor = '#FF6600';
-      const blackColor = '#000000';
-
-      // Document definition matching the reference image exactly
-      const docDefinition: any = {
-        pageSize: 'A4',
-        pageOrientation: 'landscape',
-        pageMargins: [0, 0, 0, 0],
-        background: [
-          // Background color
-          {
-            canvas: [
-              {
-                type: 'rect',
-                x: 0,
-                y: 0,
-                w: 842, // A4 landscape width
-                h: 595, // A4 landscape height
-                color: beigeColor,
-              },
-              // Outer gold border
-              {
-                type: 'rect',
-                x: 30,
-                y: 30,
-                w: 782,
-                h: 535,
-                lineWidth: 8,
-                lineColor: goldColor,
-              },
-              // Inner gold border
-              {
-                type: 'rect',
-                x: 45,
-                y: 45,
-                w: 752,
-                h: 505,
-                lineWidth: 3,
-                lineColor: darkGoldColor,
-              },
-            ],
-          },
-        ],
-        content: [
-          // PRIME ACADEMY logo (top left)
-          {
-            absolutePosition: { x: 60, y: 60 },
-            stack: [
-              {
-                text: 'PRIME ACADEMY',
-                fontSize: 28,
-                bold: true,
-                color: orangeColor,
-                margin: [0, 0, 0, 5],
-              },
-              {
-                text: 'Digital Art With Excellence',
-                fontSize: 10,
-                color: blackColor,
-                margin: [0, 0, 0, 3],
-              },
-              {
-                text: 'SINCE 2013',
-                fontSize: 8,
-                italics: true,
-                color: blackColor,
-              },
-            ],
-          },
-          // CERTIFICATE OF COMPLETION (centered at top)
-          {
-            text: 'CERTIFICATE OF COMPLETION',
-            fontSize: 42,
-            bold: true,
-            color: blackColor,
-            alignment: 'center',
-            margin: [0, 100, 0, 0],
-          },
-          // Awarded to section
-          {
-            text: 'Awarded to',
-            fontSize: 16,
-            color: blackColor,
-            alignment: 'center',
-            margin: [0, 40, 0, 10],
-          },
-          // Student name
-          {
-            text: studentName.toUpperCase(),
-            fontSize: 28,
-            bold: true,
-            color: blackColor,
-            alignment: 'center',
-            margin: [0, 0, 0, 20],
-          },
-          // Course completion text
-          {
-            text: 'for successfully completing the',
-            fontSize: 14,
-            color: blackColor,
-            alignment: 'center',
-            margin: [0, 0, 0, 10],
-          },
-          // Course name
-          {
-            text: `${courseName} course.`,
-            fontSize: 18,
-            bold: true,
-            color: blackColor,
-            alignment: 'center',
-            margin: [0, 0, 0, 20],
-          },
-          // Software covered
-          ...(softwareCovered.length > 0
-            ? [
-                {
-                  text: `Softwares Covered: ${softwareCovered.join(', ')}`,
-                  fontSize: 12,
-                  bold: true,
-                  color: blackColor,
-                  alignment: 'center',
-                  margin: [0, 0, 0, 15],
-                },
-              ]
-            : []),
-          // Grade
-          {
-            text: `Grade Awarded: ${grade}`,
-            fontSize: 14,
-            bold: true,
-            color: blackColor,
-            alignment: 'center',
-            margin: [0, 0, 0, 10],
-          },
-          // Month of completion
-          {
-            text: `Month of Completion: ${monthOfCompletion}`,
-            fontSize: 14,
-            bold: true,
-            color: blackColor,
-            alignment: 'center',
-            margin: [0, 0, 0, 30],
-          },
-          // Signature line
-          {
-            absolutePosition: { x: 311, y: 430 }, // Center of page minus half line width
-            canvas: [
-              {
-                type: 'line',
-                x1: 0,
-                y1: 0,
-                x2: 220,
-                y2: 0,
-                lineWidth: 1,
-                lineColor: blackColor,
-              },
-            ],
-          },
-          {
-            text: 'Authorize Signature',
-            fontSize: 12,
-            color: blackColor,
-            alignment: 'center',
-            margin: [0, 245, 0, 0],
-          },
-          // Bottom section - Grading scale (left)
-          {
-            absolutePosition: { x: 70, y: 525 },
-            text: 'A - Excellent | B+ - Good | B - Average | C - Below Average',
-            fontSize: 9,
-            color: blackColor,
-          },
-          // Address (center)
-          {
-            absolutePosition: { x: 0, y: 525 },
-            text: 'Issued by PRIME Academy - 401, Shilp Square B, Opp. Sales India, Nr. Himalaya Mall, Drive-In-Road, Ahmedabad',
-            fontSize: 9,
-            color: blackColor,
-            alignment: 'center',
-            width: 842,
-          },
-          // Certificate Number (right)
-          {
-            absolutePosition: { x: 562, y: 525 },
-            text: certificateNumber,
-            fontSize: 10,
-            bold: true,
-            color: blackColor,
-            alignment: 'right',
-            width: 200,
-          },
-        ],
-        defaultStyle: {
-          font: 'Roboto',
+      
+      await page.pdf({
+        path: filepath,
+        format: 'A4',
+        printBackground: true,
+        margin: {
+          top: '0mm',
+          right: '0mm',
+          bottom: '0mm',
+          left: '0mm',
         },
-      };
-
-      const pdfDoc = printer.createPdfKitDocument(docDefinition);
-      const stream = fs.createWriteStream(filepath);
-      pdfDoc.pipe(stream);
-      pdfDoc.end();
-
-      stream.on('finish', () => {
-        resolve(`/certificates/${filename}`);
       });
-
-      stream.on('error', (error) => {
-        reject(error);
-      });
+      
+      await browser.close();
+      
+      resolve(`/certificates/${filename}`);
     } catch (error) {
+      if (browser) {
+        await browser.close();
+      }
+      logger.error('Certificate PDF generation error:', error);
       reject(error);
     }
   });

@@ -5,6 +5,7 @@ import User from './User';
 export interface StudentProfileAttributes {
   id: number;
   userId: number;
+  serialNo: string | null;
   dob: Date | null;
   address: string | null;
   documents: Record<string, unknown> | null;
@@ -22,12 +23,13 @@ export interface StudentProfileAttributes {
 export interface StudentProfileCreationAttributes
   extends Optional<
     StudentProfileAttributes,
-    'id' | 'dob' | 'address' | 'documents' | 'photoUrl' | 'softwareList' | 'enrollmentDate' | 'status' | 'finishedBatches' | 'currentBatches' | 'pendingBatches' | 'createdAt' | 'updatedAt'
+    'id' | 'serialNo' | 'dob' | 'address' | 'documents' | 'photoUrl' | 'softwareList' | 'enrollmentDate' | 'status' | 'finishedBatches' | 'currentBatches' | 'pendingBatches' | 'createdAt' | 'updatedAt'
   > {}
 
 class StudentProfile extends Model<StudentProfileAttributes, StudentProfileCreationAttributes> implements StudentProfileAttributes {
   public id!: number;
   public userId!: number;
+  public serialNo!: string | null;
   public dob!: Date | null;
   public address!: string | null;
   public documents!: Record<string, unknown> | null;
@@ -63,6 +65,12 @@ StudentProfile.init(
         model: 'users',
         key: 'id',
       },
+    },
+    serialNo: {
+      type: DataTypes.STRING(50),
+      allowNull: true,
+      unique: true,
+      comment: 'Serial number for the student',
     },
     dob: {
       type: DataTypes.DATE,
