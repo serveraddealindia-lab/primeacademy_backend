@@ -1,9 +1,13 @@
 import { Response } from 'express';
+import bcrypt from 'bcrypt';
+import { Op } from 'sequelize';
 import { AuthRequest } from '../middleware/auth.middleware';
 import db from '../models';
 import { UserRole } from '../models/User';
 import { logger } from '../utils/logger';
 import { generateToken } from '../utils/jwt';
+import { generateSerialNumber } from '../utils/serialNumber';
+import { StudentProfileAttributes } from '../models/StudentProfile';
 
 // GET /api/users - Get all users with optional filters
 export const getAllUsers = async (
@@ -60,6 +64,7 @@ export const getAllUsers = async (
             model: db.StudentProfile,
             as: 'studentProfile',
             required: false,
+            // Include all student profile fields
           });
         }
       }
@@ -209,8 +214,8 @@ export const getUserById = async (
           required: false,
         });
       }
-    } catch (e) {
-      // StudentProfile model not available
+    } catch (e: any) {
+      logger.warn('StudentProfile model not available for include:', e?.message);
     }
     
     try {
@@ -221,8 +226,8 @@ export const getUserById = async (
           required: false,
         });
       }
-    } catch (e) {
-      // FacultyProfile model not available
+    } catch (e: any) {
+      logger.warn('FacultyProfile model not available for include:', e?.message);
     }
     
     try {
@@ -233,8 +238,8 @@ export const getUserById = async (
           required: false,
         });
       }
-    } catch (e) {
-      // EmployeeProfile model not available
+    } catch (e: any) {
+      logger.warn('EmployeeProfile model not available for include:', e?.message);
     }
 
     // Include enrollments for students
@@ -254,8 +259,8 @@ export const getUserById = async (
           ],
         });
       }
-    } catch (e) {
-      // Enrollment model not available
+    } catch (e: any) {
+      logger.warn('Enrollment model not available for include:', e?.message);
     }
 
     const queryOptions: any = {
@@ -267,7 +272,92 @@ export const getUserById = async (
       queryOptions.include = includeOptions;
     }
 
-    const user = await db.User.findByPk(userId, queryOptions);
+    logger.info(`Fetching user ${userId} with includes: ${includeOptions.map((inc: any) => inc.as).join(', ')}`);
+
+    let user;
+    try {
+      user = await db.User.findByPk(userId, queryOptions);
+    } catch (queryError: any) {
+      logger.error('Database query error in getUserById:', queryError);
+      logger.error('Query error details:', {
+        message: queryError?.message,
+        sql: queryError?.sql,
+        original: queryError?.original,
+      });
+      
+      // Try without includes if query fails
+      try {
+        logger.warn('Retrying getUserById without includes due to query error');
+        user = await db.User.findByPk(userId, {
+          attributes: { exclude: ['passwordHash'] },
+        });
+        
+        // Try to fetch profile separately if user is found
+        if (user) {
+          // Fetch employee profile
+          if (user.role === 'employee' && db.EmployeeProfile) {
+            try {
+              const employeeProfile = await db.EmployeeProfile.findOne({ where: { userId: user.id } });
+              if (employeeProfile) {
+                (user as any).employeeProfile = employeeProfile;
+              }
+            } catch (profileError: any) {
+              logger.warn('Failed to fetch employee profile separately:', profileError?.message);
+            }
+          }
+          
+          // Fetch student profile
+          if (user.role === 'student' && db.StudentProfile) {
+            try {
+              const studentProfile = await db.StudentProfile.findOne({ where: { userId: user.id } });
+              if (studentProfile) {
+                (user as any).studentProfile = studentProfile;
+              }
+            } catch (profileError: any) {
+              logger.warn('Failed to fetch student profile separately:', profileError?.message);
+            }
+          }
+          
+          // Fetch faculty profile
+          if (user.role === 'faculty' && db.FacultyProfile) {
+            try {
+              const facultyProfile = await db.FacultyProfile.findOne({ where: { userId: user.id } });
+              if (facultyProfile) {
+                (user as any).facultyProfile = facultyProfile;
+              }
+            } catch (profileError: any) {
+              logger.warn('Failed to fetch faculty profile separately:', profileError?.message);
+            }
+          }
+          
+          // Fetch enrollments separately for students
+          if (user.role === 'student' && db.Enrollment) {
+            try {
+              const enrollments = await db.Enrollment.findAll({
+                where: { studentId: user.id },
+                include: db.Batch ? [
+                  {
+                    model: db.Batch,
+                    as: 'batch',
+                    attributes: ['id', 'title', 'software', 'mode', 'status', 'schedule'],
+                    required: false,
+                  },
+                ] : undefined,
+                limit: 50, // Limit to prevent huge queries
+              });
+              if (enrollments && enrollments.length > 0) {
+                (user as any).enrollments = enrollments;
+              }
+            } catch (enrollmentError: any) {
+              logger.warn('Failed to fetch enrollments separately:', enrollmentError?.message);
+            }
+          }
+        }
+      } catch (fallbackError: any) {
+        logger.error('Fallback query also failed:', fallbackError);
+        throw new Error(`Failed to fetch user: ${fallbackError.message}`);
+      }
+    }
 
     if (!user) {
       res.status(404).json({
@@ -283,11 +373,17 @@ export const getUserById = async (
         user,
       },
     });
-  } catch (error) {
+  } catch (error: any) {
     logger.error('Get user by ID error:', error);
+    logger.error('Error details:', {
+      message: error?.message,
+      stack: error?.stack,
+      name: error?.name,
+    });
     res.status(500).json({
       status: 'error',
       message: 'Internal server error while fetching user',
+      error: process.env.NODE_ENV === 'development' ? error?.message : undefined,
     });
   }
 };
@@ -357,20 +453,41 @@ export const updateUser = async (
 
     // Fetch updated user with relations
     const includeOptions: any[] = [];
-    if (db.StudentProfile) {
-      includeOptions.push({ model: db.StudentProfile, as: 'studentProfile', required: false });
+    try {
+      if (db.StudentProfile) {
+        includeOptions.push({ model: db.StudentProfile, as: 'studentProfile', required: false });
+      }
+    } catch (e) {
+      // StudentProfile not available
     }
-    if (db.FacultyProfile) {
-      includeOptions.push({ model: db.FacultyProfile, as: 'facultyProfile', required: false });
+    try {
+      if (db.FacultyProfile) {
+        includeOptions.push({ model: db.FacultyProfile, as: 'facultyProfile', required: false });
+      }
+    } catch (e) {
+      // FacultyProfile not available
     }
-    if (db.EmployeeProfile) {
-      includeOptions.push({ model: db.EmployeeProfile, as: 'employeeProfile', required: false });
+    try {
+      if (db.EmployeeProfile) {
+        includeOptions.push({ model: db.EmployeeProfile, as: 'employeeProfile', required: false });
+      }
+    } catch (e) {
+      // EmployeeProfile not available
     }
 
-    const updatedUser = await db.User.findByPk(userId, {
-      attributes: { exclude: ['passwordHash'] },
-      include: includeOptions.length > 0 ? includeOptions : undefined,
-    });
+    let updatedUser;
+    try {
+      updatedUser = await db.User.findByPk(userId, {
+        attributes: { exclude: ['passwordHash'] },
+        include: includeOptions.length > 0 ? includeOptions : undefined,
+      });
+    } catch (queryError: any) {
+      logger.error('Error fetching updated user with relations:', queryError);
+      // Fallback: fetch without relations
+      updatedUser = await db.User.findByPk(userId, {
+        attributes: { exclude: ['passwordHash'] },
+      });
+    }
 
     res.status(200).json({
       status: 'success',
@@ -381,6 +498,13 @@ export const updateUser = async (
     });
   } catch (error: any) {
     logger.error('Update user error:', error);
+    logger.error('Error details:', {
+      message: error?.message,
+      stack: error?.stack,
+      name: error?.name,
+      code: error?.parent?.code,
+      sql: error?.parent?.sql,
+    });
     if (error.name === 'SequelizeUniqueConstraintError') {
       res.status(400).json({
         status: 'error',
@@ -391,6 +515,7 @@ export const updateUser = async (
     res.status(500).json({
       status: 'error',
       message: 'Internal server error while updating user',
+      error: process.env.NODE_ENV === 'development' ? error?.message : undefined,
     });
   }
 };
@@ -462,7 +587,7 @@ export const deleteUser = async (
 
 // PUT /api/users/:id/student-profile - Update student profile
 export const updateStudentProfile = async (
-  req: AuthRequest & { params: { id: string }; body: { dob?: string; address?: string; photoUrl?: string; softwareList?: string[]; enrollmentDate?: string; status?: string; documents?: any } },
+  req: AuthRequest & { params: { id: string }; body: { serialNo?: string; dob?: string; address?: string; photoUrl?: string; softwareList?: string[]; enrollmentDate?: string; status?: string; documents?: any } },
   res: Response
 ): Promise<void> => {
   try {
@@ -524,19 +649,174 @@ export const updateStudentProfile = async (
     // Get or create student profile
     let studentProfile = await db.StudentProfile.findOne({ where: { userId } });
     if (!studentProfile) {
-      studentProfile = await db.StudentProfile.create({ userId });
+      const profileData: any = { userId };
+      // Auto-generate serialNo for new profile
+      try {
+        const autoSerialNo = await generateSerialNumber();
+        if (autoSerialNo) {
+          profileData.serialNo = autoSerialNo;
+          logger.info(`Auto-generated serialNo ${autoSerialNo} for new student profile userId=${userId}`);
+        }
+      } catch (serialNoError: any) {
+        // If serialNo generation fails, just skip it (no error)
+        logger.warn(`Could not auto-generate serialNo for userId=${userId}:`, serialNoError?.message);
+      }
+      studentProfile = await db.StudentProfile.create(profileData);
     }
 
-    // Update profile fields
-    if (req.body.dob !== undefined) studentProfile.dob = req.body.dob ? new Date(req.body.dob) : null;
+    // Track if serialNo update should be skipped
+    let skipSerialNo = false;
+    
+    // Auto-generate serialNo if it doesn't exist and wasn't provided
+    try {
+      const needsSerialNo = !studentProfile.serialNo && req.body.serialNo === undefined;
+      if (needsSerialNo) {
+        const autoSerialNo = await generateSerialNumber();
+        if (autoSerialNo) {
+          studentProfile.serialNo = autoSerialNo;
+          logger.info(`Auto-generated serialNo ${autoSerialNo} for userId=${userId}`);
+        }
+      }
+    } catch (autoGenError: any) {
+      // If auto-generation fails (e.g., column doesn't exist), just skip it
+      if (autoGenError?.name === 'SequelizeDatabaseError' || 
+          autoGenError?.parent?.code === 'ER_BAD_FIELD_ERROR' ||
+          autoGenError?.message?.includes('Unknown column') ||
+          autoGenError?.message?.includes('serialNo')) {
+        logger.warn(`serialNo column may not exist, skipping auto-generation for userId=${userId}`);
+        skipSerialNo = true;
+      } else {
+        // Log but don't fail - serialNo is optional
+        logger.warn(`Error auto-generating serialNo for userId=${userId}:`, autoGenError?.message);
+      }
+    }
+    
+    // Update profile fields - handle manual serialNo update if provided
+    if (req.body.serialNo !== undefined) {
+      try {
+        // Check for uniqueness if serialNo is being set
+        if (req.body.serialNo && req.body.serialNo.trim()) {
+          const existingProfile = await db.StudentProfile.findOne({
+            where: {
+              serialNo: req.body.serialNo.trim(),
+              userId: { [Op.ne]: userId }, // Exclude current user
+            },
+          });
+          if (existingProfile) {
+            res.status(400).json({
+              status: 'error',
+              message: 'Serial number already exists',
+            });
+            return;
+          }
+          studentProfile.serialNo = req.body.serialNo.trim();
+        } else {
+          // If explicitly set to empty/null, allow it
+          studentProfile.serialNo = null;
+        }
+      } catch (serialNoError: any) {
+        // If serialNo column doesn't exist in database, log warning and skip
+        // This allows the update to continue with other fields
+        if (serialNoError?.name === 'SequelizeDatabaseError' || 
+            serialNoError?.parent?.code === 'ER_BAD_FIELD_ERROR' ||
+            serialNoError?.message?.includes('Unknown column') ||
+            serialNoError?.message?.includes('serialNo')) {
+          logger.warn(`serialNo column may not exist in database, skipping serialNo update for userId=${userId}:`, serialNoError?.message);
+          skipSerialNo = true;
+        } else {
+          // Re-throw if it's a different error (like validation)
+          throw serialNoError;
+        }
+      }
+    }
+    if (req.body.dob !== undefined) {
+      if (req.body.dob) {
+        const dobDate = new Date(req.body.dob);
+        if (isNaN(dobDate.getTime())) {
+          res.status(400).json({
+            status: 'error',
+            message: 'Invalid date of birth format',
+          });
+          return;
+        }
+        if (dobDate > new Date()) {
+          res.status(400).json({
+            status: 'error',
+            message: 'Date of birth cannot be in the future',
+          });
+          return;
+        }
+        // Check if age is at least 18
+        const today = new Date();
+        let age = today.getFullYear() - dobDate.getFullYear();
+        const monthDiff = today.getMonth() - dobDate.getMonth();
+        const dayDiff = today.getDate() - dobDate.getDate();
+        if (monthDiff < 0 || (monthDiff === 0 && dayDiff < 0)) {
+          age--;
+        }
+        if (age < 18) {
+          res.status(400).json({
+            status: 'error',
+            message: 'Student must be at least 18 years old',
+          });
+          return;
+        }
+      }
+      studentProfile.dob = req.body.dob ? new Date(req.body.dob) : null;
+    }
     if (req.body.address !== undefined) studentProfile.address = req.body.address;
     if (req.body.photoUrl !== undefined) studentProfile.photoUrl = req.body.photoUrl;
-    if (req.body.softwareList !== undefined) studentProfile.softwareList = req.body.softwareList;
+    if (req.body.softwareList !== undefined) {
+      // Handle softwareList - ensure it's an array or null
+      if (req.body.softwareList === null || req.body.softwareList === '') {
+        studentProfile.softwareList = null;
+      } else if (Array.isArray(req.body.softwareList)) {
+        // Filter out empty strings and trim
+        const filtered = req.body.softwareList
+          .map((s: string) => typeof s === 'string' ? s.trim() : String(s).trim())
+          .filter((s: string) => s.length > 0);
+        studentProfile.softwareList = filtered.length > 0 ? filtered : null;
+      } else if (typeof req.body.softwareList === 'string') {
+        // Handle comma-separated string
+        const softwareArray = req.body.softwareList
+          .split(',')
+          .map((s: string) => s.trim())
+          .filter((s: string) => s.length > 0);
+        studentProfile.softwareList = softwareArray.length > 0 ? softwareArray : null;
+      } else {
+        studentProfile.softwareList = null;
+      }
+    }
     if (req.body.enrollmentDate !== undefined) studentProfile.enrollmentDate = req.body.enrollmentDate ? new Date(req.body.enrollmentDate) : null;
     if (req.body.status !== undefined) studentProfile.status = req.body.status;
     if (req.body.documents !== undefined) studentProfile.documents = req.body.documents;
 
-    await studentProfile.save();
+    // Save the profile, excluding serialNo if it had an error
+    try {
+      if (skipSerialNo) {
+        // Get list of changed fields excluding serialNo
+        const changedFields = Object.keys(studentProfile.changed() || {}).filter(field => field !== 'serialNo') as Array<keyof StudentProfileAttributes>;
+        if (changedFields.length > 0) {
+          await studentProfile.save({ fields: changedFields });
+        } else {
+          // No fields to update, just fetch the user
+          logger.info(`No fields to update for student profile userId=${userId} (serialNo skipped)`);
+        }
+      } else {
+        await studentProfile.save();
+      }
+    } catch (saveError: any) {
+      // If save fails due to serialNo, try again without it
+      if (saveError?.message?.includes('serialNo') || saveError?.parent?.message?.includes('serialNo')) {
+        logger.warn(`Save failed due to serialNo, retrying without serialNo for userId=${userId}`);
+        const changedFields = Object.keys(studentProfile.changed() || {}).filter(field => field !== 'serialNo') as Array<keyof StudentProfileAttributes>;
+        if (changedFields.length > 0) {
+          await studentProfile.save({ fields: changedFields });
+        }
+      } else {
+        throw saveError;
+      }
+    }
 
     // Fetch updated user with profile
     const updatedUser = await db.User.findByPk(userId, {
@@ -557,21 +837,82 @@ export const updateStudentProfile = async (
         user: updatedUser,
       },
     });
-  } catch (error) {
+  } catch (error: any) {
     logger.error('Update student profile error:', error);
+    logger.error('Error details:', {
+      message: error?.message,
+      name: error?.name,
+      stack: error?.stack,
+      userId: req.params.id,
+      body: req.body ? {
+        hasSerialNo: !!req.body.serialNo,
+        hasDob: !!req.body.dob,
+        hasAddress: !!req.body.address,
+        hasPhotoUrl: !!req.body.photoUrl,
+        hasSoftwareList: !!req.body.softwareList,
+        hasEnrollmentDate: !!req.body.enrollmentDate,
+        hasStatus: !!req.body.status,
+        hasDocuments: !!req.body.documents,
+        documentsType: req.body.documents ? typeof req.body.documents : 'undefined',
+        softwareListType: req.body.softwareList ? typeof req.body.softwareList : 'undefined',
+      } : 'No body',
+    });
+    
+    // Check for specific error types
+    if (error?.name === 'SequelizeValidationError') {
+      const validationErrors = error.errors?.map((e: any) => `${e.path}: ${e.message}`).join(', ') || 'Validation error';
+      res.status(400).json({
+        status: 'error',
+        message: `Validation error: ${validationErrors}`,
+        errors: error.errors,
+      });
+      return;
+    }
+    
+    if (error?.name === 'SequelizeDatabaseError') {
+      res.status(400).json({
+        status: 'error',
+        message: `Database error: ${error?.parent?.sqlMessage || error.message}`,
+        error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+      });
+      return;
+    }
+    
+    if (error?.name === 'SequelizeUniqueConstraintError') {
+      const field = error.errors?.[0]?.path || 'field';
+      res.status(400).json({
+        status: 'error',
+        message: `A profile with this ${field} already exists`,
+        error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+      });
+      return;
+    }
+    
     res.status(500).json({
       status: 'error',
       message: 'Internal server error while updating student profile',
+      error: process.env.NODE_ENV === 'development' ? error?.message : undefined,
     });
   }
 };
 
 // PUT /api/users/:id/faculty-profile - Update faculty profile
 export const updateFacultyProfile = async (
-  req: AuthRequest & { params: { id: string }; body: { expertise?: string; availability?: string } },
+  req: AuthRequest & { params: { id: string }; body: { dateOfBirth?: string; expertise?: string; availability?: string; documents?: any; softwareProficiency?: string } },
   res: Response
 ): Promise<void> => {
   try {
+    // Log incoming request for debugging
+    logger.info('Faculty profile update request received:', {
+      userId: req.params.id,
+      bodyKeys: req.body ? Object.keys(req.body) : [],
+      hasDocuments: !!req.body?.documents,
+      hasExpertise: !!req.body?.expertise,
+      hasAvailability: !!req.body?.availability,
+      hasSoftwareProficiency: !!req.body?.softwareProficiency,
+      documentsType: req.body?.documents ? typeof req.body.documents : 'undefined',
+    });
+
     if (!req.user) {
       res.status(401).json({
         status: 'error',
@@ -630,27 +971,489 @@ export const updateFacultyProfile = async (
     // Get or create faculty profile
     let facultyProfile = await db.FacultyProfile.findOne({ where: { userId } });
     if (!facultyProfile) {
-      facultyProfile = await db.FacultyProfile.create({ userId });
+      try {
+        logger.info('Creating new faculty profile for user:', userId);
+        facultyProfile = await db.FacultyProfile.create({ userId });
+        logger.info('Faculty profile created:', { profileId: facultyProfile.id, userId });
+      } catch (createError: any) {
+        // If creation fails (e.g., due to unique constraint), try to find it again
+        if (createError?.name === 'SequelizeUniqueConstraintError') {
+          logger.warn('Faculty profile already exists, fetching it:', createError);
+          facultyProfile = await db.FacultyProfile.findOne({ where: { userId } });
+          if (!facultyProfile) {
+            logger.error('Failed to create or find faculty profile after unique constraint error');
+            throw new Error('Failed to create or find faculty profile');
+          }
+        } else {
+          logger.error('Error creating faculty profile:', createError);
+          logger.error('Create error details:', {
+            message: createError?.message,
+            name: createError?.name,
+            code: createError?.parent?.code,
+            sql: createError?.parent?.sql,
+          });
+          throw createError;
+        }
+      }
+    } else {
+      logger.info('Found existing faculty profile:', { profileId: facultyProfile.id, userId });
+    }
+
+    // Track if any fields are being updated
+    let hasUpdates = false;
+
+    // Extract dateOfBirth from top level or from documents.personalInfo
+    let dateOfBirthValue = req.body.dateOfBirth;
+    if (dateOfBirthValue === undefined && req.body.documents?.personalInfo?.dateOfBirth) {
+      dateOfBirthValue = req.body.documents.personalInfo.dateOfBirth;
     }
 
     // Update profile fields
-    if (req.body.expertise !== undefined) facultyProfile.expertise = req.body.expertise;
-    if (req.body.availability !== undefined) facultyProfile.availability = req.body.availability;
+    if (dateOfBirthValue !== undefined) {
+      hasUpdates = true;
+      if (dateOfBirthValue) {
+        // Handle both string and Date formats
+        let dobDate: Date;
+        if (typeof dateOfBirthValue === 'string') {
+          // If it's already in YYYY-MM-DD format, use it directly
+          if (/^\d{4}-\d{2}-\d{2}$/.test(dateOfBirthValue)) {
+            dobDate = new Date(dateOfBirthValue + 'T00:00:00'); // Add time to avoid timezone issues
+          } else {
+            dobDate = new Date(dateOfBirthValue);
+          }
+        } else {
+          dobDate = new Date(dateOfBirthValue);
+        }
+        
+        if (isNaN(dobDate.getTime())) {
+          res.status(400).json({
+            status: 'error',
+            message: 'Invalid date of birth format',
+          });
+          return;
+        }
+        if (dobDate > new Date()) {
+          res.status(400).json({
+            status: 'error',
+            message: 'Date of birth cannot be in the future',
+          });
+          return;
+        }
+        // Check if age is at least 18
+        const today = new Date();
+        let age = today.getFullYear() - dobDate.getFullYear();
+        const monthDiff = today.getMonth() - dobDate.getMonth();
+        const dayDiff = today.getDate() - dobDate.getDate();
+        if (monthDiff < 0 || (monthDiff === 0 && dayDiff < 0)) {
+          age--;
+        }
+        if (age < 18) {
+          res.status(400).json({
+            status: 'error',
+            message: 'Faculty must be at least 18 years old',
+          });
+          return;
+        }
+        // Set dateOfBirth - Sequelize DATEONLY accepts Date objects or YYYY-MM-DD strings
+        // Format as YYYY-MM-DD string for DATEONLY type to ensure compatibility
+        const year = dobDate.getFullYear();
+        const month = String(dobDate.getMonth() + 1).padStart(2, '0');
+        const day = String(dobDate.getDate()).padStart(2, '0');
+        const formattedDate = `${year}-${month}-${day}`;
+        
+        // Check if dateOfBirth column exists before trying to set it
+        try {
+          // Try to set the dateOfBirth field
+          if ('dateOfBirth' in facultyProfile) {
+            (facultyProfile as any).dateOfBirth = formattedDate;
+          } else {
+            logger.warn('dateOfBirth column does not exist in faculty_profiles table. Migration may not have been run.');
+            // Don't fail, just log a warning
+          }
+        } catch (error: any) {
+          logger.error('Error setting dateOfBirth:', error);
+          // If column doesn't exist, log but don't fail the entire update
+          if (error.message && error.message.includes('dateOfBirth')) {
+            logger.warn('dateOfBirth column may not exist. Please run migration: 20251223000000-add-dateOfBirth-to-faculty-profiles');
+          } else {
+            throw error; // Re-throw if it's a different error
+          }
+        }
+        
+        // Also ensure dateOfBirth is stored in documents.personalInfo for frontend compatibility
+        if (facultyProfile.documents && typeof facultyProfile.documents === 'object') {
+          if (!facultyProfile.documents.personalInfo) {
+            (facultyProfile.documents as any).personalInfo = {};
+          }
+          (facultyProfile.documents as any).personalInfo.dateOfBirth = formattedDate;
+        } else if (!facultyProfile.documents) {
+          // If documents doesn't exist, create it with personalInfo
+          facultyProfile.documents = {
+            personalInfo: {
+              dateOfBirth: formattedDate,
+            },
+          };
+        }
+      } else {
+        // Set to null if explicitly provided as empty
+        if ('dateOfBirth' in facultyProfile) {
+          (facultyProfile as any).dateOfBirth = null;
+        }
+        // Also remove from documents.personalInfo
+        if (facultyProfile.documents && typeof facultyProfile.documents === 'object' && (facultyProfile.documents as any).personalInfo) {
+          (facultyProfile.documents as any).personalInfo.dateOfBirth = null;
+        }
+      }
+    }
+    if (req.body.expertise !== undefined) {
+      hasUpdates = true;
+      // Handle both string and object formats
+      if (typeof req.body.expertise === 'string') {
+        facultyProfile.expertise = { description: req.body.expertise };
+      } else if (req.body.expertise !== null) {
+        facultyProfile.expertise = req.body.expertise;
+      } else {
+        facultyProfile.expertise = null;
+      }
+    }
+    if (req.body.availability !== undefined) {
+      hasUpdates = true;
+      // Handle both string and object formats
+      if (typeof req.body.availability === 'string') {
+        facultyProfile.availability = { schedule: req.body.availability };
+      } else if (req.body.availability !== null) {
+        facultyProfile.availability = req.body.availability;
+      } else {
+        facultyProfile.availability = null;
+      }
+    }
+    
+    // Handle documents field - ensure it's a valid object
+    if (req.body.documents !== undefined) {
+      hasUpdates = true;
+      try {
+        let documentsData = req.body.documents;
+        
+        // If documents is a string, try to parse it
+        if (typeof documentsData === 'string') {
+          try {
+            documentsData = JSON.parse(documentsData);
+          } catch (parseError) {
+            logger.warn('Failed to parse documents string:', parseError);
+            documentsData = {};
+          }
+        }
+        
+        // Ensure documents is an object or null
+        if (documentsData === null) {
+          facultyProfile.documents = null;
+        } else if (typeof documentsData === 'object' && !Array.isArray(documentsData)) {
+          // Deep clone to avoid circular references and ensure it's serializable
+          try {
+            // Use JSON parse/stringify to ensure clean serializable object
+            // This removes any circular references, functions, undefined values, etc.
+            const serialized = JSON.parse(JSON.stringify(documentsData, (_key, value) => {
+              // Remove undefined values
+              if (value === undefined) {
+                return null;
+              }
+              // Remove functions
+              if (typeof value === 'function') {
+                return null;
+              }
+              // Handle Date objects
+              if (value instanceof Date) {
+                return value.toISOString();
+              }
+              return value;
+            }));
+            facultyProfile.documents = serialized;
+          } catch (serializeError: any) {
+            logger.error('Error serializing documents:', serializeError);
+            logger.error('Serialize error message:', serializeError?.message);
+            // If serialization fails, try to clean the object manually
+            const cleaned: any = {};
+            try {
+              for (const key in documentsData) {
+                if (documentsData.hasOwnProperty(key)) {
+                  try {
+                    const value = documentsData[key];
+                    // Only include serializable values
+                    if (value !== undefined && typeof value !== 'function') {
+                      if (value instanceof Date) {
+                        cleaned[key] = value.toISOString();
+                      } else if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
+                        // Recursively clean nested objects
+                        try {
+                          cleaned[key] = JSON.parse(JSON.stringify(value));
+                        } catch (e) {
+                          logger.warn(`Skipping non-serializable nested object: ${key}`);
+                        }
+                      } else {
+                        cleaned[key] = value;
+                      }
+                    }
+                  } catch (e) {
+                    logger.warn(`Skipping non-serializable key: ${key}`);
+                  }
+                }
+              }
+              facultyProfile.documents = cleaned;
+            } catch (cleanError: any) {
+              logger.error('Error cleaning documents:', cleanError);
+              // If cleaning also fails, keep existing documents or use empty object
+              if (!facultyProfile.documents) {
+                facultyProfile.documents = {};
+              }
+            }
+          }
+        } else {
+          logger.warn('Invalid documents format, using empty object');
+          facultyProfile.documents = {};
+        }
+      } catch (docError: any) {
+        logger.error('Error processing documents field:', docError);
+        logger.error('Error message:', docError?.message);
+        logger.error('Error stack:', docError?.stack);
+        // Keep existing documents if there's an error
+        if (!facultyProfile.documents) {
+          facultyProfile.documents = {};
+        }
+      }
+    }
+    
+    // Handle softwareProficiency if sent separately (though it should be in documents)
+    if (req.body.softwareProficiency !== undefined && req.body.documents === undefined) {
+      hasUpdates = true;
+      // If documents not provided, merge softwareProficiency into existing documents
+      const existingDocuments = facultyProfile.documents || {};
+      try {
+        // Ensure we can serialize the merged documents
+        const merged = {
+          ...(typeof existingDocuments === 'object' && existingDocuments !== null ? existingDocuments : {}),
+          softwareProficiency: req.body.softwareProficiency,
+        };
+        // Validate it can be serialized
+        JSON.stringify(merged);
+        facultyProfile.documents = merged;
+      } catch (mergeError: any) {
+        logger.error('Error merging softwareProficiency into documents:', mergeError);
+        // If merge fails, just set softwareProficiency directly
+        facultyProfile.documents = {
+          softwareProficiency: req.body.softwareProficiency,
+        };
+      }
+    }
 
-    await facultyProfile.save();
+    // Ensure documents is valid JSON before saving
+    if (facultyProfile.documents !== null && facultyProfile.documents !== undefined) {
+      try {
+        // Validate that documents can be serialized to JSON
+        JSON.stringify(facultyProfile.documents);
+      } catch (jsonError: any) {
+        logger.error('Documents field is not JSON serializable, resetting to empty object:', jsonError);
+        facultyProfile.documents = {};
+      }
+    }
 
-    // Fetch updated user with profile
-    const updatedUser = await db.User.findByPk(userId, {
-      attributes: { exclude: ['passwordHash'] },
-      include: db.FacultyProfile ? [
-        {
-          model: db.FacultyProfile,
-          as: 'facultyProfile',
-          required: false,
+    // Check if we have any updates to save
+    if (!hasUpdates) {
+      logger.warn('No fields to update in faculty profile');
+      // Still return success but fetch the current profile
+      const currentUser = await db.User.findByPk(userId, {
+        attributes: { exclude: ['passwordHash'] },
+        include: db.FacultyProfile ? [
+          {
+            model: db.FacultyProfile,
+            as: 'facultyProfile',
+            required: false,
+          },
+        ] : undefined,
+      });
+      
+      res.status(200).json({
+        status: 'success',
+        message: 'No changes to update',
+        data: {
+          user: currentUser,
         },
-      ] : undefined,
+      });
+      return;
+    }
+
+    // Log what we're about to save for debugging
+    logger.info('Saving faculty profile:', {
+      userId,
+      profileId: facultyProfile.id,
+      hasExpertise: !!facultyProfile.expertise,
+      hasAvailability: !!facultyProfile.availability,
+      hasDocuments: !!facultyProfile.documents,
+      hasDateOfBirth: !!facultyProfile.dateOfBirth,
+      documentsKeys: facultyProfile.documents ? Object.keys(facultyProfile.documents) : [],
+      expertiseType: facultyProfile.expertise ? typeof facultyProfile.expertise : 'null',
+      availabilityType: facultyProfile.availability ? typeof facultyProfile.availability : 'null',
     });
 
+    // Log the actual values before save (truncated for large objects)
+    try {
+      const logData: any = {
+        userId,
+        profileId: facultyProfile.id,
+        dateOfBirth: facultyProfile.dateOfBirth,
+        expertise: facultyProfile.expertise ? (typeof facultyProfile.expertise === 'string' ? (facultyProfile.expertise as string).substring(0, 100) : JSON.stringify(facultyProfile.expertise).substring(0, 100)) : null,
+        availability: facultyProfile.availability ? (typeof facultyProfile.availability === 'string' ? (facultyProfile.availability as string).substring(0, 100) : JSON.stringify(facultyProfile.availability).substring(0, 100)) : null,
+        documentsSize: facultyProfile.documents ? JSON.stringify(facultyProfile.documents).length : 0,
+      };
+      logger.info('Faculty profile data before save:', logData);
+    } catch (logError) {
+      logger.warn('Error logging profile data:', logError);
+    }
+
+    try {
+      const savedProfile = await facultyProfile.save();
+      logger.info('Faculty profile saved successfully:', {
+        userId,
+        profileId: savedProfile.id,
+        updatedAt: savedProfile.updatedAt,
+      });
+    } catch (saveError: any) {
+      logger.error('Error saving faculty profile:', saveError);
+      logger.error('Save error details:', {
+        message: saveError?.message,
+        name: saveError?.name,
+        code: saveError?.parent?.code,
+        sql: saveError?.parent?.sql,
+        sqlState: saveError?.parent?.sqlState,
+        sqlMessage: saveError?.parent?.sqlMessage,
+        errors: saveError?.errors,
+      });
+      
+      // Check if error is due to missing dateOfBirth column
+      const errorMessage = (saveError?.parent?.sqlMessage || saveError?.message || '').toLowerCase();
+      const isDateOfBirthError = (errorMessage.includes("dateofbirth") || errorMessage.includes("date_of_birth")) &&
+                                 errorMessage.includes("unknown column");
+      
+      if (isDateOfBirthError && facultyProfile.dateOfBirth !== undefined) {
+        logger.warn('dateOfBirth column does not exist in database. Removing from update and retrying...');
+        // Get all changed fields except dateOfBirth
+        const changedFields = facultyProfile.changed() || [];
+        const fieldsToSave = changedFields.filter((field: string) => field !== 'dateOfBirth');
+        
+        // Remove dateOfBirth from the model instance
+        delete (facultyProfile as any).dateOfBirth;
+        // Also remove it from changed fields tracking
+        if (facultyProfile.changed('dateOfBirth')) {
+          facultyProfile.setDataValue('dateOfBirth', undefined as any);
+        }
+        
+        try {
+          // Retry save without dateOfBirth - use fields option to only save changed fields (excluding dateOfBirth)
+          const defaultFields = ['expertise', 'availability', 'documents', 'updatedAt'];
+          const fieldsToUpdate = fieldsToSave.length > 0 ? fieldsToSave : defaultFields;
+          const savedProfile = await facultyProfile.save({ fields: fieldsToUpdate as any });
+          logger.info('Faculty profile saved successfully after removing dateOfBirth:', {
+            userId,
+            profileId: savedProfile.id,
+            updatedAt: savedProfile.updatedAt,
+          });
+          logger.warn('Please run migration: 20251223000000-add-dateOfBirth-to-faculty-profiles to add the dateOfBirth column');
+          // Continue with the rest of the function - don't return or throw
+        } catch (retryError: any) {
+          logger.error('Error saving faculty profile after retry:', retryError);
+          // If retry also fails, handle it as a regular database error
+          if (retryError?.name === 'SequelizeDatabaseError') {
+            res.status(400).json({
+              status: 'error',
+              message: `Database error: ${retryError?.parent?.sqlMessage || retryError.message}`,
+              error: process.env.NODE_ENV === 'development' ? retryError.message : undefined,
+            });
+            return;
+          }
+          throw retryError;
+        }
+      } else {
+        // Provide more specific error messages
+        if (saveError?.name === 'SequelizeValidationError') {
+          const validationErrors = saveError.errors?.map((e: any) => e.message).join(', ') || 'Validation error';
+          res.status(400).json({
+            status: 'error',
+            message: `Validation error: ${validationErrors}`,
+            errors: saveError.errors,
+          });
+          return;
+        }
+        
+        if (saveError?.name === 'SequelizeDatabaseError') {
+          res.status(400).json({
+            status: 'error',
+            message: `Database error: ${saveError?.parent?.sqlMessage || saveError.message}`,
+            error: process.env.NODE_ENV === 'development' ? saveError.message : undefined,
+          });
+          return;
+        }
+        
+        throw saveError;
+      }
+    }
+
+    // Reload the profile to ensure we have the latest data
+    try {
+      await facultyProfile.reload();
+      logger.info('Faculty profile reloaded after save:', {
+        profileId: facultyProfile.id,
+        hasDocuments: !!facultyProfile.documents,
+        documentsKeys: facultyProfile.documents ? Object.keys(facultyProfile.documents) : [],
+      });
+    } catch (reloadError: any) {
+      logger.warn('Error reloading faculty profile:', reloadError);
+      // Continue anyway, we'll fetch it with the user
+    }
+
+    // Fetch updated user with profile
+    let updatedUser;
+    try {
+      updatedUser = await db.User.findByPk(userId, {
+        attributes: { exclude: ['passwordHash'] },
+        include: db.FacultyProfile ? [
+          {
+            model: db.FacultyProfile,
+            as: 'facultyProfile',
+            required: false,
+          },
+        ] : undefined,
+      });
+      
+      if (updatedUser) {
+        logger.info('Updated user fetched:', {
+          userId: updatedUser.id,
+          hasFacultyProfile: !!updatedUser.facultyProfile,
+          profileId: updatedUser.facultyProfile?.id,
+        });
+      }
+    } catch (queryError: any) {
+      logger.error('Error fetching updated user with profile:', queryError);
+      // Fallback: fetch without profile
+      updatedUser = await db.User.findByPk(userId, {
+        attributes: { exclude: ['passwordHash'] },
+      });
+    }
+
+    if (!updatedUser) {
+      logger.error('Failed to fetch updated user after save');
+      res.status(500).json({
+        status: 'error',
+        message: 'Profile updated but failed to fetch updated user data',
+      });
+      return;
+    }
+
+    // Ensure the profile is included in the response
+    if (!updatedUser.facultyProfile && facultyProfile) {
+      // Manually attach the profile if it wasn't included
+      (updatedUser as any).facultyProfile = facultyProfile;
+    }
+
+    logger.info('Sending success response for faculty profile update');
     res.status(200).json({
       status: 'success',
       message: 'Faculty profile updated successfully',
@@ -658,11 +1461,56 @@ export const updateFacultyProfile = async (
         user: updatedUser,
       },
     });
-  } catch (error) {
+  } catch (error: any) {
     logger.error('Update faculty profile error:', error);
+    logger.error('Error details:', {
+      message: error?.message,
+      name: error?.name,
+      stack: error?.stack,
+      userId: req.params.id,
+      body: req.body ? {
+        hasDateOfBirth: !!req.body.dateOfBirth,
+        hasExpertise: !!req.body.expertise,
+        hasAvailability: !!req.body.availability,
+        hasDocuments: !!req.body.documents,
+        documentsType: req.body.documents ? typeof req.body.documents : 'undefined',
+        documentsKeys: req.body.documents && typeof req.body.documents === 'object' ? Object.keys(req.body.documents) : [],
+      } : 'No body',
+    });
+    
+    // Check for specific error types
+    if (error?.name === 'SequelizeValidationError') {
+      const validationErrors = error.errors?.map((e: any) => `${e.path}: ${e.message}`).join(', ') || 'Validation error';
+      res.status(400).json({
+        status: 'error',
+        message: `Validation error: ${validationErrors}`,
+        errors: error.errors,
+      });
+      return;
+    }
+    
+    if (error?.name === 'SequelizeDatabaseError') {
+      res.status(400).json({
+        status: 'error',
+        message: `Database error: ${error?.parent?.sqlMessage || error.message}`,
+        error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+      });
+      return;
+    }
+    
+    if (error?.name === 'SequelizeUniqueConstraintError') {
+      res.status(400).json({
+        status: 'error',
+        message: 'A profile with this information already exists',
+        error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+      });
+      return;
+    }
+    
     res.status(500).json({
       status: 'error',
       message: 'Internal server error while updating faculty profile',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
     });
   }
 };
@@ -762,7 +1610,41 @@ export const updateEmployeeProfile = async (
     // Update profile fields
     if (req.body.employeeId !== undefined) employeeProfile.employeeId = req.body.employeeId;
     if (req.body.gender !== undefined) employeeProfile.gender = req.body.gender;
-    if (req.body.dateOfBirth !== undefined) employeeProfile.dateOfBirth = req.body.dateOfBirth ? new Date(req.body.dateOfBirth) : null;
+    if (req.body.dateOfBirth !== undefined) {
+      if (req.body.dateOfBirth) {
+        const dobDate = new Date(req.body.dateOfBirth);
+        if (isNaN(dobDate.getTime())) {
+          res.status(400).json({
+            status: 'error',
+            message: 'Invalid date of birth format',
+          });
+          return;
+        }
+        if (dobDate > new Date()) {
+          res.status(400).json({
+            status: 'error',
+            message: 'Date of birth cannot be in the future',
+          });
+          return;
+        }
+        // Check if age is at least 18
+        const today = new Date();
+        let age = today.getFullYear() - dobDate.getFullYear();
+        const monthDiff = today.getMonth() - dobDate.getMonth();
+        const dayDiff = today.getDate() - dobDate.getDate();
+        if (monthDiff < 0 || (monthDiff === 0 && dayDiff < 0)) {
+          age--;
+        }
+        if (age < 18) {
+          res.status(400).json({
+            status: 'error',
+            message: 'Employee must be at least 18 years old',
+          });
+          return;
+        }
+      }
+      employeeProfile.dateOfBirth = req.body.dateOfBirth ? new Date(req.body.dateOfBirth) : null;
+    }
     if (req.body.nationality !== undefined) employeeProfile.nationality = req.body.nationality;
     if (req.body.maritalStatus !== undefined) employeeProfile.maritalStatus = req.body.maritalStatus;
     if (req.body.department !== undefined) employeeProfile.department = req.body.department;
@@ -779,6 +1661,54 @@ export const updateEmployeeProfile = async (
     if (req.body.city !== undefined) employeeProfile.city = req.body.city;
     if (req.body.state !== undefined) employeeProfile.state = req.body.state;
     if (req.body.postalCode !== undefined) employeeProfile.postalCode = req.body.postalCode;
+
+    // Handle documents field (e.g., emergencyContact, photo, etc.)
+    if ((req as any).body.documents !== undefined) {
+      try {
+        let documentsData = (req as any).body.documents;
+
+        // If documents is a string, try to parse it
+        if (typeof documentsData === 'string') {
+          try {
+            documentsData = JSON.parse(documentsData);
+          } catch (parseError) {
+            logger.warn('Failed to parse employee documents string:', parseError);
+            documentsData = {};
+          }
+        }
+
+        // Ensure documents is an object or null
+        if (documentsData === null || (typeof documentsData === 'object' && !Array.isArray(documentsData))) {
+          try {
+            const serialized = JSON.parse(JSON.stringify(documentsData));
+            (employeeProfile as any).documents = serialized;
+          } catch (serializeError: any) {
+            logger.error('Error serializing employee documents:', serializeError);
+            const cleaned = Object.keys(documentsData).reduce((acc: any, key) => {
+              try {
+                const value = (documentsData as any)[key];
+                if (value !== undefined && typeof value !== 'function') {
+                  acc[key] = value;
+                }
+              } catch {
+                logger.warn(`Skipping non-serializable employee documents key: ${key}`);
+              }
+              return acc;
+            }, {});
+            (employeeProfile as any).documents = cleaned;
+          }
+        } else {
+          logger.warn('Invalid employee documents format, using empty object');
+          (employeeProfile as any).documents = {};
+        }
+      } catch (docError: any) {
+        logger.error('Error processing employee documents field:', docError);
+        logger.error('Employee documents data that caused error:', JSON.stringify((req as any).body.documents, null, 2));
+        if (!(employeeProfile as any).documents) {
+          (employeeProfile as any).documents = {};
+        }
+      }
+    }
 
     await employeeProfile.save();
 
@@ -944,6 +1874,95 @@ export const getModulesList = async (req: AuthRequest, res: Response): Promise<v
     res.status(500).json({
       status: 'error',
       message: 'Internal server error while fetching modules list',
+    });
+  }
+};
+
+// POST /api/users/:id/reset-password - Reset user password (Admin/SuperAdmin only)
+export const resetUserPassword = async (
+  req: AuthRequest & { params: { id: string }; body: { newPassword?: string } },
+  res: Response
+): Promise<void> => {
+  try {
+    if (!req.user) {
+      res.status(401).json({
+        status: 'error',
+        message: 'Authentication required',
+      });
+      return;
+    }
+
+    // Only Admin or SuperAdmin can reset passwords
+    if (req.user.role !== UserRole.ADMIN && req.user.role !== UserRole.SUPERADMIN) {
+      res.status(403).json({
+        status: 'error',
+        message: 'Only admins can reset user passwords',
+      });
+      return;
+    }
+
+    const userId = parseInt(req.params.id, 10);
+    if (isNaN(userId)) {
+      res.status(400).json({
+        status: 'error',
+        message: 'Invalid user ID',
+      });
+      return;
+    }
+
+    const user = await db.User.findByPk(userId);
+    if (!user) {
+      res.status(404).json({
+        status: 'error',
+        message: 'User not found',
+      });
+      return;
+    }
+
+    // Generate a new password if not provided
+    let newPassword: string;
+    if (req.body.newPassword) {
+      if (req.body.newPassword.length < 6) {
+        res.status(400).json({
+          status: 'error',
+          message: 'Password must be at least 6 characters long',
+        });
+        return;
+      }
+      newPassword = req.body.newPassword;
+    } else {
+      // Generate a random password
+      const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
+      newPassword = '';
+      for (let i = 0; i < 12; i++) {
+        newPassword += chars.charAt(Math.floor(Math.random() * chars.length));
+      }
+    }
+
+    // Hash the new password
+    const saltRounds = 10;
+    const passwordHash = await bcrypt.hash(newPassword, saltRounds);
+
+    // Update user password
+    user.passwordHash = passwordHash;
+    await user.save();
+
+    logger.info(`Password reset for user ${user.id} (${user.email}) by admin ${req.user.userId}`);
+
+    res.status(200).json({
+      status: 'success',
+      message: 'Password reset successfully',
+      data: {
+        newPassword: newPassword, // Return the new password so admin can share it with user
+        userId: user.id,
+        email: user.email,
+      },
+    });
+  } catch (error: any) {
+    logger.error('Reset password error:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Internal server error while resetting password',
     });
   }
 };
