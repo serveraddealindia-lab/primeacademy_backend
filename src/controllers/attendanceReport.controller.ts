@@ -281,6 +281,19 @@ export const getAllStudents = async (req: AuthRequest, res: Response): Promise<v
     });
     
     logger.info(`Get all students query: Found ${students.length} students with role STUDENT`);
+    
+    // Log details about each student for debugging
+    if (students.length > 0) {
+      students.slice(0, 5).forEach((student: any) => {
+        logger.info(`Student sample: id=${student.id}, name=${student.name}, email=${student.email}, isActive=${student.isActive}, hasProfile=${!!student.studentProfile}`);
+      });
+    } else {
+      logger.warn('No students found in database with role STUDENT');
+      // Check if there are any users at all
+      const allUsers = await db.User.count();
+      const studentUsers = await db.User.count({ where: { role: UserRole.STUDENT } });
+      logger.info(`Total users in database: ${allUsers}, Students: ${studentUsers}`);
+    }
 
     logger.info(`Get all students: Found ${students.length} students`);
 
