@@ -184,93 +184,106 @@ export const completeEnrollment = async (
     // Validation - All enrollment fields are required
     const validationErrors: string[] = [];
     
-    if (!studentName || !studentName.trim()) {
+    // Helper function to safely check string values
+    const isEmptyString = (value: any): boolean => {
+      return !value || (typeof value === 'string' && !value.trim());
+    };
+    
+    if (isEmptyString(studentName)) {
       validationErrors.push('Student name is required');
     }
     
-    if (!email || !email.trim()) {
+    if (isEmptyString(email)) {
       validationErrors.push('Email is required');
     } else {
+      const emailStr = String(email).trim();
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (!emailRegex.test(email.trim())) {
+      if (!emailRegex.test(emailStr)) {
         validationErrors.push('Please enter a valid email address');
       }
     }
     
-    if (!phone || !phone.trim()) {
+    if (isEmptyString(phone)) {
       validationErrors.push('Phone number is required');
     } else {
-      const phoneCleaned = phone.replace(/\D/g, '');
+      const phoneStr = String(phone);
+      const phoneCleaned = phoneStr.replace(/\D/g, '');
       if (phoneCleaned.length !== 10) {
         validationErrors.push('Please enter a valid 10-digit phone number');
       }
     }
     
-    if (!whatsappNumber || !whatsappNumber.trim()) {
+    if (isEmptyString(whatsappNumber)) {
       validationErrors.push('WhatsApp number is required');
     } else {
-      const whatsappCleaned = whatsappNumber.replace(/\D/g, '');
+      const whatsappStr = String(whatsappNumber);
+      const whatsappCleaned = whatsappStr.replace(/\D/g, '');
       if (whatsappCleaned.length !== 10) {
         validationErrors.push('Please enter a valid 10-digit WhatsApp number');
       }
     }
     
-    if (!dateOfAdmission || !dateOfAdmission.trim()) {
+    if (isEmptyString(dateOfAdmission)) {
       validationErrors.push('Date of Admission is required');
     } else {
       // Validate date format (should be YYYY-MM-DD from frontend conversion)
+      const dateStr = String(dateOfAdmission).trim();
       const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
-      if (!dateRegex.test(dateOfAdmission.trim())) {
+      if (!dateRegex.test(dateStr)) {
         validationErrors.push('Date of Admission must be in valid format');
       }
     }
     
-    if (!localAddress || !localAddress.trim()) {
+    if (isEmptyString(localAddress)) {
       validationErrors.push('Local Address is required');
     }
     
-    if (!permanentAddress || !permanentAddress.trim()) {
+    if (isEmptyString(permanentAddress)) {
       validationErrors.push('Permanent Address is required');
     }
     
-    if (!emergencyContactNumber || !emergencyContactNumber.trim()) {
+    if (isEmptyString(emergencyContactNumber)) {
       validationErrors.push('Emergency Contact Number is required');
     } else {
-      const emergencyPhoneCleaned = emergencyContactNumber.replace(/\D/g, '');
+      const emergencyStr = String(emergencyContactNumber);
+      const emergencyPhoneCleaned = emergencyStr.replace(/\D/g, '');
       if (emergencyPhoneCleaned.length !== 10) {
         validationErrors.push('Please enter a valid 10-digit emergency contact number');
       }
     }
     
-    if (!emergencyName || !emergencyName.trim()) {
+    if (isEmptyString(emergencyName)) {
       validationErrors.push('Emergency Contact Name is required');
     }
     
-    if (!emergencyRelation || !emergencyRelation.trim()) {
+    if (isEmptyString(emergencyRelation)) {
       validationErrors.push('Emergency Contact Relation is required');
     }
     
-    if (!courseName || !courseName.trim()) {
+    if (isEmptyString(courseName)) {
       validationErrors.push('Course Name is required');
     }
     
-    if (!batchId) {
+    if (!batchId || (typeof batchId === 'number' && batchId <= 0)) {
       validationErrors.push('Batch ID is required');
     }
     
-    if (!softwaresIncluded || !softwaresIncluded.trim()) {
+    if (isEmptyString(softwaresIncluded)) {
       validationErrors.push('At least one software must be selected');
     }
     
-    if (!totalDeal || totalDeal <= 0) {
+    const totalDealNum = typeof totalDeal === 'string' ? parseFloat(totalDeal) : (totalDeal || 0);
+    if (!totalDeal || totalDealNum <= 0) {
       validationErrors.push('Total Deal Amount is required and must be greater than 0');
     }
     
-    if (bookingAmount === undefined || bookingAmount === null || bookingAmount < 0) {
+    const bookingAmountNum = typeof bookingAmount === 'string' ? parseFloat(bookingAmount) : (bookingAmount ?? 0);
+    if (bookingAmount === undefined || bookingAmount === null || bookingAmountNum < 0) {
       validationErrors.push('Booking Amount is required');
     }
     
-    if (balanceAmount === undefined || balanceAmount === null || balanceAmount < 0) {
+    const balanceAmountNum = typeof balanceAmount === 'string' ? parseFloat(balanceAmount) : (balanceAmount ?? 0);
+    if (balanceAmount === undefined || balanceAmount === null || balanceAmountNum < 0) {
       validationErrors.push('Balance Amount is required');
     }
     
@@ -283,38 +296,41 @@ export const completeEnrollment = async (
     }
     
     if (emiPlan) {
-      if (!emiPlanDate || !emiPlanDate.trim()) {
+      if (isEmptyString(emiPlanDate)) {
         validationErrors.push('EMI Plan Date is required when EMI Plan is selected');
       } else {
+        const emiDateStr = String(emiPlanDate).trim();
         const emiDateRegex = /^\d{4}-\d{2}-\d{2}$/;
-        if (!emiDateRegex.test(emiPlanDate.trim())) {
+        if (!emiDateRegex.test(emiDateStr)) {
           validationErrors.push('EMI Plan Date must be in valid format');
         }
       }
     }
     
-    if (!counselorName || !counselorName.trim()) {
+    if (isEmptyString(counselorName)) {
       validationErrors.push('Employee Name is required');
     }
     
-    if (!leadSource || !leadSource.trim()) {
+    if (isEmptyString(leadSource)) {
       validationErrors.push('Lead Source is required');
     }
     
     // Auto-fill current date if Walk-in is selected and date is empty
     let finalWalkinDate = walkinDate;
-    if (leadSource === 'Walk-in' && (!walkinDate || !walkinDate.trim())) {
+    const leadSourceStr = String(leadSource || '').trim();
+    if (leadSourceStr === 'Walk-in' && isEmptyString(walkinDate)) {
       // Auto-fill with current date
       const today = new Date();
       finalWalkinDate = today.toISOString().split('T')[0];
     } else if (walkinDate) {
+      const walkinDateStr = String(walkinDate).trim();
       const walkinDateRegex = /^\d{4}-\d{2}-\d{2}$/;
-      if (!walkinDateRegex.test(walkinDate.trim())) {
+      if (!walkinDateRegex.test(walkinDateStr)) {
         validationErrors.push('Walk-in Date must be in valid format');
       }
     }
     
-    if (!masterFaculty || !masterFaculty.trim()) {
+    if (isEmptyString(masterFaculty)) {
       validationErrors.push('Faculty is required');
     }
     
@@ -328,10 +344,10 @@ export const completeEnrollment = async (
       return;
     }
     
-    // Trim the values
-    const trimmedStudentName = studentName.trim();
-    const trimmedPhone = phone.trim();
-    const trimmedEmail = email.trim();
+    // Trim the values (safely convert to string first)
+    const trimmedStudentName = String(studentName || '').trim();
+    const trimmedPhone = String(phone || '').trim();
+    const trimmedEmail = String(email || '').trim();
 
     // Normalize phone number (remove all non-digit characters for comparison)
     const normalizedPhone = trimmedPhone.replace(/\D/g, '');

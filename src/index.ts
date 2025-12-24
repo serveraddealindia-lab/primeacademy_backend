@@ -55,6 +55,7 @@ const corsOptions = {
     'https://localhost:5173',
     'http://crm.prashantthakar.com',
     'https://crm.prashantthakar.com',
+    'https://api.prashantthakar.com',
   ],
   credentials: true,
   optionsSuccessStatus: 200,
