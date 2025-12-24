@@ -40,14 +40,19 @@ export const FacultyRegistration: React.FC = () => {
   // Create faculty profile
   const createFacultyMutation = useMutation({
     mutationFn: (data: CreateFacultyRequest) => facultyAPI.createFacultyProfile(data),
-    onSuccess: () => {
+    onSuccess: (response) => {
+      console.log('Faculty profile created successfully:', response);
+      // Invalidate all related queries
       queryClient.invalidateQueries({ queryKey: ['faculty'] });
       queryClient.invalidateQueries({ queryKey: ['users'] });
+      queryClient.invalidateQueries({ queryKey: ['faculty-profile'] });
       alert('Faculty registration completed successfully!');
       navigate('/faculty');
     },
     onError: (error: any) => {
-      alert(error.response?.data?.message || 'Failed to create faculty profile');
+      console.error('Failed to create faculty profile:', error);
+      console.error('Error response:', error?.response?.data);
+      alert(error.response?.data?.message || error?.message || 'Failed to create faculty profile');
     },
   });
 
@@ -66,12 +71,189 @@ export const FacultyRegistration: React.FC = () => {
     registerUserMutation.mutate(userData);
   };
 
+  const validateAllFields = (formData: FormData): { isValid: boolean; errors: Record<string, string> } => {
+    const errors: Record<string, string> = {};
+
+    // Validate Step 1: Account Information (already validated in handleUserRegistration)
+    
+    // Validate Step 2: Personal Information
+    if (!formData.get('gender') || !(formData.get('gender') as string).trim()) {
+      errors.gender = 'Gender is required';
+    }
+    if (!formData.get('dateOfBirth') || !(formData.get('dateOfBirth') as string).trim()) {
+      errors.dateOfBirth = 'Date of Birth is required';
+    } else {
+      const dateOfBirth = formData.get('dateOfBirth') as string;
+      const dobDate = new Date(dateOfBirth);
+      if (!isNaN(dobDate.getTime())) {
+        if (dobDate > new Date()) {
+          errors.dateOfBirth = 'Date of birth cannot be in the future';
+        } else {
+          const today = new Date();
+          let age = today.getFullYear() - dobDate.getFullYear();
+          const monthDiff = today.getMonth() - dobDate.getMonth();
+          const dayDiff = today.getDate() - dobDate.getDate();
+          
+          // Adjust age if birthday hasn't occurred this year
+          if (monthDiff < 0 || (monthDiff === 0 && dayDiff < 0)) {
+            age--;
+          }
+          
+          if (age < 18) {
+            errors.dateOfBirth = 'Faculty must be at least 18 years old';
+          }
+        }
+      }
+    }
+    if (!formData.get('nationality') || !(formData.get('nationality') as string).trim()) {
+      errors.nationality = 'Nationality is required';
+    }
+    if (!formData.get('maritalStatus') || !(formData.get('maritalStatus') as string).trim()) {
+      errors.maritalStatus = 'Marital Status is required';
+    }
+    if (!formData.get('address') || !(formData.get('address') as string).trim()) {
+      errors.address = 'Address is required';
+    }
+    if (!formData.get('city') || !(formData.get('city') as string).trim()) {
+      errors.city = 'City is required';
+    }
+    if (!formData.get('state') || !(formData.get('state') as string).trim()) {
+      errors.state = 'State is required';
+    }
+    if (!formData.get('postalCode') || !(formData.get('postalCode') as string).trim()) {
+      errors.postalCode = 'Postal Code is required';
+    }
+
+    // Validate Step 3: Employment Information
+    if (!formData.get('department') || !(formData.get('department') as string).trim()) {
+      errors.department = 'Department is required';
+    }
+    if (!formData.get('designation') || !(formData.get('designation') as string).trim()) {
+      errors.designation = 'Designation is required';
+    }
+    if (!formData.get('dateOfJoining') || !(formData.get('dateOfJoining') as string).trim()) {
+      errors.dateOfJoining = 'Date of Joining is required';
+    }
+    if (!formData.get('employmentType') || !(formData.get('employmentType') as string).trim()) {
+      errors.employmentType = 'Employment Type is required';
+    }
+    if (!formData.get('workLocation') || !(formData.get('workLocation') as string).trim()) {
+      errors.workLocation = 'Work Location is required';
+    }
+
+    // Validate Step 4: Bank Information
+    if (!formData.get('bankName') || !(formData.get('bankName') as string).trim()) {
+      errors.bankName = 'Bank Name is required';
+    }
+    if (!formData.get('accountNumber') || !(formData.get('accountNumber') as string).trim()) {
+      errors.accountNumber = 'Account Number is required';
+    }
+    if (!formData.get('ifscCode') || !(formData.get('ifscCode') as string).trim()) {
+      errors.ifscCode = 'IFSC Code is required';
+    }
+    if (!formData.get('branch') || !(formData.get('branch') as string).trim()) {
+      errors.branch = 'Branch is required';
+    }
+    if (!formData.get('panNumber') || !(formData.get('panNumber') as string).trim()) {
+      errors.panNumber = 'PAN Number is required';
+    } else {
+      // Validate PAN format
+      const panNumber = (formData.get('panNumber') as string).toUpperCase();
+      if (!/^[A-Z]{5}[0-9]{4}[A-Z]{1}$/.test(panNumber)) {
+        errors.panNumber = 'Invalid PAN Number format. PAN should be 10 characters (e.g., ABCDE1234F)';
+      }
+    }
+    // Validate IFSC format
+    if (formData.get('ifscCode')) {
+      const ifscCode = (formData.get('ifscCode') as string).toUpperCase();
+      if (!/^[A-Z]{4}0[A-Z0-9]{6}$/.test(ifscCode)) {
+        errors.ifscCode = 'Invalid IFSC Code format. IFSC should be 11 characters (e.g., ABCD0123456)';
+      }
+    }
+
+    // Validate Step 5: Emergency Contact
+    if (!formData.get('emergencyContactName') || !(formData.get('emergencyContactName') as string).trim()) {
+      errors.emergencyContactName = 'Emergency Contact Name is required';
+    }
+    if (!formData.get('emergencyRelationship') || !(formData.get('emergencyRelationship') as string).trim()) {
+      errors.emergencyRelationship = 'Emergency Relationship is required';
+    }
+    if (!formData.get('emergencyPhoneNumber') || !(formData.get('emergencyPhoneNumber') as string).trim()) {
+      errors.emergencyPhoneNumber = 'Emergency Phone Number is required';
+    } else {
+      const phoneNumber = (formData.get('emergencyPhoneNumber') as string).replace(/\D/g, '');
+      if (phoneNumber.length !== 10) {
+        errors.emergencyPhoneNumber = 'Please enter a valid 10-digit phone number';
+      }
+    }
+
+    // Validate Step 6: Expertise & Availability
+    if (!formData.get('expertise') || !(formData.get('expertise') as string).trim()) {
+      errors.expertise = 'Expertise is required';
+    }
+    if (!formData.get('availability') || !(formData.get('availability') as string).trim()) {
+      errors.availability = 'Availability is required';
+    }
+
+    // Validate Step 7: Software Proficiency (at least one required)
+    const selectedSoftware = formData.getAll('softwareProficiency') as string[];
+    let softwareList = selectedSoftware.filter(s => s !== 'Other');
+    if (showOtherSoftware && otherSoftware.trim()) {
+      softwareList.push(otherSoftware.trim());
+    }
+    if (softwareList.length === 0) {
+      errors.softwareProficiency = 'At least one software proficiency must be selected';
+    }
+
+    return {
+      isValid: Object.keys(errors).length === 0,
+      errors,
+    };
+  };
+
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    
+    // Only allow submission on the last step
+    if (currentStep !== totalSteps) {
+      // If not on last step, just move to next step
+      nextStep();
+      return;
+    }
+    
     const formData = new FormData(e.currentTarget);
     
     if (!createdUserId) {
       alert('Please complete user registration first');
+      return;
+    }
+
+    // Validate all fields
+    const validation = validateAllFields(formData);
+    if (!validation.isValid) {
+      // Find the first step with errors
+      let errorStep = 1;
+      if (validation.errors.gender || validation.errors.dateOfBirth || validation.errors.nationality || 
+          validation.errors.maritalStatus || validation.errors.address || validation.errors.city || 
+          validation.errors.state || validation.errors.postalCode) {
+        errorStep = 2;
+      } else if (validation.errors.department || validation.errors.designation || validation.errors.dateOfJoining || 
+                 validation.errors.employmentType || validation.errors.workLocation) {
+        errorStep = 3;
+      } else if (validation.errors.bankName || validation.errors.accountNumber || validation.errors.ifscCode || 
+                 validation.errors.branch || validation.errors.panNumber) {
+        errorStep = 4;
+      } else if (validation.errors.emergencyContactName || validation.errors.emergencyRelationship || 
+                 validation.errors.emergencyPhoneNumber) {
+        errorStep = 5;
+      } else if (validation.errors.expertise || validation.errors.availability) {
+        errorStep = 6;
+      } else if (validation.errors.softwareProficiency) {
+        errorStep = 7;
+      }
+      setCurrentStep(errorStep);
+      const firstError = Object.values(validation.errors)[0];
+      alert(`Please fill all required fields correctly. ${firstError}`);
       return;
     }
 
@@ -81,30 +263,61 @@ export const FacultyRegistration: React.FC = () => {
     if (showOtherSoftware && otherSoftware.trim()) {
       softwareList.push(otherSoftware.trim());
     }
-    const softwareProficiency = softwareList.join(', ');
+    const softwareProficiency = softwareList.length > 0 ? softwareList.join(', ') : undefined;
 
     // Get selected documents
-    const documents = formData.getAll('documents') as string[];
+    const documentsSubmitted = formData.getAll('documents') as string[];
     
-    const data: CreateFacultyRequest & { 
-      address?: string;
-      emergencyContactName?: string;
-      emergencyRelationship?: string;
-      emergencyPhoneNumber?: string;
-      emergencyAlternatePhone?: string;
-      documentsSubmitted?: string;
-      softwareProficiency?: string;
-    } = {
-      userId: createdUserId,
-      expertise: formData.get('expertise') as string || undefined,
-      availability: formData.get('availability') as string || undefined,
-      softwareProficiency: softwareProficiency || undefined,
-      address: formData.get('address') as string || undefined,
-      emergencyContactName: formData.get('emergencyContactName') as string || undefined,
-      emergencyRelationship: formData.get('emergencyRelationship') as string || undefined,
-      emergencyPhoneNumber: formData.get('emergencyPhoneNumber') as string || undefined,
+    // Structure all data properly
+    const personalInfo = {
+      gender: formData.get('gender') as string,
+      dateOfBirth: formData.get('dateOfBirth') as string,
+      nationality: formData.get('nationality') as string,
+      maritalStatus: formData.get('maritalStatus') as string,
+      address: formData.get('address') as string,
+      city: formData.get('city') as string,
+      state: formData.get('state') as string,
+      postalCode: formData.get('postalCode') as string,
+    };
+
+    const employmentInfo = {
+      department: formData.get('department') as string,
+      designation: formData.get('designation') as string,
+      dateOfJoining: formData.get('dateOfJoining') as string,
+      employmentType: formData.get('employmentType') as string,
+      reportingManager: formData.get('reportingManager') as string || undefined,
+      workLocation: formData.get('workLocation') as string,
+    };
+
+    const bankInfo = {
+      bankName: formData.get('bankName') as string,
+      accountNumber: formData.get('accountNumber') as string,
+      ifscCode: formData.get('ifscCode') as string,
+      branch: formData.get('branch') as string,
+      panNumber: formData.get('panNumber') as string,
+    };
+
+    const emergencyInfo = {
+      emergencyContactName: formData.get('emergencyContactName') as string,
+      emergencyRelationship: formData.get('emergencyRelationship') as string,
+      emergencyPhoneNumber: formData.get('emergencyPhoneNumber') as string,
       emergencyAlternatePhone: formData.get('emergencyAlternatePhone') as string || undefined,
-      documentsSubmitted: documents.join(', ') || undefined,
+    };
+
+    const documents = {
+      personalInfo,
+      employmentInfo,
+      bankInfo,
+      emergencyInfo,
+      documentsSubmitted: documentsSubmitted.length > 0 ? documentsSubmitted : undefined,
+    };
+    
+    const data: CreateFacultyRequest = {
+      userId: createdUserId,
+      expertise: formData.get('expertise') as string,
+      availability: formData.get('availability') as string,
+      documents,
+      softwareProficiency,
     };
 
     createFacultyMutation.mutate(data);
@@ -210,6 +423,8 @@ export const FacultyRegistration: React.FC = () => {
                     type="tel"
                     name="contactNumber"
                     required
+                    pattern="[0-9]{10}"
+                    title="Phone number should be 10 digits"
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
                   />
                 </div>
@@ -252,56 +467,68 @@ export const FacultyRegistration: React.FC = () => {
                     
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Gender</label>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Gender <span className="text-red-500">*</span>
+                        </label>
                         <div className="flex gap-4 mt-2">
                           <label className="flex items-center">
-                            <input type="radio" name="gender" value="male" className="mr-2" />
+                            <input type="radio" name="gender" value="male" required className="mr-2" />
                             <span>Male</span>
                           </label>
                           <label className="flex items-center">
-                            <input type="radio" name="gender" value="female" className="mr-2" />
+                            <input type="radio" name="gender" value="female" required className="mr-2" />
                             <span>Female</span>
                           </label>
                           <label className="flex items-center">
-                            <input type="radio" name="gender" value="other" className="mr-2" />
+                            <input type="radio" name="gender" value="other" required className="mr-2" />
                             <span>Other</span>
                           </label>
                         </div>
                       </div>
 
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Date of Birth</label>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Date of Birth <span className="text-red-500">*</span>
+                        </label>
                         <input
                           type="date"
                           name="dateOfBirth"
+                          required
+                          max={new Date().toISOString().split('T')[0]}
                           className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
                         />
+                        <p className="mt-1 text-xs text-gray-500">Must be at least 18 years old</p>
                       </div>
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Nationality</label>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Nationality <span className="text-red-500">*</span>
+                        </label>
                         <input
                           type="text"
                           name="nationality"
+                          required
                           className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
                         />
                       </div>
 
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Marital Status</label>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Marital Status <span className="text-red-500">*</span>
+                        </label>
                         <div className="flex gap-4 mt-2">
                           <label className="flex items-center">
-                            <input type="radio" name="maritalStatus" value="single" className="mr-2" />
+                            <input type="radio" name="maritalStatus" value="single" required className="mr-2" />
                             <span>Single</span>
                           </label>
                           <label className="flex items-center">
-                            <input type="radio" name="maritalStatus" value="married" className="mr-2" />
+                            <input type="radio" name="maritalStatus" value="married" required className="mr-2" />
                             <span>Married</span>
                           </label>
                           <label className="flex items-center">
-                            <input type="radio" name="maritalStatus" value="other" className="mr-2" />
+                            <input type="radio" name="maritalStatus" value="other" required className="mr-2" />
                             <span>Other</span>
                           </label>
                         </div>
@@ -309,38 +536,52 @@ export const FacultyRegistration: React.FC = () => {
                     </div>
 
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Address</label>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Address <span className="text-red-500">*</span>
+                      </label>
                       <textarea
                         name="address"
                         rows={3}
+                        required
                         className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
                       />
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">City</label>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          City <span className="text-red-500">*</span>
+                        </label>
                         <input
                           type="text"
                           name="city"
+                          required
                           className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
                         />
                       </div>
 
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">State/Province</label>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          State/Province <span className="text-red-500">*</span>
+                        </label>
                         <input
                           type="text"
                           name="state"
+                          required
                           className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
                         />
                       </div>
 
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Postal Code</label>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Postal Code <span className="text-red-500">*</span>
+                        </label>
                         <input
                           type="text"
                           name="postalCode"
+                          required
+                          pattern="[0-9]{5,6}"
+                          title="Postal code should be 5-6 digits"
                           className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
                         />
                       </div>
@@ -354,49 +595,61 @@ export const FacultyRegistration: React.FC = () => {
                     <h2 className="text-2xl font-bold text-gray-900 mb-6">Step 3: Employment Information</h2>
                     
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Department</label>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Department <span className="text-red-500">*</span>
+                      </label>
                       <input
                         type="text"
                         name="department"
+                        required
                         className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
                       />
                     </div>
 
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Designation / Job Title</label>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Designation / Job Title <span className="text-red-500">*</span>
+                      </label>
                       <input
                         type="text"
                         name="designation"
+                        required
                         className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
                       />
                     </div>
 
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Date of Joining</label>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Date of Joining <span className="text-red-500">*</span>
+                      </label>
                       <input
                         type="date"
                         name="dateOfJoining"
+                        required
+                        max={new Date().toISOString().split('T')[0]}
                         className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
                       />
                     </div>
 
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Employment Type</label>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Employment Type <span className="text-red-500">*</span>
+                      </label>
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-2">
                         <label className="flex items-center">
-                          <input type="radio" name="employmentType" value="full-time" className="mr-2" />
+                          <input type="radio" name="employmentType" value="full-time" required className="mr-2" />
                           <span>Full-Time</span>
                         </label>
                         <label className="flex items-center">
-                          <input type="radio" name="employmentType" value="part-time" className="mr-2" />
+                          <input type="radio" name="employmentType" value="part-time" required className="mr-2" />
                           <span>Part-Time</span>
                         </label>
                         <label className="flex items-center">
-                          <input type="radio" name="employmentType" value="contract" className="mr-2" />
+                          <input type="radio" name="employmentType" value="contract" required className="mr-2" />
                           <span>Contract</span>
                         </label>
                         <label className="flex items-center">
-                          <input type="radio" name="employmentType" value="intern" className="mr-2" />
+                          <input type="radio" name="employmentType" value="intern" required className="mr-2" />
                           <span>Intern</span>
                         </label>
                       </div>
@@ -413,30 +666,39 @@ export const FacultyRegistration: React.FC = () => {
                       </div>
 
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Work Location</label>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Work Location <span className="text-red-500">*</span>
+                        </label>
                         <input
                           type="text"
                           name="workLocation"
+                          required
                           className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
                         />
                       </div>
                     </div>
 
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Expertise / Specialization</label>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Expertise / Specialization <span className="text-red-500">*</span>
+                      </label>
                       <textarea
                         name="expertise"
                         rows={3}
+                        required
                         placeholder="Describe your areas of expertise and specialization"
                         className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
                       />
                     </div>
 
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Availability</label>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Availability <span className="text-red-500">*</span>
+                      </label>
                       <textarea
                         name="availability"
                         rows={2}
+                        required
                         placeholder="e.g., Monday-Friday 9 AM - 5 PM"
                         className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
                       />
@@ -527,48 +789,75 @@ export const FacultyRegistration: React.FC = () => {
                     <h2 className="text-2xl font-bold text-gray-900 mb-6">Step 5: Bank Details</h2>
                     
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Bank Name</label>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Bank Name <span className="text-red-500">*</span>
+                      </label>
                       <input
                         type="text"
                         name="bankName"
+                        required
                         className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
                       />
                     </div>
 
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Account Number</label>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Account Number <span className="text-red-500">*</span>
+                      </label>
                       <input
                         type="text"
                         name="accountNumber"
+                        required
+                        pattern="[0-9]{9,18}"
+                        title="Account number should be 9-18 digits"
                         className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
                       />
                     </div>
 
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">IFSC / Routing Number</label>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        IFSC / Routing Number <span className="text-red-500">*</span>
+                      </label>
                       <input
                         type="text"
                         name="ifscCode"
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
+                        required
+                        pattern="[A-Z]{4}0[A-Z0-9]{6}"
+                        title="IFSC code should be 11 characters (e.g., ABCD0123456)"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500 uppercase"
+                        style={{ textTransform: 'uppercase' }}
                       />
                     </div>
 
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Branch</label>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Branch <span className="text-red-500">*</span>
+                      </label>
                       <input
                         type="text"
                         name="branch"
+                        required
                         className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
                       />
                     </div>
 
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">PAN / Tax ID</label>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        PAN / Tax ID <span className="text-red-500">*</span>
+                      </label>
                       <input
                         type="text"
                         name="panNumber"
+                        required
                         maxLength={10}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
+                        pattern="[A-Za-z]{5}[0-9]{4}[A-Za-z]{1}"
+                        title="PAN should be 10 characters (e.g., ABCDE1234F)"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500 uppercase"
+                        style={{ textTransform: 'uppercase' }}
+                        onChange={(e) => {
+                          // Force uppercase value so it matches PAN format while user types
+                          e.target.value = e.target.value.toUpperCase();
+                        }}
                       />
                     </div>
                   </div>
@@ -580,19 +869,25 @@ export const FacultyRegistration: React.FC = () => {
                     <h2 className="text-2xl font-bold text-gray-900 mb-6">Step 6: Emergency Contact Information</h2>
                     
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Contact Name</label>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Contact Name <span className="text-red-500">*</span>
+                      </label>
                       <input
                         type="text"
                         name="emergencyContactName"
+                        required
                         className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
                       />
                     </div>
 
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Relationship</label>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Relationship <span className="text-red-500">*</span>
+                      </label>
                       <input
                         type="text"
                         name="emergencyRelationship"
+                        required
                         placeholder="e.g., Father, Mother, Spouse, Guardian"
                         className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
                       />
@@ -600,10 +895,15 @@ export const FacultyRegistration: React.FC = () => {
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Phone Number</label>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Phone Number <span className="text-red-500">*</span>
+                        </label>
                         <input
                           type="tel"
                           name="emergencyPhoneNumber"
+                          required
+                          pattern="[0-9]{10}"
+                          title="Phone number should be 10 digits"
                           className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
                         />
                       </div>
@@ -613,6 +913,8 @@ export const FacultyRegistration: React.FC = () => {
                         <input
                           type="tel"
                           name="emergencyAlternatePhone"
+                          pattern="[0-9]{10}"
+                          title="Phone number should be 10 digits"
                           className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
                         />
                       </div>

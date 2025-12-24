@@ -7,6 +7,7 @@ import { facultyAPI, FacultyUser } from '../api/faculty.api';
 import { userAPI } from '../api/user.api';
 import { uploadAPI } from '../api/upload.api';
 import { getImageUrl } from '../utils/imageUtils';
+import { formatDateDDMMYYYY } from '../utils/dateUtils';
 
 export const FacultyManagement: React.FC = () => {
   const { user } = useAuth();
@@ -15,6 +16,7 @@ export const FacultyManagement: React.FC = () => {
   const [selectedFaculty, setSelectedFaculty] = useState<FacultyUser | null>(null);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [isImageModalOpen, setIsImageModalOpen] = useState(false);
+  const [isViewModalOpen, setIsViewModalOpen] = useState(false);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [uploadingImage, setUploadingImage] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -25,6 +27,91 @@ export const FacultyManagement: React.FC = () => {
     queryFn: () => facultyAPI.getAllFaculty(),
     retry: 1,
   });
+
+  // Fetch full faculty data with profile for view modal
+  const { data: facultyProfileData, isLoading: isLoadingProfile, error: profileError, refetch: refetchFacultyProfile } = useQuery({
+    queryKey: ['faculty-profile', selectedFaculty?.id],
+    queryFn: async () => {
+      if (!selectedFaculty?.id) {
+        console.warn('No faculty ID provided for profile fetch');
+        return null;
+      }
+      
+      // Always fetch fresh data from backend to ensure we get complete profile
+      try {
+        const userResponse = await userAPI.getUser(selectedFaculty.id);
+        console.log('Faculty profile API response:', userResponse);
+        if (userResponse?.data?.user) {
+          const user = userResponse.data.user;
+          let profile = user.facultyProfile || null;
+          
+          // If profile exists but might be incomplete, ensure we have all data
+          // The profile should already be included in the user response
+          if (profile && typeof profile === 'object') {
+            // Profile is already included, use it
+            console.log('Faculty user data:', user);
+            console.log('Faculty profile data:', profile);
+            console.log('Profile documents:', profile.documents);
+            return {
+              user: user,
+              profile: profile,
+            };
+          }
+          
+          // If profile is missing, try to get it from the selected faculty
+          if (!profile && selectedFaculty.facultyProfile) {
+            profile = selectedFaculty.facultyProfile;
+          }
+          
+          return {
+            user: user,
+            profile: profile,
+          };
+        }
+        // Fallback to existing data
+        console.warn('Unexpected response structure, using fallback faculty data:', selectedFaculty);
+        return {
+          user: selectedFaculty,
+          profile: selectedFaculty.facultyProfile || null,
+        };
+      } catch (error: any) {
+        console.error('Error fetching faculty profile:', error);
+        // Return existing data as fallback
+        console.warn('Using fallback faculty data due to error:', error?.message);
+        return {
+          user: selectedFaculty,
+          profile: selectedFaculty.facultyProfile || null,
+        };
+      }
+    },
+    enabled: !!selectedFaculty?.id && isViewModalOpen,
+    retry: 2, // Retry more times to ensure we get data
+    staleTime: 0, // Always refetch when modal opens
+    gcTime: 0, // Don't cache, always get fresh data
+    refetchOnMount: true, // Always refetch when component mounts
+    refetchOnWindowFocus: false, // Don't refetch on window focus
+  });
+
+  // Refresh faculty profile when view modal opens
+  React.useEffect(() => {
+    if (isViewModalOpen && selectedFaculty) {
+      // Invalidate and refetch the faculty profile data
+      queryClient.invalidateQueries({ queryKey: ['faculty-profile', selectedFaculty.id] });
+      queryClient.invalidateQueries({ queryKey: ['faculty', selectedFaculty.id] });
+      queryClient.invalidateQueries({ queryKey: ['faculty'] });
+      queryClient.invalidateQueries({ queryKey: ['users', selectedFaculty.id] });
+      // Refetch the profile data after a short delay to ensure invalidation is processed
+      setTimeout(() => {
+        refetchFacultyProfile();
+      }, 100);
+    }
+  }, [isViewModalOpen, selectedFaculty, queryClient, refetchFacultyProfile]);
+
+  // Also refresh when component mounts (useful when returning from edit page)
+  React.useEffect(() => {
+    // Invalidate queries on mount to ensure fresh data
+    queryClient.invalidateQueries({ queryKey: ['faculty'] });
+  }, [queryClient]);
 
   const deleteUserMutation = useMutation({
     mutationFn: (id: number) => userAPI.deleteUser(id),
@@ -42,7 +129,7 @@ export const FacultyManagement: React.FC = () => {
   const updateUserImageMutation = useMutation({
     mutationFn: ({ userId, avatarUrl }: { userId: number; avatarUrl: string }) =>
       userAPI.updateUser(userId, { avatarUrl }),
-    onSuccess: (_data, variables) => {
+    onSuccess: (_, variables) => {
       // Invalidate and refetch faculty list
       queryClient.invalidateQueries({ queryKey: ['faculty'] });
       queryClient.invalidateQueries({ queryKey: ['users'] });
@@ -236,94 +323,118 @@ export const FacultyManagement: React.FC = () => {
                 )}
               </div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {faculty.map((facultyMember) => (
-                  <div key={facultyMember.id} className="border border-gray-200 rounded-lg p-6 hover:shadow-md transition-shadow">
-                    <div className="flex items-start justify-between mb-4">
-                      <div className="flex items-start gap-3">
-                        <div className="flex-shrink-0">
-                          {facultyMember.avatarUrl ? (
-                            <img
-                              src={getImageUrl(facultyMember.avatarUrl) || ''}
-                              alt={facultyMember.name}
-                              className="h-16 w-16 rounded-full object-cover border-2 border-orange-200"
-                              crossOrigin="anonymous"
-                              key={facultyMember.avatarUrl}
-                              onError={(e) => {
-                                (e.target as HTMLImageElement).src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjQiIGhlaWdodD0iNjQiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHJlY3Qgd2lkdGg9IjEwMCUiIGhlaWdodD0iMTAwJSIgZmlsbD0iI2ZmOTUwMCIvPjx0ZXh0IHg9IjUwJSIgeT0iNTAlIiBmb250LWZhbWlseT0iQXJpYWwsIHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMjQiIGZpbGw9IiNmZmYiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGR5PSIuM2VtIj57e2ZhY3VsdHlNZW1iZXIubmFtZS5jaGFyQXQoMCl9fTwvdGV4dD48L3N2Zz4=';
-                              }}
-                            />
-                          ) : (
-                            <div className="h-16 w-16 rounded-full bg-orange-500 flex items-center justify-center text-white font-semibold text-xl">
-                              {facultyMember.name.charAt(0).toUpperCase()}
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-gray-200">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">S.No</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Photo</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Phone</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Expertise</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Availability</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                      {(user?.role === 'admin' || user?.role === 'superadmin') && (
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                      )}
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {faculty.map((facultyMember, index) => (
+                      <tr key={facultyMember.id} className="hover:bg-gray-50">
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="text-sm font-medium text-gray-900">{index + 1}</div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="flex items-center">
+                            {facultyMember.avatarUrl ? (
+                              <img
+                                src={getImageUrl(facultyMember.avatarUrl) || ''}
+                                alt={facultyMember.name}
+                                className="h-12 w-12 rounded-full object-cover border-2 border-gray-200"
+                                crossOrigin="anonymous"
+                                key={facultyMember.avatarUrl}
+                                onError={(e) => {
+                                  (e.target as HTMLImageElement).src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDgiIGhlaWdodD0iNDgiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHJlY3Qgd2lkdGg9IjEwMCUiIGhlaWdodD0iMTAwJSIgZmlsbD0iI2ZmOTUwMCIvPjx0ZXh0IHg9IjUwJSIgeT0iNTAlIiBmb250LWZhbWlseT0iQXJpYWwsIHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMjAiIGZpbGw9IiNmZmYiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGR5PSIuM2VtIj57e2ZhY3VsdHlNZW1iZXIubmFtZS5jaGFyQXQoMCl9fTwvdGV4dD48L3N2Zz4=';
+                                }}
+                              />
+                            ) : (
+                              <div className="h-12 w-12 rounded-full bg-orange-500 flex items-center justify-center text-white font-semibold text-lg">
+                                {facultyMember.name.charAt(0).toUpperCase()}
+                              </div>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="text-sm font-medium text-gray-900">{facultyMember.name}</div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="text-sm text-gray-500">{facultyMember.email}</div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="text-sm text-gray-500">{facultyMember.phone || '-'}</div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="text-sm text-gray-500">{facultyMember.facultyProfile?.expertise || '-'}</div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="text-sm text-gray-500">{facultyMember.facultyProfile?.availability || '-'}</div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <span className={`px-2 py-1 rounded text-xs font-semibold ${
+                            facultyMember.isActive ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
+                          }`}>
+                            {facultyMember.isActive ? 'Active' : 'Inactive'}
+                          </span>
+                        </td>
+                        {(user?.role === 'admin' || user?.role === 'superadmin') && (
+                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                            <div className="flex flex-col gap-2">
+                              <button
+                                onClick={() => {
+                                  setSelectedFaculty(facultyMember);
+                                  setIsViewModalOpen(true);
+                                }}
+                                className="text-blue-600 hover:text-blue-900 text-xs"
+                                title="View Faculty"
+                              >
+                                👁️ View
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setSelectedFaculty(facultyMember);
+                                  setImagePreview(facultyMember.avatarUrl || null);
+                                  setIsImageModalOpen(true);
+                                }}
+                                className="text-orange-600 hover:text-orange-900 text-xs"
+                                title="Update Photo"
+                              >
+                                📷 Update Photo
+                              </button>
+                              <button
+                                onClick={() => navigate(`/faculty/${facultyMember.id}/edit`)}
+                                className="text-orange-600 hover:text-orange-900 text-xs"
+                                title="Edit Faculty"
+                              >
+                                ✏️ Edit
+                              </button>
+                              {user?.role === 'superadmin' && (
+                                <button
+                                  onClick={() => handleDelete(facultyMember)}
+                                  className="text-red-600 hover:text-red-900 text-xs"
+                                  title="Delete Faculty"
+                                >
+                                  🗑️ Delete
+                                </button>
+                              )}
                             </div>
-                          )}
-                        </div>
-                        <div>
-                          <h3 className="text-xl font-semibold text-gray-900">{facultyMember.name}</h3>
-                          <p className="text-sm text-gray-600 mt-1">{facultyMember.email}</p>
-                          {facultyMember.phone && (
-                            <p className="text-sm text-gray-600">{facultyMember.phone}</p>
-                          )}
-                        </div>
-                      </div>
-                      <span className={`px-2 py-1 rounded text-xs font-semibold ${
-                        facultyMember.isActive ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
-                      }`}>
-                        {facultyMember.isActive ? 'Active' : 'Inactive'}
-                      </span>
-                    </div>
-                    {facultyMember.facultyProfile && (
-                      <div className="mt-4 pt-4 border-t border-gray-200">
-                        {facultyMember.facultyProfile.expertise && (
-                          <p className="text-sm text-gray-600 mb-2">
-                            <span className="font-medium">Expertise:</span> {facultyMember.facultyProfile.expertise}
-                          </p>
+                          </td>
                         )}
-                        {facultyMember.facultyProfile.availability && (
-                          <p className="text-sm text-gray-600">
-                            <span className="font-medium">Availability:</span> {facultyMember.facultyProfile.availability}
-                          </p>
-                        )}
-                      </div>
-                    )}
-                    {!facultyMember.facultyProfile && (
-                      <div className="mt-4 pt-4 border-t border-gray-200">
-                        <p className="text-xs text-gray-500 italic">No faculty profile created yet</p>
-                      </div>
-                    )}
-                    {(user?.role === 'admin' || user?.role === 'superadmin') && (
-                      <div className="mt-4 pt-4 border-t border-gray-200 flex flex-col gap-2">
-                        <button
-                          onClick={() => {
-                            setSelectedFaculty(facultyMember);
-                            setImagePreview(facultyMember.avatarUrl || null);
-                            setIsImageModalOpen(true);
-                          }}
-                          className="w-full px-3 py-2 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 transition-colors"
-                        >
-                          📷 Update Photo
-                        </button>
-                        <div className="flex gap-2">
-                          <button
-                            onClick={() => navigate(`/faculty/${facultyMember.id}/edit`)}
-                            className="flex-1 px-3 py-2 bg-orange-600 text-white rounded text-sm hover:bg-orange-700 transition-colors"
-                          >
-                            ✏️ Edit
-                          </button>
-                          {user?.role === 'superadmin' && (
-                            <button
-                              onClick={() => handleDelete(facultyMember)}
-                              className="flex-1 px-3 py-2 bg-red-600 text-white rounded text-sm hover:bg-red-700 transition-colors"
-                            >
-                              🗑️ Delete
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             )}
           </div>
@@ -417,6 +528,673 @@ export const FacultyManagement: React.FC = () => {
                 className="flex-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-lg font-semibold hover:bg-gray-300 transition-colors disabled:opacity-50"
               >
                 {uploadingImage ? 'Uploading...' : 'Close'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* View Faculty Modal */}
+      {isViewModalOpen && selectedFaculty && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="sticky top-0 bg-white border-b px-6 py-4 flex justify-between items-center z-10">
+              <h2 className="text-2xl font-bold text-gray-900">Faculty Details</h2>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={async () => {
+                    // Invalidate all related queries first
+                    queryClient.invalidateQueries({ queryKey: ['faculty-profile', selectedFaculty?.id] });
+                    queryClient.invalidateQueries({ queryKey: ['faculty', selectedFaculty?.id] });
+                    queryClient.invalidateQueries({ queryKey: ['faculty'] });
+                    queryClient.invalidateQueries({ queryKey: ['users', selectedFaculty?.id] });
+                    // Then refetch
+                    await refetchFacultyProfile();
+                  }}
+                  className="px-3 py-1 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                  title="Refresh Faculty Data"
+                >
+                  🔄 Refresh
+                </button>
+                <button
+                  onClick={() => {
+                    setIsViewModalOpen(false);
+                    setSelectedFaculty(null);
+                  }}
+                  className="text-gray-400 hover:text-gray-600 text-2xl font-bold"
+                >
+                  ×
+                </button>
+              </div>
+            </div>
+
+            <div className="p-6">
+              {isLoadingProfile ? (
+                <div className="text-center py-8">
+                  <p className="text-gray-500">Loading faculty details...</p>
+                </div>
+              ) : profileError ? (
+                <div className="text-center py-8">
+                  <p className="text-red-600 font-semibold mb-2">Failed to load faculty details</p>
+                  <p className="text-sm text-gray-600 mb-4">
+                    {(profileError as any)?.response?.data?.message || (profileError as any)?.message || 'An error occurred while fetching faculty details'}
+                  </p>
+                  <button
+                    onClick={() => {
+                      queryClient.invalidateQueries({ queryKey: ['faculty-profile', selectedFaculty?.id] });
+                      refetchFacultyProfile();
+                    }}
+                    className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700"
+                  >
+                    Retry
+                  </button>
+                </div>
+              ) : facultyProfileData && facultyProfileData.user ? (
+                <div className="space-y-6">
+                  {/* Basic Information */}
+                  <div>
+                    <h3 className="text-lg font-semibold text-gray-900 mb-4 border-b pb-2">Basic Information</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700">Photo</label>
+                        <div className="mt-2">
+                          {facultyProfileData.user.avatarUrl ? (
+                            <img
+                              src={getImageUrl(facultyProfileData.user.avatarUrl) || ''}
+                              alt={facultyProfileData.user.name}
+                              className="h-24 w-24 rounded-full object-cover border-2 border-gray-200"
+                              crossOrigin="anonymous"
+                              onError={(e) => {
+                                (e.target as HTMLImageElement).src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iOTYiIGhlaWdodD0iOTYiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHJlY3Qgd2lkdGg9IjEwMCUiIGhlaWdodD0iMTAwJSIgZmlsbD0iI2ZmOTUwMCIvPjx0ZXh0IHg9IjUwJSIgeT0iNTAlIiBmb250LWZhbWlseT0iQXJpYWwsIHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMzYiIGZpbGw9IiNmZmYiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGR5PSIuM2VtIj57e2ZhY3VsdHlQcm9maWxlRGF0YS51c2VyLm5hbWUuY2hhckF0KDApfX08L3RleHQ+PC9zdmc+';
+                              }}
+                            />
+                          ) : (
+                            <div className="h-24 w-24 rounded-full bg-orange-500 flex items-center justify-center text-white font-semibold text-2xl">
+                              {facultyProfileData.user.name.charAt(0).toUpperCase()}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700">Name</label>
+                        <p className="mt-1 text-sm text-gray-900">{facultyProfileData.user.name}</p>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700">Email</label>
+                        <p className="mt-1 text-sm text-gray-900">{facultyProfileData.user.email}</p>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700">Phone</label>
+                        <p className="mt-1 text-sm text-gray-900">{facultyProfileData.user.phone || '-'}</p>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700">Status</label>
+                        <p className="mt-1">
+                          <span className={`px-2 py-1 rounded text-xs font-semibold ${
+                            facultyProfileData.user.isActive ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
+                          }`}>
+                            {facultyProfileData.user.isActive ? 'Active' : 'Inactive'}
+                          </span>
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Faculty Profile Information */}
+                  {facultyProfileData.profile ? (
+                    <>
+                      <div>
+                        <h3 className="text-lg font-semibold text-gray-900 mb-4 border-b pb-2">Faculty Profile</h3>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          {facultyProfileData.profile.expertise && (
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700">Expertise</label>
+                              <p className="mt-1 text-sm text-gray-900">
+                                {typeof facultyProfileData.profile.expertise === 'string' 
+                                  ? facultyProfileData.profile.expertise 
+                                  : JSON.stringify(facultyProfileData.profile.expertise)}
+                              </p>
+                            </div>
+                          )}
+                          {facultyProfileData.profile.availability && (
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700">Availability</label>
+                              <p className="mt-1 text-sm text-gray-900">
+                                {typeof facultyProfileData.profile.availability === 'string' 
+                                  ? facultyProfileData.profile.availability 
+                                  : JSON.stringify(facultyProfileData.profile.availability)}
+                              </p>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Parse and display additional profile information from documents */}
+                      {(() => {
+                        const documents = facultyProfileData.profile?.documents;
+                        let parsedDocuments: any = null;
+                        
+                        if (documents) {
+                          if (typeof documents === 'string') {
+                            try {
+                              parsedDocuments = JSON.parse(documents);
+                            } catch (e) {
+                              console.error('Error parsing documents:', e);
+                            }
+                          } else if (typeof documents === 'object' && documents !== null) {
+                            parsedDocuments = documents;
+                          }
+                        }
+
+                        const personalInfo = parsedDocuments?.personalInfo || {};
+                        const employmentInfo = parsedDocuments?.employmentInfo || {};
+                        const bankInfo = parsedDocuments?.bankInfo || {};
+                        const emergencyInfo = parsedDocuments?.emergencyInfo || {};
+                        const softwareProficiency = parsedDocuments?.softwareProficiency || '';
+                        
+                        // Also check profile.dateOfBirth if not in personalInfo
+                        if (!personalInfo.dateOfBirth && facultyProfileData.profile?.dateOfBirth) {
+                          personalInfo.dateOfBirth = facultyProfileData.profile.dateOfBirth;
+                        }
+
+                        const hasPersonalInfo = Object.keys(personalInfo).length > 0 || !!facultyProfileData.profile?.dateOfBirth;
+                        const hasEmploymentInfo = Object.keys(employmentInfo).length > 0;
+                        const hasBankInfo = Object.keys(bankInfo).length > 0;
+                        const hasEmergencyInfo = Object.keys(emergencyInfo).length > 0;
+                        const hasSoftware = softwareProficiency && softwareProficiency.trim() !== '';
+                        const hasExpertise = !!facultyProfileData.profile?.expertise;
+                        const hasAvailability = !!facultyProfileData.profile?.availability;
+
+                        if (!hasPersonalInfo && !hasEmploymentInfo && !hasBankInfo && !hasEmergencyInfo && !hasSoftware && !hasExpertise && !hasAvailability) {
+                          return null;
+                        }
+
+                        return (
+                          <>
+                            {/* Personal Information */}
+                            {hasPersonalInfo && (
+                              <div>
+                                <h3 className="text-lg font-semibold text-gray-900 mb-4 border-b pb-2">Personal Information</h3>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                  {personalInfo.gender && (
+                                    <div>
+                                      <label className="block text-sm font-medium text-gray-700">Gender</label>
+                                      <p className="mt-1 text-sm text-gray-900">{personalInfo.gender}</p>
+                                    </div>
+                                  )}
+                                  {(personalInfo.dateOfBirth || facultyProfileData.profile?.dateOfBirth) && (
+                                    <div>
+                                      <label className="block text-sm font-medium text-gray-700">Date of Birth</label>
+                                      <p className="mt-1 text-sm text-gray-900">
+                                        {formatDateDDMMYYYY(personalInfo.dateOfBirth || facultyProfileData.profile?.dateOfBirth)}
+                                      </p>
+                                    </div>
+                                  )}
+                                  {personalInfo.nationality && (
+                                    <div>
+                                      <label className="block text-sm font-medium text-gray-700">Nationality</label>
+                                      <p className="mt-1 text-sm text-gray-900">{personalInfo.nationality}</p>
+                                    </div>
+                                  )}
+                                  {personalInfo.maritalStatus && (
+                                    <div>
+                                      <label className="block text-sm font-medium text-gray-700">Marital Status</label>
+                                      <p className="mt-1 text-sm text-gray-900">{personalInfo.maritalStatus}</p>
+                                    </div>
+                                  )}
+                                  {personalInfo.address && (
+                                    <div className="md:col-span-2">
+                                      <label className="block text-sm font-medium text-gray-700">Address</label>
+                                      <p className="mt-1 text-sm text-gray-900">{personalInfo.address}</p>
+                                    </div>
+                                  )}
+                                  {personalInfo.city && (
+                                    <div>
+                                      <label className="block text-sm font-medium text-gray-700">City</label>
+                                      <p className="mt-1 text-sm text-gray-900">{personalInfo.city}</p>
+                                    </div>
+                                  )}
+                                  {personalInfo.state && (
+                                    <div>
+                                      <label className="block text-sm font-medium text-gray-700">State</label>
+                                      <p className="mt-1 text-sm text-gray-900">{personalInfo.state}</p>
+                                    </div>
+                                  )}
+                                  {personalInfo.postalCode && (
+                                    <div>
+                                      <label className="block text-sm font-medium text-gray-700">Postal Code</label>
+                                      <p className="mt-1 text-sm text-gray-900">{personalInfo.postalCode}</p>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Employment Information */}
+                            {hasEmploymentInfo && (
+                              <div>
+                                <h3 className="text-lg font-semibold text-gray-900 mb-4 border-b pb-2">Employment Information</h3>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                  {employmentInfo.department && (
+                                    <div>
+                                      <label className="block text-sm font-medium text-gray-700">Department</label>
+                                      <p className="mt-1 text-sm text-gray-900">{employmentInfo.department}</p>
+                                    </div>
+                                  )}
+                                  {employmentInfo.designation && (
+                                    <div>
+                                      <label className="block text-sm font-medium text-gray-700">Designation</label>
+                                      <p className="mt-1 text-sm text-gray-900">{employmentInfo.designation}</p>
+                                    </div>
+                                  )}
+                                  {employmentInfo.dateOfJoining && (
+                                    <div>
+                                      <label className="block text-sm font-medium text-gray-700">Date of Joining</label>
+                                      <p className="mt-1 text-sm text-gray-900">{formatDateDDMMYYYY(employmentInfo.dateOfJoining)}</p>
+                                    </div>
+                                  )}
+                                  {employmentInfo.employmentType && (
+                                    <div>
+                                      <label className="block text-sm font-medium text-gray-700">Employment Type</label>
+                                      <p className="mt-1 text-sm text-gray-900">{employmentInfo.employmentType}</p>
+                                    </div>
+                                  )}
+                                  {employmentInfo.reportingManager && (
+                                    <div>
+                                      <label className="block text-sm font-medium text-gray-700">Reporting Manager</label>
+                                      <p className="mt-1 text-sm text-gray-900">{employmentInfo.reportingManager}</p>
+                                    </div>
+                                  )}
+                                  {employmentInfo.workLocation && (
+                                    <div>
+                                      <label className="block text-sm font-medium text-gray-700">Work Location</label>
+                                      <p className="mt-1 text-sm text-gray-900">{employmentInfo.workLocation}</p>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Bank Information */}
+                            {hasBankInfo && (
+                              <div>
+                                <h3 className="text-lg font-semibold text-gray-900 mb-4 border-b pb-2">Bank Information</h3>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                  {bankInfo.bankName && (
+                                    <div>
+                                      <label className="block text-sm font-medium text-gray-700">Bank Name</label>
+                                      <p className="mt-1 text-sm text-gray-900">{bankInfo.bankName}</p>
+                                    </div>
+                                  )}
+                                  {bankInfo.accountNumber && (
+                                    <div>
+                                      <label className="block text-sm font-medium text-gray-700">Account Number</label>
+                                      <p className="mt-1 text-sm text-gray-900">{bankInfo.accountNumber}</p>
+                                    </div>
+                                  )}
+                                  {bankInfo.ifscCode && (
+                                    <div>
+                                      <label className="block text-sm font-medium text-gray-700">IFSC Code</label>
+                                      <p className="mt-1 text-sm text-gray-900">{bankInfo.ifscCode}</p>
+                                    </div>
+                                  )}
+                                  {bankInfo.branch && (
+                                    <div>
+                                      <label className="block text-sm font-medium text-gray-700">Branch</label>
+                                      <p className="mt-1 text-sm text-gray-900">{bankInfo.branch}</p>
+                                    </div>
+                                  )}
+                                  {bankInfo.panNumber && (
+                                    <div>
+                                      <label className="block text-sm font-medium text-gray-700">PAN Number</label>
+                                      <p className="mt-1 text-sm text-gray-900">{bankInfo.panNumber}</p>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Emergency Contact Information */}
+                            {hasEmergencyInfo && (
+                              <div>
+                                <h3 className="text-lg font-semibold text-gray-900 mb-4 border-b pb-2">Emergency Contact</h3>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                  {(emergencyInfo.emergencyContactName || emergencyInfo.name) && (
+                                    <div>
+                                      <label className="block text-sm font-medium text-gray-700">Emergency Contact Name</label>
+                                      <p className="mt-1 text-sm text-gray-900">{emergencyInfo.emergencyContactName || emergencyInfo.name}</p>
+                                    </div>
+                                  )}
+                                  {(emergencyInfo.emergencyPhoneNumber || emergencyInfo.number) && (
+                                    <div>
+                                      <label className="block text-sm font-medium text-gray-700">Emergency Contact Number</label>
+                                      <p className="mt-1 text-sm text-gray-900">{emergencyInfo.emergencyPhoneNumber || emergencyInfo.number}</p>
+                                    </div>
+                                  )}
+                                  {(emergencyInfo.emergencyRelationship || emergencyInfo.relation) && (
+                                    <div>
+                                      <label className="block text-sm font-medium text-gray-700">Relationship</label>
+                                      <p className="mt-1 text-sm text-gray-900">{emergencyInfo.emergencyRelationship || emergencyInfo.relation}</p>
+                                    </div>
+                                  )}
+                                  {emergencyInfo.emergencyAlternatePhone && (
+                                    <div>
+                                      <label className="block text-sm font-medium text-gray-700">Alternate Phone Number</label>
+                                      <p className="mt-1 text-sm text-gray-900">{emergencyInfo.emergencyAlternatePhone}</p>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Software Proficiency */}
+                            {hasSoftware && (
+                              <div>
+                                <h3 className="text-lg font-semibold text-gray-900 mb-4 border-b pb-2">Software Proficiency</h3>
+                                <div className="flex flex-wrap gap-2">
+                                  {softwareProficiency.split(',').map((software: string, idx: number) => (
+                                    <span key={idx} className="px-3 py-1 bg-blue-100 text-blue-800 rounded text-sm font-medium">
+                                      {software.trim()}
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </>
+                        );
+                      })()}
+                    </>
+                  ) : (
+                    <div>
+                      <h3 className="text-lg font-semibold text-gray-900 mb-4 border-b pb-2">Profile Details</h3>
+                      <div className="text-center py-8 bg-gray-50 rounded-lg">
+                        <p className="text-gray-500">No faculty profile information available.</p>
+                        <p className="text-sm text-gray-400 mt-2">Please edit the faculty to add profile information.</p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Documents Section */}
+                  {(() => {
+                    // Only show documents section if profile exists
+                    if (!facultyProfileData.profile) {
+                      return null;
+                    }
+
+                    const documents = facultyProfileData.profile?.documents;
+                    let parsedDocuments: any = null;
+                    
+                    if (documents) {
+                      if (typeof documents === 'string') {
+                        try {
+                          parsedDocuments = JSON.parse(documents);
+                        } catch (e) {
+                          console.error('Error parsing documents:', e);
+                        }
+                      } else if (typeof documents === 'object') {
+                        parsedDocuments = documents;
+                      }
+                    }
+
+                    if (parsedDocuments && (
+                      parsedDocuments.photo || 
+                      parsedDocuments.panCard || 
+                      parsedDocuments.aadharCard || 
+                      (parsedDocuments.otherDocuments && Array.isArray(parsedDocuments.otherDocuments) && parsedDocuments.otherDocuments.length > 0)
+                    )) {
+                      return (
+                        <div>
+                          <h3 className="text-lg font-semibold text-gray-900 mb-4 border-b pb-2">Documents</h3>
+                          <div className="space-y-4">
+                            {/* Photo */}
+                            {parsedDocuments.photo && (
+                              <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-2">Photo</label>
+                                <div className="flex items-center space-x-4 p-3 bg-gray-50 rounded-lg border border-gray-200">
+                                  <div className="flex-shrink-0">
+                                    {parsedDocuments.photo.url && (
+                                      <img
+                                        src={getImageUrl(parsedDocuments.photo.url) || ''}
+                                        alt="Photo"
+                                        className="h-16 w-16 object-cover rounded border border-gray-300"
+                                        crossOrigin="anonymous"
+                                      />
+                                    )}
+                                  </div>
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-sm font-medium text-gray-900 truncate">{parsedDocuments.photo.name || 'Photo'}</p>
+                                    <p className="text-xs text-gray-500">Image File</p>
+                                  </div>
+                                  <div className="flex items-center space-x-2">
+                                    {parsedDocuments.photo.url && (
+                                      <>
+                                        <a
+                                          href={getImageUrl(parsedDocuments.photo.url) || ''}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          className="px-3 py-1.5 text-sm text-blue-600 hover:text-blue-800 border border-blue-300 rounded hover:bg-blue-50"
+                                        >
+                                          👁️ View
+                                        </a>
+                                        <a
+                                          href={getImageUrl(parsedDocuments.photo.url) || ''}
+                                          download
+                                          className="px-3 py-1.5 text-sm text-green-600 hover:text-green-800 border border-green-300 rounded hover:bg-green-50"
+                                        >
+                                          ⬇️ Download
+                                        </a>
+                                      </>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+
+                            {/* PAN Card */}
+                            {parsedDocuments.panCard && (
+                              <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-2">PAN Card</label>
+                                <div className="flex items-center space-x-4 p-3 bg-gray-50 rounded-lg border border-gray-200">
+                                  <div className="flex-shrink-0">
+                                    {parsedDocuments.panCard.url && (
+                                      <img
+                                        src={getImageUrl(parsedDocuments.panCard.url) || ''}
+                                        alt="PAN Card"
+                                        className="h-16 w-16 object-cover rounded border border-gray-300"
+                                        crossOrigin="anonymous"
+                                        onError={(e) => {
+                                          (e.target as HTMLImageElement).style.display = 'none';
+                                          (e.target as HTMLImageElement).nextElementSibling?.classList.remove('hidden');
+                                        }}
+                                      />
+                                    )}
+                                    <div className="h-16 w-16 bg-gray-200 rounded border border-gray-300 flex items-center justify-center hidden">
+                                      <span className="text-2xl">📄</span>
+                                    </div>
+                                  </div>
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-sm font-medium text-gray-900 truncate">{parsedDocuments.panCard.name || 'PAN Card'}</p>
+                                    <p className="text-xs text-gray-500">
+                                      {parsedDocuments.panCard.url?.endsWith('.pdf') ? 'PDF Document' : 'Image File'}
+                                    </p>
+                                  </div>
+                                  <div className="flex items-center space-x-2">
+                                    {parsedDocuments.panCard.url && (
+                                      <>
+                                        <a
+                                          href={getImageUrl(parsedDocuments.panCard.url) || ''}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          className="px-3 py-1.5 text-sm text-blue-600 hover:text-blue-800 border border-blue-300 rounded hover:bg-blue-50"
+                                        >
+                                          👁️ View
+                                        </a>
+                                        <a
+                                          href={getImageUrl(parsedDocuments.panCard.url) || ''}
+                                          download
+                                          className="px-3 py-1.5 text-sm text-green-600 hover:text-green-800 border border-green-300 rounded hover:bg-green-50"
+                                        >
+                                          ⬇️ Download
+                                        </a>
+                                      </>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Aadhar Card */}
+                            {parsedDocuments.aadharCard && (
+                              <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-2">Aadhar Card</label>
+                                <div className="flex items-center space-x-4 p-3 bg-gray-50 rounded-lg border border-gray-200">
+                                  <div className="flex-shrink-0">
+                                    {parsedDocuments.aadharCard.url && (
+                                      <img
+                                        src={getImageUrl(parsedDocuments.aadharCard.url) || ''}
+                                        alt="Aadhar Card"
+                                        className="h-16 w-16 object-cover rounded border border-gray-300"
+                                        crossOrigin="anonymous"
+                                        onError={(e) => {
+                                          (e.target as HTMLImageElement).style.display = 'none';
+                                          (e.target as HTMLImageElement).nextElementSibling?.classList.remove('hidden');
+                                        }}
+                                      />
+                                    )}
+                                    <div className="h-16 w-16 bg-gray-200 rounded border border-gray-300 flex items-center justify-center hidden">
+                                      <span className="text-2xl">📄</span>
+                                    </div>
+                                  </div>
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-sm font-medium text-gray-900 truncate">{parsedDocuments.aadharCard.name || 'Aadhar Card'}</p>
+                                    <p className="text-xs text-gray-500">
+                                      {parsedDocuments.aadharCard.url?.endsWith('.pdf') ? 'PDF Document' : 'Image File'}
+                                    </p>
+                                  </div>
+                                  <div className="flex items-center space-x-2">
+                                    {parsedDocuments.aadharCard.url && (
+                                      <>
+                                        <a
+                                          href={getImageUrl(parsedDocuments.aadharCard.url) || ''}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          className="px-3 py-1.5 text-sm text-blue-600 hover:text-blue-800 border border-blue-300 rounded hover:bg-blue-50"
+                                        >
+                                          👁️ View
+                                        </a>
+                                        <a
+                                          href={getImageUrl(parsedDocuments.aadharCard.url) || ''}
+                                          download
+                                          className="px-3 py-1.5 text-sm text-green-600 hover:text-green-800 border border-green-300 rounded hover:bg-green-50"
+                                        >
+                                          ⬇️ Download
+                                        </a>
+                                      </>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Other Documents */}
+                            {parsedDocuments.otherDocuments && Array.isArray(parsedDocuments.otherDocuments) && parsedDocuments.otherDocuments.length > 0 && (
+                              <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-2">Other Documents</label>
+                                <div className="space-y-2">
+                                  {parsedDocuments.otherDocuments.map((doc: any, docIndex: number) => {
+                                    const docUrl = typeof doc === 'string' ? doc : doc.url;
+                                    const docName = typeof doc === 'string' ? `Document ${docIndex + 1}` : (doc.name || `Document ${docIndex + 1}`);
+                                    const fullUrl = getImageUrl(docUrl) || '';
+                                    const isPdf = docUrl?.endsWith('.pdf') || docUrl?.includes('application/pdf');
+                                    const isImage = docUrl?.match(/\.(jpg|jpeg|png|gif|webp)$/i);
+
+                                    return (
+                                      <div key={docIndex} className="flex items-center space-x-4 p-3 bg-gray-50 rounded-lg border border-gray-200">
+                                        <div className="flex-shrink-0">
+                                          {isImage && docUrl ? (
+                                            <img
+                                              src={fullUrl}
+                                              alt={docName}
+                                              className="h-16 w-16 object-cover rounded border border-gray-300"
+                                              crossOrigin="anonymous"
+                                              onError={(e) => {
+                                                (e.target as HTMLImageElement).style.display = 'none';
+                                                (e.target as HTMLImageElement).nextElementSibling?.classList.remove('hidden');
+                                              }}
+                                            />
+                                          ) : (
+                                            <div className="h-16 w-16 bg-gray-200 rounded border border-gray-300 flex items-center justify-center">
+                                              <span className="text-2xl">{isPdf ? '📄' : '📎'}</span>
+                                            </div>
+                                          )}
+                                          <div className="h-16 w-16 bg-gray-200 rounded border border-gray-300 flex items-center justify-center hidden">
+                                            <span className="text-2xl">📎</span>
+                                          </div>
+                                        </div>
+                                        <div className="flex-1 min-w-0">
+                                          <p className="text-sm font-medium text-gray-900 truncate" title={docName}>
+                                            {docName}
+                                          </p>
+                                          <p className="text-xs text-gray-500 mt-0.5">
+                                            {isPdf ? 'PDF Document' : isImage ? 'Image File' : 'Document'}
+                                          </p>
+                                        </div>
+                                        <div className="flex items-center space-x-2">
+                                          <a
+                                            href={fullUrl}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="px-3 py-1.5 text-sm text-blue-600 hover:text-blue-800 border border-blue-300 rounded hover:bg-blue-50"
+                                            title="View Document"
+                                          >
+                                            👁️ View
+                                          </a>
+                                          <a
+                                            href={fullUrl}
+                                            download
+                                            className="px-3 py-1.5 text-sm text-green-600 hover:text-green-800 border border-green-300 rounded hover:bg-green-50"
+                                            title="Download Document"
+                                          >
+                                            ⬇️ Download
+                                          </a>
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    }
+                    // Show message when profile exists but no documents
+                    return (
+                      <div>
+                        <h3 className="text-lg font-semibold text-gray-900 mb-4 border-b pb-2">Documents</h3>
+                        <div className="text-center py-8 bg-gray-50 rounded-lg border border-gray-200">
+                          <p className="text-gray-500 mb-2">No documents uploaded for this faculty.</p>
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+              ) : (
+                <div className="text-center py-8">
+                  <p className="text-gray-500">Failed to load faculty details.</p>
+                </div>
+              )}
+            </div>
+
+            <div className="sticky bottom-0 bg-gray-50 border-t px-6 py-4 flex justify-end">
+              <button
+                onClick={() => {
+                  setIsViewModalOpen(false);
+                  setSelectedFaculty(null);
+                }}
+                className="px-6 py-2 bg-gray-200 text-gray-700 rounded-lg font-semibold hover:bg-gray-300"
+              >
+                Close
               </button>
             </div>
           </div>
