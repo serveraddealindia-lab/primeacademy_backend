@@ -495,6 +495,21 @@ export const completeEnrollment = async (
     // Email is now required, so use the provided email
     const finalEmail = email.trim();
 
+    // Extract photo URL from enrollmentDocuments (first image file)
+    let photoUrl: string | undefined = undefined;
+    if (enrollmentDocuments && Array.isArray(enrollmentDocuments) && enrollmentDocuments.length > 0) {
+      // Find first image file (not PDF)
+      const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp'];
+      const photoDoc = enrollmentDocuments.find(doc => {
+        if (!doc || typeof doc !== 'string') return false;
+        const lowerDoc = doc.toLowerCase();
+        return imageExtensions.some(ext => lowerDoc.includes(ext));
+      });
+      if (photoDoc) {
+        photoUrl = photoDoc;
+      }
+    }
+
     // Create user
     const user = await db.User.create(
       {
@@ -504,6 +519,7 @@ export const completeEnrollment = async (
         role: UserRole.STUDENT,
         passwordHash,
         isActive: true,
+        avatarUrl: photoUrl, // Set avatarUrl from photo
       },
       { transaction }
     );
@@ -526,6 +542,7 @@ export const completeEnrollment = async (
         userId: user.id,
         dob: dateOfAdmission ? new Date(dateOfAdmission) : null,
         address: localAddress || permanentAddress || null,
+        photoUrl: photoUrl, // Set photoUrl from extracted photo
         softwareList: softwaresIncluded && softwaresIncluded.trim() 
           ? softwaresIncluded.split(',').map((s: string) => s.trim()).filter((s: string) => s.length > 0) 
           : null,
