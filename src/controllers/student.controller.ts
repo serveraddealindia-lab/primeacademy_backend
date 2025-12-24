@@ -507,6 +507,8 @@ export const completeEnrollment = async (
       },
       { transaction }
     );
+    
+    logger.info(`Created student user: id=${user.id}, name=${user.name}, email=${user.email}, role=${user.role}, isActive=${user.isActive}`);
 
     // Create student profile if StudentProfile model exists
     if (db.StudentProfile) {
@@ -573,7 +575,10 @@ export const completeEnrollment = async (
         enrollmentMetadata,
       };
 
-      await db.StudentProfile.create(profileData, { transaction });
+      const studentProfile = await db.StudentProfile.create(profileData, { transaction });
+      logger.info(`Created student profile: userId=${user.id}, profileId=${studentProfile.id}, status=${studentProfile.status}`);
+    } else {
+      logger.warn(`StudentProfile model not found - profile not created for userId=${user.id}`);
     }
 
     // Create enrollment if batchId is provided
@@ -692,8 +697,29 @@ export const completeEnrollment = async (
     }
 
     await transaction.commit();
+    
+    logger.info(`Transaction committed successfully for student enrollment: userId=${user.id}, email=${email}, batchId=${batchId || 'none'}`);
 
-    logger.info(`Complete enrollment created: userId=${user.id}, email=${email}, batchId=${batchId || 'none'}`);
+    // Verify the student was created correctly by querying it back
+    try {
+      const verifyUser = await db.User.findByPk(user.id, {
+        include: [
+          {
+            model: db.StudentProfile,
+            as: 'studentProfile',
+            required: false,
+          },
+        ],
+      });
+      
+      if (verifyUser) {
+        logger.info(`Verified student exists: id=${verifyUser.id}, name=${verifyUser.name}, role=${verifyUser.role}, isActive=${verifyUser.isActive}, hasProfile=${!!verifyUser.studentProfile}`);
+      } else {
+        logger.error(`CRITICAL: Student not found after creation! userId=${user.id}`);
+      }
+    } catch (verifyError) {
+      logger.error(`Error verifying student after creation:`, verifyError);
+    }
 
     res.status(201).json({
       status: 'success',

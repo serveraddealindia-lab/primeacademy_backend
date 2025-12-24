@@ -266,18 +266,21 @@ export const getAllStudents = async (req: AuthRequest, res: Response): Promise<v
     const students = await db.User.findAll({
       where: {
         role: UserRole.STUDENT,
+        // Don't filter by isActive - show all students
       },
       attributes: ['id', 'name', 'email', 'phone', 'avatarUrl', 'isActive', 'createdAt', 'updatedAt'],
       include: [
         {
           model: db.StudentProfile,
           as: 'studentProfile',
-          required: false,
+          required: false, // Include students even if they don't have a profile yet
           // Include all student profile fields
         },
       ],
       order: [['createdAt', 'DESC']],
     });
+    
+    logger.info(`Get all students query: Found ${students.length} students with role STUDENT`);
 
     logger.info(`Get all students: Found ${students.length} students`);
 
