@@ -650,7 +650,6 @@ export const getStudentDetails = async (req: AuthRequest, res: Response): Promis
     const safeStudentProfile = studentProfile ? {
       id: studentProfile.id,
       userId: studentProfile.userId,
-      serialNo: studentProfile.serialNo || null,
       dob: studentProfile.dob || null,
       address: studentProfile.address || null,
       documents: studentProfile.documents || null,

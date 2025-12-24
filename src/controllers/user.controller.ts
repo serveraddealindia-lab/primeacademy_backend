@@ -6,7 +6,6 @@ import db from '../models';
 import { UserRole } from '../models/User';
 import { logger } from '../utils/logger';
 import { generateToken } from '../utils/jwt';
-import { generateSerialNumber } from '../utils/serialNumber';
 import { StudentProfileAttributes } from '../models/StudentProfile';
 
 // GET /api/users - Get all users with optional filters
@@ -587,7 +586,7 @@ export const deleteUser = async (
 
 // PUT /api/users/:id/student-profile - Update student profile
 export const updateStudentProfile = async (
-  req: AuthRequest & { params: { id: string }; body: { serialNo?: string; dob?: string; address?: string; photoUrl?: string; softwareList?: string[]; enrollmentDate?: string; status?: string; documents?: any } },
+  req: AuthRequest & { params: { id: string }; body: { dob?: string; address?: string; photoUrl?: string; softwareList?: string[]; enrollmentDate?: string; status?: string; documents?: any } },
   res: Response
 ): Promise<void> => {
   try {
@@ -650,84 +649,7 @@ export const updateStudentProfile = async (
     let studentProfile = await db.StudentProfile.findOne({ where: { userId } });
     if (!studentProfile) {
       const profileData: any = { userId };
-      // Auto-generate serialNo for new profile
-      try {
-        const autoSerialNo = await generateSerialNumber();
-        if (autoSerialNo) {
-          profileData.serialNo = autoSerialNo;
-          logger.info(`Auto-generated serialNo ${autoSerialNo} for new student profile userId=${userId}`);
-        }
-      } catch (serialNoError: any) {
-        // If serialNo generation fails, just skip it (no error)
-        logger.warn(`Could not auto-generate serialNo for userId=${userId}:`, serialNoError?.message);
-      }
       studentProfile = await db.StudentProfile.create(profileData);
-    }
-
-    // Track if serialNo update should be skipped
-    let skipSerialNo = false;
-    
-    // Auto-generate serialNo if it doesn't exist and wasn't provided
-    try {
-      const needsSerialNo = !studentProfile.serialNo && req.body.serialNo === undefined;
-      if (needsSerialNo) {
-        const autoSerialNo = await generateSerialNumber();
-        if (autoSerialNo) {
-          studentProfile.serialNo = autoSerialNo;
-          logger.info(`Auto-generated serialNo ${autoSerialNo} for userId=${userId}`);
-        }
-      }
-    } catch (autoGenError: any) {
-      // If auto-generation fails (e.g., column doesn't exist), just skip it
-      if (autoGenError?.name === 'SequelizeDatabaseError' || 
-          autoGenError?.parent?.code === 'ER_BAD_FIELD_ERROR' ||
-          autoGenError?.message?.includes('Unknown column') ||
-          autoGenError?.message?.includes('serialNo')) {
-        logger.warn(`serialNo column may not exist, skipping auto-generation for userId=${userId}`);
-        skipSerialNo = true;
-      } else {
-        // Log but don't fail - serialNo is optional
-        logger.warn(`Error auto-generating serialNo for userId=${userId}:`, autoGenError?.message);
-      }
-    }
-    
-    // Update profile fields - handle manual serialNo update if provided
-    if (req.body.serialNo !== undefined) {
-      try {
-        // Check for uniqueness if serialNo is being set
-        if (req.body.serialNo && req.body.serialNo.trim()) {
-          const existingProfile = await db.StudentProfile.findOne({
-            where: {
-              serialNo: req.body.serialNo.trim(),
-              userId: { [Op.ne]: userId }, // Exclude current user
-            },
-          });
-          if (existingProfile) {
-            res.status(400).json({
-              status: 'error',
-              message: 'Serial number already exists',
-            });
-            return;
-          }
-          studentProfile.serialNo = req.body.serialNo.trim();
-        } else {
-          // If explicitly set to empty/null, allow it
-          studentProfile.serialNo = null;
-        }
-      } catch (serialNoError: any) {
-        // If serialNo column doesn't exist in database, log warning and skip
-        // This allows the update to continue with other fields
-        if (serialNoError?.name === 'SequelizeDatabaseError' || 
-            serialNoError?.parent?.code === 'ER_BAD_FIELD_ERROR' ||
-            serialNoError?.message?.includes('Unknown column') ||
-            serialNoError?.message?.includes('serialNo')) {
-          logger.warn(`serialNo column may not exist in database, skipping serialNo update for userId=${userId}:`, serialNoError?.message);
-          skipSerialNo = true;
-        } else {
-          // Re-throw if it's a different error (like validation)
-          throw serialNoError;
-        }
-      }
     }
     if (req.body.dob !== undefined) {
       if (req.body.dob) {
@@ -791,32 +713,8 @@ export const updateStudentProfile = async (
     if (req.body.status !== undefined) studentProfile.status = req.body.status;
     if (req.body.documents !== undefined) studentProfile.documents = req.body.documents;
 
-    // Save the profile, excluding serialNo if it had an error
-    try {
-      if (skipSerialNo) {
-        // Get list of changed fields excluding serialNo
-        const changedFields = Object.keys(studentProfile.changed() || {}).filter(field => field !== 'serialNo') as Array<keyof StudentProfileAttributes>;
-        if (changedFields.length > 0) {
-          await studentProfile.save({ fields: changedFields });
-        } else {
-          // No fields to update, just fetch the user
-          logger.info(`No fields to update for student profile userId=${userId} (serialNo skipped)`);
-        }
-      } else {
-        await studentProfile.save();
-      }
-    } catch (saveError: any) {
-      // If save fails due to serialNo, try again without it
-      if (saveError?.message?.includes('serialNo') || saveError?.parent?.message?.includes('serialNo')) {
-        logger.warn(`Save failed due to serialNo, retrying without serialNo for userId=${userId}`);
-        const changedFields = Object.keys(studentProfile.changed() || {}).filter(field => field !== 'serialNo') as Array<keyof StudentProfileAttributes>;
-        if (changedFields.length > 0) {
-          await studentProfile.save({ fields: changedFields });
-        }
-      } else {
-        throw saveError;
-      }
-    }
+    // Save the profile
+    await studentProfile.save();
 
     // Fetch updated user with profile
     const updatedUser = await db.User.findByPk(userId, {
@@ -845,7 +743,6 @@ export const updateStudentProfile = async (
       stack: error?.stack,
       userId: req.params.id,
       body: req.body ? {
-        hasSerialNo: !!req.body.serialNo,
         hasDob: !!req.body.dob,
         hasAddress: !!req.body.address,
         hasPhotoUrl: !!req.body.photoUrl,
