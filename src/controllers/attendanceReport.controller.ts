@@ -263,9 +263,10 @@ export const getAllStudents = async (req: AuthRequest, res: Response): Promise<v
 
     // Get all students (no pagination limit for student management)
     // Include all student profile fields including documents
+    // Use case-insensitive query to handle any case sensitivity issues
     const students = await db.User.findAll({
       where: {
-        role: UserRole.STUDENT,
+        role: UserRole.STUDENT, // This should be 'student' (lowercase)
         // Don't filter by isActive - show all students
       },
       attributes: ['id', 'name', 'email', 'phone', 'avatarUrl', 'isActive', 'createdAt', 'updatedAt'],
@@ -280,19 +281,35 @@ export const getAllStudents = async (req: AuthRequest, res: Response): Promise<v
       order: [['createdAt', 'DESC']],
     });
     
-    logger.info(`Get all students query: Found ${students.length} students with role STUDENT`);
+    logger.info(`Get all students query: Found ${students.length} students with role STUDENT (${UserRole.STUDENT})`);
     
     // Log details about each student for debugging
     if (students.length > 0) {
       students.slice(0, 5).forEach((student: any) => {
-        logger.info(`Student sample: id=${student.id}, name=${student.name}, email=${student.email}, isActive=${student.isActive}, hasProfile=${!!student.studentProfile}`);
+        logger.info(`Student sample: id=${student.id}, name=${student.name}, email=${student.email}, role=${student.role}, isActive=${student.isActive}, hasProfile=${!!student.studentProfile}`);
       });
     } else {
       logger.warn('No students found in database with role STUDENT');
       // Check if there are any users at all
       const allUsers = await db.User.count();
       const studentUsers = await db.User.count({ where: { role: UserRole.STUDENT } });
-      logger.info(`Total users in database: ${allUsers}, Students: ${studentUsers}`);
+      logger.info(`Total users in database: ${allUsers}, Students with role '${UserRole.STUDENT}': ${studentUsers}`);
+      
+      // Also check with raw SQL to see if there are students with different case
+      try {
+        const [rawResults]: any = await db.sequelize.query(
+          `SELECT COUNT(*) as count, role FROM users WHERE LOWER(role) = 'student' GROUP BY role`
+        );
+        logger.info('Raw SQL check - Students by role (case-insensitive):', rawResults);
+        
+        // Also check recent users
+        const [recentUsers]: any = await db.sequelize.query(
+          `SELECT id, name, email, role, isActive, createdAt FROM users ORDER BY createdAt DESC LIMIT 10`
+        );
+        logger.info('Recent users (last 10):', recentUsers);
+      } catch (sqlError) {
+        logger.error('Error running raw SQL check:', sqlError);
+      }
     }
 
     logger.info(`Get all students: Found ${students.length} students`);
