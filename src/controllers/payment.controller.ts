@@ -1784,6 +1784,7 @@ export const bulkUploadPayments = async (req: AuthRequest, res: Response): Promi
               // Get or create student profile
               let studentProfile = await db.StudentProfile.findOne({
                 where: { userId: student.id },
+                attributes: { exclude: ['serialNo'] }, // Exclude serialNo column
               });
               
               if (studentProfile) {

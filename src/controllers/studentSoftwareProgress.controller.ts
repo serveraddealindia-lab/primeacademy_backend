@@ -501,7 +501,8 @@ export const importExcel = async (req: AuthRequest, res: Response): Promise<void
               const studentProfile = await db.StudentProfile.findOne({
                 where: {
                   userId: existingUserWithPhone?.id
-                }
+                },
+                attributes: { exclude: ['serialNo'] }, // Exclude serialNo column
               });
               
               if (studentProfile && studentProfile.documents) {

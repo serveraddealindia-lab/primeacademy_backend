@@ -61,7 +61,7 @@ export const getAllUsers = async (
             model: db.StudentProfile,
             as: 'studentProfile',
             required: false,
-            // Include all student profile fields
+            attributes: { exclude: ['serialNo'] }, // Exclude serialNo column
           });
         }
       }
@@ -306,7 +306,10 @@ export const getUserById = async (
           // Fetch student profile
           if (user.role === 'student' && db.StudentProfile) {
             try {
-              const studentProfile = await db.StudentProfile.findOne({ where: { userId: user.id } });
+              const studentProfile = await db.StudentProfile.findOne({ 
+                where: { userId: user.id },
+                attributes: { exclude: ['serialNo'] } // Exclude serialNo column
+              });
               if (studentProfile) {
                 (user as any).studentProfile = studentProfile;
               }
@@ -452,7 +455,12 @@ export const updateUser = async (
     const includeOptions: any[] = [];
     try {
       if (db.StudentProfile) {
-        includeOptions.push({ model: db.StudentProfile, as: 'studentProfile', required: false });
+        includeOptions.push({ 
+          model: db.StudentProfile, 
+          as: 'studentProfile', 
+          required: false,
+          attributes: { exclude: ['serialNo'] } // Exclude serialNo column
+        });
       }
     } catch (e) {
       // StudentProfile not available
@@ -644,7 +652,10 @@ export const updateStudentProfile = async (
     }
 
     // Get or create student profile
-    let studentProfile = await db.StudentProfile.findOne({ where: { userId } });
+    let studentProfile = await db.StudentProfile.findOne({ 
+      where: { userId },
+      attributes: { exclude: ['serialNo'] } // Exclude serialNo column
+    });
     if (!studentProfile) {
       const profileData: any = { userId };
       studentProfile = await db.StudentProfile.create(profileData);
@@ -722,6 +733,7 @@ export const updateStudentProfile = async (
           model: db.StudentProfile,
           as: 'studentProfile',
           required: false,
+          attributes: { exclude: ['serialNo'] }, // Exclude serialNo column
         },
       ] : undefined,
     });

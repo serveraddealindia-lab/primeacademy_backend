@@ -1386,6 +1386,7 @@ export const unifiedStudentImport = async (req: AuthRequest, res: Response): Pro
         if (db.StudentProfile) {
           let studentProfile = await db.StudentProfile.findOne({
             where: { userId: student.id },
+            attributes: { exclude: ['serialNo'] }, // Exclude serialNo column
             transaction
           });
 
