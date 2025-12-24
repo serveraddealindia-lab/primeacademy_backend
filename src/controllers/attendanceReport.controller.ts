@@ -262,99 +262,100 @@ export const getAllStudents = async (req: AuthRequest, res: Response): Promise<v
     }
 
     // Get all students (no pagination limit for student management)
-    // First try Sequelize query, then fallback to raw SQL if it fails
+    // Use raw SQL directly since Sequelize query is not working in production
+    // This ensures we get students even if Sequelize has issues
     let students: any[] = [];
     
     try {
-      students = await db.User.findAll({
-        where: {
-          role: UserRole.STUDENT, // This should be 'student' (lowercase)
-          // Don't filter by isActive - show all students
-        },
-        attributes: ['id', 'name', 'email', 'phone', 'avatarUrl', 'isActive', 'createdAt', 'updatedAt'],
-        include: [
-          {
-            model: db.StudentProfile,
-            as: 'studentProfile',
-            required: false, // Include students even if they don't have a profile yet
-            // Include all student profile fields
-          },
-        ],
-        order: [['createdAt', 'DESC']],
+      // Use raw SQL query with proper column aliases (MySQL doesn't like dots in aliases)
+      const [rawStudents]: any = await db.sequelize.query(`
+        SELECT 
+          u.id,
+          u.name,
+          u.email,
+          u.phone,
+          u.avatarUrl,
+          u.isActive,
+          u.createdAt,
+          u.updatedAt,
+          sp.id as profile_id,
+          sp.userId as profile_userId,
+          sp.dob as profile_dob,
+          sp.address as profile_address,
+          sp.documents as profile_documents,
+          sp.photoUrl as profile_photoUrl,
+          sp.softwareList as profile_softwareList,
+          sp.enrollmentDate as profile_enrollmentDate,
+          sp.status as profile_status,
+          sp.finishedBatches as profile_finishedBatches,
+          sp.currentBatches as profile_currentBatches,
+          sp.pendingBatches as profile_pendingBatches,
+          sp.createdAt as profile_createdAt,
+          sp.updatedAt as profile_updatedAt
+        FROM users u
+        LEFT JOIN student_profiles sp ON u.id = sp.userId
+        WHERE LOWER(u.role) = 'student'
+        ORDER BY u.createdAt DESC
+      `);
+      
+      logger.info(`Raw SQL query executed: Found ${rawStudents.length} students`);
+      
+      // Transform raw SQL results to match Sequelize format
+      students = rawStudents.map((row: any) => {
+        const student: any = {
+          id: row.id,
+          name: row.name,
+          email: row.email,
+          phone: row.phone,
+          avatarUrl: row.avatarUrl,
+          isActive: row.isActive === 1 || row.isActive === true, // Convert MySQL boolean
+          createdAt: row.createdAt,
+          updatedAt: row.updatedAt,
+          role: 'student',
+          studentProfile: row.profile_id ? {
+            id: row.profile_id,
+            userId: row.profile_userId,
+            dob: row.profile_dob,
+            address: row.profile_address,
+            documents: row.profile_documents,
+            photoUrl: row.profile_photoUrl,
+            softwareList: row.profile_softwareList,
+            enrollmentDate: row.profile_enrollmentDate,
+            status: row.profile_status,
+            finishedBatches: row.profile_finishedBatches,
+            currentBatches: row.profile_currentBatches,
+            pendingBatches: row.profile_pendingBatches,
+            createdAt: row.profile_createdAt,
+            updatedAt: row.profile_updatedAt,
+          } : null,
+        };
+        return student;
       });
       
-      logger.info(`Sequelize query: Found ${students.length} students with role STUDENT (${UserRole.STUDENT})`);
-    } catch (sequelizeError) {
-      logger.error('Sequelize query failed, trying raw SQL:', sequelizeError);
-      
-      // Fallback to raw SQL query
+      logger.info(`Raw SQL query: Transformed ${students.length} students`);
+    } catch (sqlError) {
+      logger.error('Raw SQL query failed:', sqlError);
+      // Try Sequelize as fallback
       try {
-        const [rawStudents]: any = await db.sequelize.query(`
-          SELECT 
-            u.id,
-            u.name,
-            u.email,
-            u.phone,
-            u.avatarUrl,
-            u.isActive,
-            u.createdAt,
-            u.updatedAt,
-            sp.id as 'studentProfile.id',
-            sp.userId as 'studentProfile.userId',
-            sp.dob as 'studentProfile.dob',
-            sp.address as 'studentProfile.address',
-            sp.documents as 'studentProfile.documents',
-            sp.photoUrl as 'studentProfile.photoUrl',
-            sp.softwareList as 'studentProfile.softwareList',
-            sp.enrollmentDate as 'studentProfile.enrollmentDate',
-            sp.status as 'studentProfile.status',
-            sp.finishedBatches as 'studentProfile.finishedBatches',
-            sp.currentBatches as 'studentProfile.currentBatches',
-            sp.pendingBatches as 'studentProfile.pendingBatches',
-            sp.createdAt as 'studentProfile.createdAt',
-            sp.updatedAt as 'studentProfile.updatedAt'
-          FROM users u
-          LEFT JOIN student_profiles sp ON u.id = sp.userId
-          WHERE LOWER(u.role) = 'student'
-          ORDER BY u.createdAt DESC
-        `);
-        
-        // Transform raw SQL results to match Sequelize format
-        students = rawStudents.map((row: any) => {
-          const student: any = {
-            id: row.id,
-            name: row.name,
-            email: row.email,
-            phone: row.phone,
-            avatarUrl: row.avatarUrl,
-            isActive: row.isActive,
-            createdAt: row.createdAt,
-            updatedAt: row.updatedAt,
-            role: 'student',
-            studentProfile: row['studentProfile.id'] ? {
-              id: row['studentProfile.id'],
-              userId: row['studentProfile.userId'],
-              dob: row['studentProfile.dob'],
-              address: row['studentProfile.address'],
-              documents: row['studentProfile.documents'],
-              photoUrl: row['studentProfile.photoUrl'],
-              softwareList: row['studentProfile.softwareList'],
-              enrollmentDate: row['studentProfile.enrollmentDate'],
-              status: row['studentProfile.status'],
-              finishedBatches: row['studentProfile.finishedBatches'],
-              currentBatches: row['studentProfile.currentBatches'],
-              pendingBatches: row['studentProfile.pendingBatches'],
-              createdAt: row['studentProfile.createdAt'],
-              updatedAt: row['studentProfile.updatedAt'],
-            } : null,
-          };
-          return student;
+        logger.info('Trying Sequelize query as fallback...');
+        students = await db.User.findAll({
+          where: {
+            role: UserRole.STUDENT,
+          },
+          attributes: ['id', 'name', 'email', 'phone', 'avatarUrl', 'isActive', 'createdAt', 'updatedAt'],
+          include: [
+            {
+              model: db.StudentProfile,
+              as: 'studentProfile',
+              required: false,
+            },
+          ],
+          order: [['createdAt', 'DESC']],
         });
-        
-        logger.info(`Raw SQL query: Found ${students.length} students`);
-      } catch (sqlError) {
-        logger.error('Raw SQL query also failed:', sqlError);
-        throw sqlError;
+        logger.info(`Sequelize fallback: Found ${students.length} students`);
+      } catch (sequelizeError) {
+        logger.error('Both raw SQL and Sequelize queries failed:', sequelizeError);
+        throw sequelizeError;
       }
     }
     
@@ -389,51 +390,99 @@ export const getAllStudents = async (req: AuthRequest, res: Response): Promise<v
 
     logger.info(`Get all students: Found ${students.length} students`);
 
+    // Transform students to response format
+    const transformedStudents = students.map((student) => {
+      // Handle both Sequelize models and plain objects from raw SQL
+      let studentJson: any;
+      let studentProfile: any;
+      
+      if (student && typeof student.toJSON === 'function') {
+        // Sequelize model
+        studentJson = student.toJSON();
+        studentProfile = studentJson.studentProfile;
+      } else {
+        // Plain object from raw SQL
+        studentJson = student;
+        studentProfile = student.studentProfile;
+      }
+      
+      // Parse documents if it's a string (MySQL JSON fields sometimes come as strings)
+      if (studentProfile?.documents) {
+        if (typeof studentProfile.documents === 'string') {
+          try {
+            studentProfile.documents = JSON.parse(studentProfile.documents);
+          } catch (e) {
+            logger.warn(`Failed to parse documents JSON for student ${studentJson.id}:`, e);
+            studentProfile.documents = null;
+          }
+        }
+      }
+
+      // Parse JSON arrays if they're strings
+      if (studentProfile?.softwareList && typeof studentProfile.softwareList === 'string') {
+        try {
+          studentProfile.softwareList = JSON.parse(studentProfile.softwareList);
+        } catch (e) {
+          studentProfile.softwareList = [];
+        }
+      }
+      if (studentProfile?.finishedBatches && typeof studentProfile.finishedBatches === 'string') {
+        try {
+          studentProfile.finishedBatches = JSON.parse(studentProfile.finishedBatches);
+        } catch (e) {
+          studentProfile.finishedBatches = [];
+        }
+      }
+      if (studentProfile?.currentBatches && typeof studentProfile.currentBatches === 'string') {
+        try {
+          studentProfile.currentBatches = JSON.parse(studentProfile.currentBatches);
+        } catch (e) {
+          studentProfile.currentBatches = [];
+        }
+      }
+      if (studentProfile?.pendingBatches && typeof studentProfile.pendingBatches === 'string') {
+        try {
+          studentProfile.pendingBatches = JSON.parse(studentProfile.pendingBatches);
+        } catch (e) {
+          studentProfile.pendingBatches = [];
+        }
+      }
+
+      return {
+        id: studentJson.id,
+        name: studentJson.name,
+        email: studentJson.email,
+        phone: studentJson.phone,
+        avatarUrl: studentJson.avatarUrl,
+        isActive: studentJson.isActive,
+        createdAt: studentJson.createdAt,
+        updatedAt: studentJson.updatedAt,
+        studentProfile: studentProfile ? {
+          id: studentProfile.id,
+          userId: studentProfile.userId,
+          dob: studentProfile.dob,
+          address: studentProfile.address,
+          documents: studentProfile.documents,
+          photoUrl: studentProfile.photoUrl,
+          softwareList: studentProfile.softwareList || [],
+          enrollmentDate: studentProfile.enrollmentDate,
+          status: studentProfile.status,
+          finishedBatches: studentProfile.finishedBatches || [],
+          currentBatches: studentProfile.currentBatches || [],
+          pendingBatches: studentProfile.pendingBatches || [],
+          createdAt: studentProfile.createdAt,
+          updatedAt: studentProfile.updatedAt,
+        } : null,
+      };
+    });
+
+    logger.info(`Transformed ${transformedStudents.length} students for response`);
+
     res.status(200).json({
       status: 'success',
       data: {
-        students: students.map((student) => {
-          const studentJson = student.toJSON() as any;
-          const studentProfile = studentJson.studentProfile;
-          
-          // Parse documents if it's a string (MySQL JSON fields sometimes come as strings)
-          if (studentProfile?.documents && typeof studentProfile.documents === 'string') {
-            try {
-              studentProfile.documents = JSON.parse(studentProfile.documents);
-            } catch (e) {
-              logger.warn(`Failed to parse documents JSON for student ${student.id}:`, e);
-              studentProfile.documents = null;
-            }
-          }
-
-          return {
-            id: student.id,
-            name: student.name,
-            email: student.email,
-            phone: student.phone,
-            avatarUrl: student.avatarUrl,
-            isActive: student.isActive,
-            createdAt: student.createdAt,
-            updatedAt: student.updatedAt,
-            studentProfile: studentProfile ? {
-              id: studentProfile.id,
-              userId: studentProfile.userId,
-              dob: studentProfile.dob,
-              address: studentProfile.address,
-              documents: studentProfile.documents,
-              photoUrl: studentProfile.photoUrl,
-              softwareList: studentProfile.softwareList || [],
-              enrollmentDate: studentProfile.enrollmentDate,
-              status: studentProfile.status,
-              finishedBatches: studentProfile.finishedBatches || [],
-              currentBatches: studentProfile.currentBatches || [],
-              pendingBatches: studentProfile.pendingBatches || [],
-              createdAt: studentProfile.createdAt,
-              updatedAt: studentProfile.updatedAt,
-            } : null,
-          };
-        }),
-        totalCount: students.length,
+        students: transformedStudents,
+        totalCount: transformedStudents.length,
       },
     });
   } catch (error) {
