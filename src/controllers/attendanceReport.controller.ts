@@ -262,31 +262,106 @@ export const getAllStudents = async (req: AuthRequest, res: Response): Promise<v
     }
 
     // Get all students (no pagination limit for student management)
-    // Include all student profile fields including documents
-    // Use case-insensitive query to handle any case sensitivity issues
-    const students = await db.User.findAll({
-      where: {
-        role: UserRole.STUDENT, // This should be 'student' (lowercase)
-        // Don't filter by isActive - show all students
-      },
-      attributes: ['id', 'name', 'email', 'phone', 'avatarUrl', 'isActive', 'createdAt', 'updatedAt'],
-      include: [
-        {
-          model: db.StudentProfile,
-          as: 'studentProfile',
-          required: false, // Include students even if they don't have a profile yet
-          // Include all student profile fields
-        },
-      ],
-      order: [['createdAt', 'DESC']],
-    });
+    // First try Sequelize query, then fallback to raw SQL if it fails
+    let students: any[] = [];
     
-    logger.info(`Get all students query: Found ${students.length} students with role STUDENT (${UserRole.STUDENT})`);
+    try {
+      students = await db.User.findAll({
+        where: {
+          role: UserRole.STUDENT, // This should be 'student' (lowercase)
+          // Don't filter by isActive - show all students
+        },
+        attributes: ['id', 'name', 'email', 'phone', 'avatarUrl', 'isActive', 'createdAt', 'updatedAt'],
+        include: [
+          {
+            model: db.StudentProfile,
+            as: 'studentProfile',
+            required: false, // Include students even if they don't have a profile yet
+            // Include all student profile fields
+          },
+        ],
+        order: [['createdAt', 'DESC']],
+      });
+      
+      logger.info(`Sequelize query: Found ${students.length} students with role STUDENT (${UserRole.STUDENT})`);
+    } catch (sequelizeError) {
+      logger.error('Sequelize query failed, trying raw SQL:', sequelizeError);
+      
+      // Fallback to raw SQL query
+      try {
+        const [rawStudents]: any = await db.sequelize.query(`
+          SELECT 
+            u.id,
+            u.name,
+            u.email,
+            u.phone,
+            u.avatarUrl,
+            u.isActive,
+            u.createdAt,
+            u.updatedAt,
+            sp.id as 'studentProfile.id',
+            sp.userId as 'studentProfile.userId',
+            sp.dob as 'studentProfile.dob',
+            sp.address as 'studentProfile.address',
+            sp.documents as 'studentProfile.documents',
+            sp.photoUrl as 'studentProfile.photoUrl',
+            sp.softwareList as 'studentProfile.softwareList',
+            sp.enrollmentDate as 'studentProfile.enrollmentDate',
+            sp.status as 'studentProfile.status',
+            sp.finishedBatches as 'studentProfile.finishedBatches',
+            sp.currentBatches as 'studentProfile.currentBatches',
+            sp.pendingBatches as 'studentProfile.pendingBatches',
+            sp.createdAt as 'studentProfile.createdAt',
+            sp.updatedAt as 'studentProfile.updatedAt'
+          FROM users u
+          LEFT JOIN student_profiles sp ON u.id = sp.userId
+          WHERE LOWER(u.role) = 'student'
+          ORDER BY u.createdAt DESC
+        `);
+        
+        // Transform raw SQL results to match Sequelize format
+        students = rawStudents.map((row: any) => {
+          const student: any = {
+            id: row.id,
+            name: row.name,
+            email: row.email,
+            phone: row.phone,
+            avatarUrl: row.avatarUrl,
+            isActive: row.isActive,
+            createdAt: row.createdAt,
+            updatedAt: row.updatedAt,
+            role: 'student',
+            studentProfile: row['studentProfile.id'] ? {
+              id: row['studentProfile.id'],
+              userId: row['studentProfile.userId'],
+              dob: row['studentProfile.dob'],
+              address: row['studentProfile.address'],
+              documents: row['studentProfile.documents'],
+              photoUrl: row['studentProfile.photoUrl'],
+              softwareList: row['studentProfile.softwareList'],
+              enrollmentDate: row['studentProfile.enrollmentDate'],
+              status: row['studentProfile.status'],
+              finishedBatches: row['studentProfile.finishedBatches'],
+              currentBatches: row['studentProfile.currentBatches'],
+              pendingBatches: row['studentProfile.pendingBatches'],
+              createdAt: row['studentProfile.createdAt'],
+              updatedAt: row['studentProfile.updatedAt'],
+            } : null,
+          };
+          return student;
+        });
+        
+        logger.info(`Raw SQL query: Found ${students.length} students`);
+      } catch (sqlError) {
+        logger.error('Raw SQL query also failed:', sqlError);
+        throw sqlError;
+      }
+    }
     
     // Log details about each student for debugging
     if (students.length > 0) {
       students.slice(0, 5).forEach((student: any) => {
-        logger.info(`Student sample: id=${student.id}, name=${student.name}, email=${student.email}, role=${student.role}, isActive=${student.isActive}, hasProfile=${!!student.studentProfile}`);
+        logger.info(`Student sample: id=${student.id}, name=${student.name}, email=${student.email}, role=${student.role || 'student'}, isActive=${student.isActive}, hasProfile=${!!student.studentProfile}`);
       });
     } else {
       logger.warn('No students found in database with role STUDENT');
