@@ -716,15 +716,23 @@ export const FacultyManagement: React.FC = () => {
                                 const parsed = JSON.parse(availability);
                                 if (typeof parsed === 'object' && parsed !== null) {
                                   // If it's an object, extract meaningful values
-                                  availability = parsed.schedule || parsed.availability || parsed.text || JSON.stringify(parsed);
+                                  const scheduleValue = parsed.schedule || parsed.availability || parsed.text;
+                                  // Ensure we always have a string, not an object
+                                  availability = typeof scheduleValue === 'string' 
+                                    ? scheduleValue 
+                                    : (scheduleValue ? JSON.stringify(scheduleValue) : JSON.stringify(parsed));
                                 } else {
-                                  availability = parsed;
+                                  availability = String(parsed);
                                 }
                               } catch (e) {
                                 // Not JSON, use as is
                               }
                             } else if (availability && typeof availability === 'object') {
-                              availability = availability.schedule || availability.availability || availability.text || JSON.stringify(availability);
+                              const scheduleValue = availability.schedule || availability.availability || availability.text;
+                              // Ensure we always have a string, not an object
+                              availability = typeof scheduleValue === 'string' 
+                                ? scheduleValue 
+                                : (scheduleValue ? JSON.stringify(scheduleValue) : JSON.stringify(availability));
                             }
                             
                             return (

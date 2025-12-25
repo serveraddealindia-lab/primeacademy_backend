@@ -341,15 +341,23 @@ export const FacultyEdit: React.FC = () => {
       try {
         const parsed = JSON.parse(availability);
         if (typeof parsed === 'object' && parsed !== null) {
-          return parsed.schedule || parsed.availability || parsed.text || availability;
+          const scheduleValue = parsed.schedule || parsed.availability || parsed.text;
+          // Ensure we always return a string, not an object
+          return typeof scheduleValue === 'string' 
+            ? scheduleValue 
+            : (scheduleValue ? JSON.stringify(scheduleValue) : availability);
         }
-        return parsed;
+        return String(parsed);
       } catch (e) {
         // Not JSON, return as is
         return availability;
       }
     } else if (typeof availability === 'object') {
-      return availability.schedule || availability.availability || availability.text || JSON.stringify(availability);
+      const scheduleValue = availability.schedule || availability.availability || availability.text;
+      // Ensure we always return a string, not an object
+      return typeof scheduleValue === 'string' 
+        ? scheduleValue 
+        : (scheduleValue ? JSON.stringify(scheduleValue) : JSON.stringify(availability));
     }
     return '';
   }, [facultyData?.profile?.availability]);
