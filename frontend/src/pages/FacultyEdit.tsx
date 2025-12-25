@@ -779,7 +779,8 @@ export const FacultyEdit: React.FC = () => {
     
     // If dateOfBirth field is empty, try to get it from existing data
     if (!dateOfBirthInput || !dateOfBirthInput.trim()) {
-      const existingDob = personalInfo?.dateOfBirth || facultyData?.profile?.dateOfBirth;
+      // Use parsedDocuments or profile directly to avoid variable shadowing
+      const existingDob = parsedDocuments?.personalInfo?.dateOfBirth || facultyData?.profile?.dateOfBirth;
       if (existingDob) {
         try {
           dateOfBirthInput = formatDateDDMMYYYY(existingDob);
