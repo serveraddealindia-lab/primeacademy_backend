@@ -85,30 +85,50 @@ export const EmployeeEdit: React.FC = () => {
           throw new Error('Invalid user response structure - user not found');
         }
         
-        let profile = null;
-        try {
-          const profileResponse = await employeeAPI.getEmployeeProfile(Number(id));
-          console.log('Profile response:', profileResponse);
-          // Try multiple possible response structures
-          const responseData: any = profileResponse;
-          if (responseData?.data?.employeeProfile) {
-            profile = responseData.data.employeeProfile;
-          } else if (responseData?.employeeProfile) {
-            profile = responseData.employeeProfile;
-          } else if (responseData?.data && responseData.data.id) {
-            // Sometimes the profile is directly in data
-            profile = responseData.data;
-          } else if (responseData?.id) {
-            // If profileResponse itself is the profile
-            profile = responseData;
+        // Get employee profile - it should be included in the user response
+        let profile = user.employeeProfile || null;
+        
+        // If not included, try to fetch separately
+        if (!profile) {
+          try {
+            const profileResponse = await employeeAPI.getEmployeeProfile(Number(id));
+            console.log('Profile response:', profileResponse);
+            // Try multiple possible response structures
+            const profileResponseData: any = profileResponse;
+            if (profileResponseData?.data?.employeeProfile) {
+              profile = profileResponseData.data.employeeProfile;
+            } else if (profileResponseData?.employeeProfile) {
+              profile = profileResponseData.employeeProfile;
+            } else if (profileResponseData?.data && profileResponseData.data.id) {
+              // Sometimes the profile is directly in data
+              profile = profileResponseData.data;
+            } else if (profileResponseData?.id) {
+              // If profileResponse itself is the profile
+              profile = profileResponseData;
+            }
+            console.log('Extracted profile from separate fetch:', profile);
+          } catch (profileError: any) {
+            console.warn('Could not fetch employee profile separately:', profileError?.message);
+            // Continue without profile - it might not exist yet
           }
-          console.log('Extracted profile:', profile);
-        } catch (profileError: any) {
-          console.warn('Could not fetch employee profile:', profileError?.message);
-          // Continue without profile - it might not exist yet
+        } else {
+          console.log('Profile found in user response:', profile);
         }
         
-        console.log('Employee data fetched successfully:', { user, profile });
+        console.log('Employee data fetched successfully:', {
+          userId: user?.id,
+          userName: user?.name,
+          hasProfile: !!profile,
+          profileId: profile?.id,
+          hasAddress: !!profile?.address,
+          address: profile?.address,
+          hasCity: !!profile?.city,
+          city: profile?.city,
+          hasState: !!profile?.state,
+          state: profile?.state,
+          hasPostalCode: !!profile?.postalCode,
+          postalCode: profile?.postalCode,
+        });
         return {
           user: user,
           profile: profile,
@@ -1188,6 +1208,7 @@ export const EmployeeEdit: React.FC = () => {
                         type="text"
                         name="city"
                         required
+                        key={`city-${profile?.city || 'empty'}`}
                         defaultValue={profile?.city || ''}
                         className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 ${
                           errors.city ? 'border-red-500' : 'border-gray-300'
@@ -1203,6 +1224,7 @@ export const EmployeeEdit: React.FC = () => {
                         type="text"
                         name="state"
                         required
+                        key={`state-${profile?.state || 'empty'}`}
                         defaultValue={profile?.state || ''}
                         className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 ${
                           errors.state ? 'border-red-500' : 'border-gray-300'
@@ -1219,6 +1241,7 @@ export const EmployeeEdit: React.FC = () => {
                         name="postalCode"
                         required
                         maxLength={6}
+                        key={`postalCode-${profile?.postalCode || 'empty'}`}
                         defaultValue={profile?.postalCode || ''}
                         className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 ${
                           errors.postalCode ? 'border-red-500' : 'border-gray-300'

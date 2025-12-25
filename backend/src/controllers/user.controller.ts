@@ -296,7 +296,19 @@ export const getUserById = async (
             try {
               const employeeProfile = await db.EmployeeProfile.findOne({ where: { userId: user.id } });
               if (employeeProfile) {
-                (user as any).employeeProfile = employeeProfile;
+                const profileJson = employeeProfile.toJSON ? employeeProfile.toJSON() : employeeProfile;
+                
+                // Parse documents if it's a string (MySQL JSON fields sometimes come as strings)
+                if (profileJson.documents && typeof profileJson.documents === 'string') {
+                  try {
+                    profileJson.documents = JSON.parse(profileJson.documents);
+                  } catch (e) {
+                    logger.warn(`Failed to parse documents JSON for employee ${user.id}:`, e);
+                    profileJson.documents = null;
+                  }
+                }
+                
+                (user as any).employeeProfile = profileJson;
               }
             } catch (profileError: any) {
               logger.warn('Failed to fetch employee profile separately:', profileError?.message);
@@ -399,8 +411,10 @@ export const getUserById = async (
       return;
     }
 
-    // Parse JSON fields for faculty profile if included
+    // Parse JSON fields for profiles if included
     const userJson = user.toJSON ? user.toJSON() : user;
+    
+    // Parse faculty profile JSON fields
     if (userJson.facultyProfile) {
       const profile = userJson.facultyProfile;
       
@@ -435,6 +449,23 @@ export const getUserById = async (
       }
       
       userJson.facultyProfile = profile;
+    }
+    
+    // Parse employee profile JSON fields
+    if (userJson.employeeProfile) {
+      const profile = userJson.employeeProfile;
+      
+      // Parse documents if it's a string (MySQL JSON fields sometimes come as strings)
+      if (profile.documents && typeof profile.documents === 'string') {
+        try {
+          profile.documents = JSON.parse(profile.documents);
+        } catch (e) {
+          logger.warn(`Failed to parse documents JSON for employee ${userJson.id}:`, e);
+          profile.documents = null;
+        }
+      }
+      
+      userJson.employeeProfile = profile;
     }
 
     res.status(200).json({
