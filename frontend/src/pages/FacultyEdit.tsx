@@ -769,7 +769,7 @@ export const FacultyEdit: React.FC = () => {
     
     // Validate required fields
     const gender = formData.get('gender') as string;
-    const dateOfBirthInput = formData.get('dateOfBirth') as string;
+    let dateOfBirthInput = formData.get('dateOfBirth') as string;
     const nationality = formData.get('nationality') as string;
     const maritalStatus = formData.get('maritalStatus') as string;
     const address = formData.get('address') as string;
@@ -777,12 +777,31 @@ export const FacultyEdit: React.FC = () => {
     const state = formData.get('state') as string;
     const postalCode = formData.get('postalCode') as string;
     
+    // If dateOfBirth field is empty, try to get it from existing data
+    if (!dateOfBirthInput || !dateOfBirthInput.trim()) {
+      const existingDob = personalInfo?.dateOfBirth || facultyData?.profile?.dateOfBirth;
+      if (existingDob) {
+        try {
+          dateOfBirthInput = formatDateDDMMYYYY(existingDob);
+          // formatDateDDMMYYYY returns '-' for invalid, we need to check
+          if (dateOfBirthInput && dateOfBirthInput !== '-') {
+            console.log('Using existing dateOfBirth from data:', dateOfBirthInput);
+          } else {
+            dateOfBirthInput = '';
+          }
+        } catch (e) {
+          console.error('Error formatting existing dateOfBirth:', e);
+          dateOfBirthInput = '';
+        }
+      }
+    }
+    
     if (!gender || !gender.trim()) {
       alert('Gender is required');
       return;
     }
-    if (!dateOfBirthInput || !dateOfBirthInput.trim()) {
-      alert('Date of Birth is required');
+    if (!dateOfBirthInput || !dateOfBirthInput.trim() || dateOfBirthInput === '-') {
+      alert('Date of Birth is required. Please enter your date of birth in DD/MM/YYYY format.');
       return;
     }
     
