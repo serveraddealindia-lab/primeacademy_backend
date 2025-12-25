@@ -407,6 +407,118 @@ export const createFaculty = async (
   }
 };
 
+// GET /api/faculty/:userId - Get faculty profile by user ID
+export const getFacultyProfile = async (
+  req: AuthRequest & { params: { userId: string } },
+  res: Response
+): Promise<void> => {
+  try {
+    if (!req.user) {
+      res.status(401).json({
+        status: 'error',
+        message: 'Authentication required',
+      });
+      return;
+    }
+
+    const userId = parseInt(req.params.userId, 10);
+    if (isNaN(userId)) {
+      res.status(400).json({
+        status: 'error',
+        message: 'Invalid user ID',
+      });
+      return;
+    }
+
+    // Users can view their own profile, or admins can view any profile
+    if (req.user.userId !== userId && req.user.role !== UserRole.SUPERADMIN && req.user.role !== UserRole.ADMIN) {
+      res.status(403).json({
+        status: 'error',
+        message: 'You can only view your own profile unless you are an admin',
+      });
+      return;
+    }
+
+    const user = await db.User.findByPk(userId, {
+      attributes: { exclude: ['passwordHash'] },
+      include: db.FacultyProfile ? [
+        {
+          model: db.FacultyProfile,
+          as: 'facultyProfile',
+          required: false,
+        },
+      ] : undefined,
+    });
+
+    if (!user) {
+      res.status(404).json({
+        status: 'error',
+        message: 'User not found',
+      });
+      return;
+    }
+
+    if (user.role !== UserRole.FACULTY) {
+      res.status(400).json({
+        status: 'error',
+        message: 'User is not a faculty member',
+      });
+      return;
+    }
+
+    // Parse JSON fields for faculty profile
+    let facultyProfile = user.facultyProfile;
+    if (facultyProfile) {
+      const profileJson = facultyProfile.toJSON ? facultyProfile.toJSON() : facultyProfile;
+      
+      // Parse documents if it's a string (MySQL JSON fields sometimes come as strings)
+      if (profileJson.documents && typeof profileJson.documents === 'string') {
+        try {
+          profileJson.documents = JSON.parse(profileJson.documents);
+        } catch (e) {
+          logger.warn(`Failed to parse documents JSON for faculty ${userId}:`, e);
+          profileJson.documents = null;
+        }
+      }
+      
+      // Parse expertise if it's a string
+      if (profileJson.expertise && typeof profileJson.expertise === 'string') {
+        try {
+          profileJson.expertise = JSON.parse(profileJson.expertise);
+        } catch (e) {
+          logger.warn(`Failed to parse expertise JSON for faculty ${userId}:`, e);
+          // Keep as string if parsing fails
+        }
+      }
+      
+      // Parse availability if it's a string
+      if (profileJson.availability && typeof profileJson.availability === 'string') {
+        try {
+          profileJson.availability = JSON.parse(profileJson.availability);
+        } catch (e) {
+          logger.warn(`Failed to parse availability JSON for faculty ${userId}:`, e);
+          // Keep as string if parsing fails
+        }
+      }
+      
+      facultyProfile = profileJson;
+    }
+
+    res.status(200).json({
+      status: 'success',
+      data: {
+        facultyProfile: facultyProfile || null,
+      },
+    });
+  } catch (error: any) {
+    logger.error('Get faculty profile error:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Internal server error',
+    });
+  }
+};
+
 // PUT /api/faculty/:id - Update faculty profile
 export const updateFacultyProfile = async (
   req: AuthRequest & { params: { id: string }; body: { expertise?: string; availability?: string } },
