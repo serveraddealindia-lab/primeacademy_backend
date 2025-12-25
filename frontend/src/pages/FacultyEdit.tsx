@@ -230,18 +230,47 @@ export const FacultyEdit: React.FC = () => {
 
   // Helper function to parse documents from profile - memoized to ensure stability
   const parseDocumentsFromProfile = useCallback((): any => {
-    if (!facultyData?.profile?.documents) return null;
+    if (!facultyData?.profile?.documents) {
+      console.log('No documents in profile:', {
+        hasProfile: !!facultyData?.profile,
+        hasDocuments: !!facultyData?.profile?.documents,
+        documentsType: facultyData?.profile?.documents ? typeof facultyData.profile.documents : 'null',
+      });
+      return null;
+    }
     
     let parsedDocuments: any = null;
-    if (typeof facultyData.profile.documents === 'string') {
+    const documents = facultyData.profile.documents;
+    
+    console.log('Parsing documents:', {
+      type: typeof documents,
+      isString: typeof documents === 'string',
+      isObject: typeof documents === 'object',
+      value: typeof documents === 'string' ? documents.substring(0, 100) : documents,
+    });
+    
+    if (typeof documents === 'string') {
       try {
-        parsedDocuments = JSON.parse(facultyData.profile.documents);
+        parsedDocuments = JSON.parse(documents);
+        console.log('Successfully parsed documents string:', {
+          hasPersonalInfo: !!parsedDocuments?.personalInfo,
+          hasEmploymentInfo: !!parsedDocuments?.employmentInfo,
+          hasBankInfo: !!parsedDocuments?.bankInfo,
+          hasEmergencyInfo: !!parsedDocuments?.emergencyInfo,
+        });
       } catch (e) {
         console.error('Error parsing documents string:', e);
+        console.error('Documents string value:', documents);
         return null;
       }
-    } else if (typeof facultyData.profile.documents === 'object' && facultyData.profile.documents !== null) {
-      parsedDocuments = facultyData.profile.documents;
+    } else if (typeof documents === 'object' && documents !== null) {
+      parsedDocuments = documents;
+      console.log('Documents is already an object:', {
+        hasPersonalInfo: !!parsedDocuments?.personalInfo,
+        hasEmploymentInfo: !!parsedDocuments?.employmentInfo,
+        hasBankInfo: !!parsedDocuments?.bankInfo,
+        hasEmergencyInfo: !!parsedDocuments?.emergencyInfo,
+      });
     }
     
     return parsedDocuments;
@@ -294,6 +323,14 @@ export const FacultyEdit: React.FC = () => {
     if (!info.dateOfBirth && facultyData?.profile?.dateOfBirth) {
       info.dateOfBirth = facultyData.profile.dateOfBirth;
     }
+    console.log('Personal Info extracted:', {
+      hasParsedDocuments: !!parsedDocuments,
+      hasPersonalInfo: !!parsedDocuments?.personalInfo,
+      personalInfoKeys: Object.keys(info),
+      gender: info.gender,
+      address: info.address,
+      city: info.city,
+    });
     return info;
   }, [parsedDocuments, facultyData?.profile?.dateOfBirth]);
 
@@ -1385,7 +1422,7 @@ export const FacultyEdit: React.FC = () => {
 
             {/* Step 2: Personal Information */}
             {currentStep === 2 && (
-              <form key={`step2-${facultyUser?.id}-${personalInfo?.dateOfBirth || ''}-${personalInfo?.gender || ''}`} onSubmit={handleStep2Submit} className="space-y-6">
+              <form key={`step2-${facultyUser?.id}-${JSON.stringify(personalInfo)}-${parsedDocuments ? 'hasDocs' : 'noDocs'}`} onSubmit={handleStep2Submit} className="space-y-6">
                 <h2 className="text-2xl font-bold mb-6">Personal Information</h2>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div>
