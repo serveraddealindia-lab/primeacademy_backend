@@ -1,4 +1,45 @@
 /**
+ * Get the API base URL for constructing document URLs
+ * This ensures we use the correct API domain in production
+ */
+const getApiBaseUrl = (): string => {
+  // First, try environment variable
+  let apiBase = import.meta.env.VITE_API_BASE_URL;
+  
+  if (apiBase) {
+    // Ensure it ends with /api
+    return apiBase.endsWith('/api') ? apiBase : `${apiBase}/api`;
+  }
+  
+  // If not set, try to detect from current location
+  if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+    // Development - try common development ports
+    const port = window.location.port;
+    if (port === '5173' || port === '3000') {
+      return 'http://localhost:3001/api';
+    } else {
+      return `http://localhost:${port}/api`;
+    }
+  } else {
+    // Production - try to detect API domain from frontend domain
+    const hostname = window.location.hostname;
+    const protocol = window.location.protocol;
+    
+    // Check if hostname contains a subdomain (e.g., crm.prashantthakar.com)
+    const hostnameParts = hostname.split('.');
+    if (hostnameParts.length >= 3) {
+      // Has subdomain - try to replace with 'api' subdomain
+      const rootDomain = hostnameParts.slice(-2).join('.');
+      const apiHostname = `api.${rootDomain}`;
+      return `${protocol}//${apiHostname}/api`;
+    } else {
+      // No subdomain or can't determine - use same origin
+      return `${window.location.origin}/api`;
+    }
+  }
+};
+
+/**
  * Get the full URL for an image
  * Handles both relative and absolute URLs
  */
@@ -222,25 +263,7 @@ export const getImageUrl = (imageUrl: string | null | undefined): string | null 
   
   // Construct full URL from relative path
   // For /uploads paths, we need the backend server URL WITHOUT /api
-  let apiBase = import.meta.env.VITE_API_BASE_URL;
-  
-  // If not set, try to detect from current location
-  if (!apiBase) {
-    // Check if we're in development (localhost)
-    if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
-      // Try common development ports
-      const port = window.location.port;
-      if (port === '5173' || port === '3000') {
-        // Frontend is on 5173 or 3000, backend likely on 3001
-        apiBase = 'http://localhost:3001/api';
-      } else {
-        apiBase = `http://localhost:${port}/api`;
-      }
-    } else {
-      // Production - use same origin
-      apiBase = `${window.location.origin}/api`;
-    }
-  }
+  const apiBase = getApiBaseUrl();
   
   // Remove /api to get base server URL (e.g., http://localhost:3001 or https://api.prashantthakar.com)
   let baseUrl = apiBase.replace('/api', '').replace(/\/$/, ''); // Also remove trailing slash

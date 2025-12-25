@@ -8,6 +8,7 @@ export interface EmployeeProfile {
   dateOfBirth?: string;
   nationality?: string;
   maritalStatus?: string;
+  address?: string;
   department?: string;
   designation?: string;
   dateOfJoining?: string;
@@ -73,6 +74,7 @@ export interface CreateEmployeeProfileRequest {
   dateOfBirth?: string;
   nationality?: string;
   maritalStatus?: string;
+  address?: string;
   department?: string;
   designation?: string;
   dateOfJoining?: string;

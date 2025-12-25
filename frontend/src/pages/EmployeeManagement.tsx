@@ -175,14 +175,17 @@ export const EmployeeManagement: React.FC = () => {
       const uploadResponse = await uploadAPI.uploadFile(file);
       console.log('Upload response:', uploadResponse);
       if (uploadResponse.data && uploadResponse.data.files && uploadResponse.data.files.length > 0) {
-        const imageUrl = uploadResponse.data.files[0].url;
-        console.log('Uploaded image URL:', imageUrl);
-        // Update preview with the uploaded URL
-        setImagePreview(imageUrl);
-        // Update user with new image URL
+        const relativeUrl = uploadResponse.data.files[0].url;
+        console.log('Uploaded image URL (relative):', relativeUrl);
+        // Get full URL for preview display
+        const fullImageUrl = getImageUrl(relativeUrl) || relativeUrl;
+        console.log('Full image URL for preview:', fullImageUrl);
+        // Update preview with the full URL for display
+        setImagePreview(fullImageUrl);
+        // Update user with relative URL (backend will serve it)
         updateUserImageMutation.mutate({
           userId: selectedEmployee.id,
-          avatarUrl: imageUrl,
+          avatarUrl: relativeUrl,
         });
       } else {
         throw new Error('No files returned from upload');
@@ -259,7 +262,7 @@ export const EmployeeManagement: React.FC = () => {
   return (
     <Layout>
       <div className="max-w-7xl mx-auto p-4 md:p-6">
-        <div className="bg-white shadow-xl rounded-lg overflow-hidden">
+        <div className="bg-white shadow-xl rounded-lg overflow-hidden overflow-x-auto">
           <div className="bg-gradient-to-r from-orange-600 to-orange-500 px-4 md:px-8 py-4 md:py-6">
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
               <div>
@@ -751,27 +754,37 @@ export const EmployeeManagement: React.FC = () => {
                       </div>
 
                       {/* Address Information */}
-                      <div>
-                        <h3 className="text-lg font-semibold text-gray-900 mb-4 border-b pb-2">Address Information</h3>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          <div className="md:col-span-2">
-                            <label className="block text-sm font-medium text-gray-700">Full Address</label>
-                            <p className="mt-1 text-sm text-gray-900">{personalInfo?.address || parsedDocuments?.address || '-'}</p>
-                          </div>
-                          <div>
-                            <label className="block text-sm font-medium text-gray-700">City</label>
-                            <p className="mt-1 text-sm text-gray-900">{personalInfo?.city || employeeProfileData.profile?.city || '-'}</p>
-                          </div>
-                          <div>
-                            <label className="block text-sm font-medium text-gray-700">State</label>
-                            <p className="mt-1 text-sm text-gray-900">{personalInfo?.state || employeeProfileData.profile?.state || '-'}</p>
-                          </div>
-                          <div>
-                            <label className="block text-sm font-medium text-gray-700">Postal Code</label>
-                            <p className="mt-1 text-sm text-gray-900">{personalInfo?.postalCode || employeeProfileData.profile?.postalCode || '-'}</p>
+                      {(employeeProfileData.profile?.address || employeeProfileData.profile?.city || employeeProfileData.profile?.state || employeeProfileData.profile?.postalCode || personalInfo?.address || personalInfo?.city || personalInfo?.state || personalInfo?.postalCode) && (
+                        <div>
+                          <h3 className="text-lg font-semibold text-gray-900 mb-4 border-b pb-2">Address Information</h3>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            {(employeeProfileData.profile?.address || personalInfo?.address) && (
+                              <div className="md:col-span-2">
+                                <label className="block text-sm font-medium text-gray-700">Full Address</label>
+                                <p className="mt-1 text-sm text-gray-900">{employeeProfileData.profile?.address || personalInfo?.address || '-'}</p>
+                              </div>
+                            )}
+                            {(employeeProfileData.profile?.city || personalInfo?.city) && (
+                              <div>
+                                <label className="block text-sm font-medium text-gray-700">City</label>
+                                <p className="mt-1 text-sm text-gray-900">{employeeProfileData.profile?.city || personalInfo?.city || '-'}</p>
+                              </div>
+                            )}
+                            {(employeeProfileData.profile?.state || personalInfo?.state) && (
+                              <div>
+                                <label className="block text-sm font-medium text-gray-700">State</label>
+                                <p className="mt-1 text-sm text-gray-900">{employeeProfileData.profile?.state || personalInfo?.state || '-'}</p>
+                              </div>
+                            )}
+                            {(employeeProfileData.profile?.postalCode || personalInfo?.postalCode) && (
+                              <div>
+                                <label className="block text-sm font-medium text-gray-700">Postal Code</label>
+                                <p className="mt-1 text-sm text-gray-900">{employeeProfileData.profile?.postalCode || personalInfo?.postalCode || '-'}</p>
+                              </div>
+                            )}
                           </div>
                         </div>
-                      </div>
+                      )}
 
                       {/* Emergency Contact Information */}
                       {(() => {

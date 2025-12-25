@@ -108,7 +108,7 @@ export interface CompleteEnrollmentRequest {
   softwaresIncluded?: string;
   
   // Financial Details
-  totalDeal?: number;
+  totalDeal: number; // Required - student registration not possible without deal amount
   bookingAmount?: number;
   balanceAmount?: number;
   emiPlan?: boolean;

@@ -661,6 +661,14 @@ const { data: employeesData } = useQuery({
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     
+    // Validate totalDeal first - it's COMPULSORY and cannot be bypassed
+    if (!formData.totalDeal || formData.totalDeal <= 0) {
+      setCurrentStep(3); // Go to step 3 where totalDeal field is
+      setValidationErrors({ totalDeal: 'Total Deal Amount is required and must be greater than 0. Student registration cannot proceed without a deal amount.' });
+      alert('Total Deal Amount is required. Please enter a valid deal amount to proceed with student registration.');
+      return;
+    }
+    
     // Validate all required fields
     if (!validateAllFields()) {
       // Find the first step with errors
@@ -721,7 +729,7 @@ const { data: employeesData } = useQuery({
       courseName: formData.courseName!.trim(),
       batchId: formData.batchId || undefined,
       softwaresIncluded: softwaresIncluded || undefined,
-      totalDeal: formData.totalDeal!,
+      totalDeal: formData.totalDeal!, // Required - validated above, cannot be 0 or undefined
       bookingAmount: formData.bookingAmount!,
       balanceAmount: formData.balanceAmount || undefined,
       emiPlan: formData.emiPlan || false,

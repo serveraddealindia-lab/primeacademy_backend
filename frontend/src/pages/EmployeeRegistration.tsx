@@ -4,6 +4,8 @@ import { useNavigate } from 'react-router-dom';
 import { Layout } from '../components/Layout';
 import api from '../api/axios';
 import { employeeAPI, CreateEmployeeProfileRequest } from '../api/employee.api';
+import { uploadAPI } from '../api/upload.api';
+import { getImageUrl } from '../utils/imageUtils';
 import {
   validateEmail,
   validatePhone,
@@ -60,6 +62,16 @@ export const EmployeeRegistration: React.FC = () => {
   const totalSteps = 6;
   const [createdUserId, setCreatedUserId] = useState<number | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  
+  // Document upload states
+  const [photo, setPhoto] = useState<{ name: string; url: string; size?: number } | null>(null);
+  const [panCard, setPanCard] = useState<{ name: string; url: string; size?: number } | null>(null);
+  const [aadharCard, setAadharCard] = useState<{ name: string; url: string; size?: number } | null>(null);
+  const [otherDocuments, setOtherDocuments] = useState<Array<{ name: string; url: string; size?: number }>>([]);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [uploadingPanCard, setUploadingPanCard] = useState(false);
+  const [uploadingAadharCard, setUploadingAadharCard] = useState(false);
+  const [uploadingOtherDocs, setUploadingOtherDocs] = useState(false);
   
   // State to persist form data across steps
   const [formData, setFormData] = useState<EmployeeFormData>({
@@ -272,6 +284,13 @@ export const EmployeeRegistration: React.FC = () => {
       return;
     }
     
+    // Store documents in structured format
+    const documents: any = {};
+    if (photo) documents.photo = photo;
+    if (panCard) documents.panCard = panCard;
+    if (aadharCard) documents.aadharCard = aadharCard;
+    if (otherDocuments.length > 0) documents.otherDocuments = otherDocuments;
+    
     const data: CreateEmployeeProfileRequest & { 
       address?: string;
       emergencyContactName?: string;
@@ -279,6 +298,7 @@ export const EmployeeRegistration: React.FC = () => {
       emergencyPhoneNumber?: string;
       emergencyAlternatePhone?: string;
       documentsSubmitted?: string;
+      metadata?: any;
     } = {
       userId: createdUserId,
       employeeId: formData.employeeId.trim(),
@@ -307,6 +327,11 @@ export const EmployeeRegistration: React.FC = () => {
       emergencyAlternatePhone: formData.emergencyAlternatePhone || undefined,
       documentsSubmitted: formData.documents.length > 0 ? formData.documents.join(', ') : undefined,
     };
+
+    // Add documents to metadata if any exist
+    if (Object.keys(documents).length > 0) {
+      data.metadata = { documents };
+    }
 
     createEmployeeProfileMutation.mutate(data);
   };
@@ -429,10 +454,166 @@ export const EmployeeRegistration: React.FC = () => {
     }
   };
 
+  // Handle Photo upload
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png'];
+    if (!allowedTypes.includes(file.type)) {
+      alert('Please select a valid image file (JPG or PNG)');
+      e.target.value = '';
+      return;
+    }
+
+    setUploadingPhoto(true);
+    try {
+      const uploadResponse = await uploadAPI.uploadFile(file);
+      if (uploadResponse.data && uploadResponse.data.files && uploadResponse.data.files.length > 0) {
+        const uploadedFile = uploadResponse.data.files[0];
+        const cleanedUrl = getImageUrl(uploadedFile.url) || uploadedFile.url;
+        setPhoto({
+          name: uploadedFile.originalName,
+          url: cleanedUrl,
+          size: uploadedFile.size,
+        });
+        alert('Photo uploaded successfully!');
+      } else {
+        throw new Error('No file returned from upload');
+      }
+    } catch (error: any) {
+      console.error('Photo upload error:', error);
+      alert(error.response?.data?.message || error.message || 'Failed to upload photo');
+    } finally {
+      setUploadingPhoto(false);
+      e.target.value = '';
+    }
+  };
+
+  // Handle PAN Card upload
+  const handlePanCardUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'application/pdf'];
+    if (!allowedTypes.includes(file.type)) {
+      alert('Please select a valid file (JPG, PNG, or PDF)');
+      e.target.value = '';
+      return;
+    }
+
+    setUploadingPanCard(true);
+    try {
+      const uploadResponse = await uploadAPI.uploadFile(file);
+      if (uploadResponse.data && uploadResponse.data.files && uploadResponse.data.files.length > 0) {
+        const uploadedFile = uploadResponse.data.files[0];
+        const cleanedUrl = getImageUrl(uploadedFile.url) || uploadedFile.url;
+        setPanCard({
+          name: uploadedFile.originalName,
+          url: cleanedUrl,
+          size: uploadedFile.size,
+        });
+        alert('PAN Card uploaded successfully!');
+      } else {
+        throw new Error('No file returned from upload');
+      }
+    } catch (error: any) {
+      console.error('PAN Card upload error:', error);
+      alert(error.response?.data?.message || error.message || 'Failed to upload PAN Card');
+    } finally {
+      setUploadingPanCard(false);
+      e.target.value = '';
+    }
+  };
+
+  // Handle Aadhar Card upload
+  const handleAadharCardUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'application/pdf'];
+    if (!allowedTypes.includes(file.type)) {
+      alert('Please select a valid file (JPG, PNG, or PDF)');
+      e.target.value = '';
+      return;
+    }
+
+    setUploadingAadharCard(true);
+    try {
+      const uploadResponse = await uploadAPI.uploadFile(file);
+      if (uploadResponse.data && uploadResponse.data.files && uploadResponse.data.files.length > 0) {
+        const uploadedFile = uploadResponse.data.files[0];
+        const cleanedUrl = getImageUrl(uploadedFile.url) || uploadedFile.url;
+        setAadharCard({
+          name: uploadedFile.originalName,
+          url: cleanedUrl,
+          size: uploadedFile.size,
+        });
+        alert('Aadhar Card uploaded successfully!');
+      } else {
+        throw new Error('No file returned from upload');
+      }
+    } catch (error: any) {
+      console.error('Aadhar Card upload error:', error);
+      alert(error.response?.data?.message || error.message || 'Failed to upload Aadhar Card');
+    } finally {
+      setUploadingAadharCard(false);
+      e.target.value = '';
+    }
+  };
+
+  // Handle Other Documents upload
+  const handleOtherDocumentsUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'application/pdf'];
+    const validFiles: File[] = [];
+    
+    for (let i = 0; i < files.length; i++) {
+      if (allowedTypes.includes(files[i].type)) {
+        validFiles.push(files[i]);
+      }
+    }
+
+    if (validFiles.length === 0) {
+      alert('Please select valid files (JPG, PNG, or PDF)');
+      e.target.value = '';
+      return;
+    }
+
+    setUploadingOtherDocs(true);
+    try {
+      const uploadResponse = await uploadAPI.uploadMultipleFiles(validFiles);
+      if (uploadResponse.data && uploadResponse.data.files && uploadResponse.data.files.length > 0) {
+        const uploadedFiles = uploadResponse.data.files.map((file) => ({
+          name: file.originalName,
+          url: getImageUrl(file.url) || file.url,
+          size: file.size,
+        }));
+        setOtherDocuments(prev => [...prev, ...uploadedFiles]);
+        alert(`${uploadedFiles.length} document(s) uploaded successfully!`);
+      } else {
+        throw new Error('No files returned from upload');
+      }
+    } catch (error: any) {
+      console.error('Other documents upload error:', error);
+      alert(error.response?.data?.message || error.message || 'Failed to upload documents');
+    } finally {
+      setUploadingOtherDocs(false);
+      e.target.value = '';
+    }
+  };
+
+  // Handle remove other document
+  const handleRemoveOtherDocument = (index: number) => {
+    setOtherDocuments(prev => prev.filter((_, i) => i !== index));
+  };
+
   return (
     <Layout>
       <div className="max-w-4xl mx-auto">
-        <div className="bg-white shadow-xl rounded-lg overflow-hidden">
+        <div className="bg-white shadow-xl rounded-lg overflow-hidden overflow-x-auto">
           <div className="bg-gradient-to-r from-orange-600 to-orange-500 px-8 py-6">
             <h1 className="text-3xl font-bold text-white">Employee Registration Form</h1>
             <p className="mt-2 text-orange-100">Complete employee registration and profile setup</p>
@@ -1525,8 +1706,174 @@ export const EmployeeRegistration: React.FC = () => {
                   <div className="space-y-6">
                     <h2 className="text-2xl font-bold text-gray-900 mb-6">Step 6: Documents & Declaration</h2>
                     
+                    {/* Photo */}
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-3">Documents Submitted</label>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Photo</label>
+                      <input
+                        type="file"
+                        accept="image/jpeg,image/jpg,image/png"
+                        onChange={handlePhotoUpload}
+                        disabled={uploadingPhoto}
+                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 disabled:opacity-50"
+                      />
+                      {uploadingPhoto && <p className="mt-2 text-sm text-gray-500">Uploading...</p>}
+                      {photo && photo.url && (
+                        <div className="mt-3 p-3 bg-gray-50 rounded-lg border border-gray-200 flex items-center space-x-4">
+                          <img
+                            src={getImageUrl(photo.url) || ''}
+                            alt="Photo"
+                            className="h-16 w-16 object-cover rounded border border-gray-300"
+                            crossOrigin="anonymous"
+                          />
+                          <div className="flex-1">
+                            <p className="text-sm font-medium text-gray-900">{photo.name || 'Photo'}</p>
+                            <p className="text-xs text-gray-500">Image File</p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setPhoto(null)}
+                            className="px-3 py-1.5 text-sm text-red-600 hover:text-red-800 border border-red-300 rounded hover:bg-red-50"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* PAN Card */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">PAN Card</label>
+                      <input
+                        type="file"
+                        accept="image/jpeg,image/jpg,image/png,application/pdf"
+                        onChange={handlePanCardUpload}
+                        disabled={uploadingPanCard}
+                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 disabled:opacity-50"
+                      />
+                      {uploadingPanCard && <p className="mt-2 text-sm text-gray-500">Uploading...</p>}
+                      {panCard && panCard.url && (
+                        <div className="mt-3 p-3 bg-gray-50 rounded-lg border border-gray-200 flex items-center space-x-4">
+                          {panCard.url.endsWith('.pdf') ? (
+                            <div className="h-16 w-16 bg-gray-200 rounded border border-gray-300 flex items-center justify-center">
+                              <span className="text-2xl">📄</span>
+                            </div>
+                          ) : (
+                            <img
+                              src={getImageUrl(panCard.url) || ''}
+                              alt="PAN Card"
+                              className="h-16 w-16 object-cover rounded border border-gray-300"
+                              crossOrigin="anonymous"
+                            />
+                          )}
+                          <div className="flex-1">
+                            <p className="text-sm font-medium text-gray-900">{panCard.name || 'PAN Card'}</p>
+                            <p className="text-xs text-gray-500">{panCard.url.endsWith('.pdf') ? 'PDF Document' : 'Image File'}</p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setPanCard(null)}
+                            className="px-3 py-1.5 text-sm text-red-600 hover:text-red-800 border border-red-300 rounded hover:bg-red-50"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Aadhar Card */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Aadhar Card</label>
+                      <input
+                        type="file"
+                        accept="image/jpeg,image/jpg,image/png,application/pdf"
+                        onChange={handleAadharCardUpload}
+                        disabled={uploadingAadharCard}
+                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 disabled:opacity-50"
+                      />
+                      {uploadingAadharCard && <p className="mt-2 text-sm text-gray-500">Uploading...</p>}
+                      {aadharCard && aadharCard.url && (
+                        <div className="mt-3 p-3 bg-gray-50 rounded-lg border border-gray-200 flex items-center space-x-4">
+                          {aadharCard.url.endsWith('.pdf') ? (
+                            <div className="h-16 w-16 bg-gray-200 rounded border border-gray-300 flex items-center justify-center">
+                              <span className="text-2xl">📄</span>
+                            </div>
+                          ) : (
+                            <img
+                              src={getImageUrl(aadharCard.url) || ''}
+                              alt="Aadhar Card"
+                              className="h-16 w-16 object-cover rounded border border-gray-300"
+                              crossOrigin="anonymous"
+                            />
+                          )}
+                          <div className="flex-1">
+                            <p className="text-sm font-medium text-gray-900">{aadharCard.name || 'Aadhar Card'}</p>
+                            <p className="text-xs text-gray-500">{aadharCard.url.endsWith('.pdf') ? 'PDF Document' : 'Image File'}</p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setAadharCard(null)}
+                            className="px-3 py-1.5 text-sm text-red-600 hover:text-red-800 border border-red-300 rounded hover:bg-red-50"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Other Documents */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Other Documents (Multiple files allowed)</label>
+                      <input
+                        type="file"
+                        accept="image/jpeg,image/jpg,image/png,application/pdf"
+                        multiple
+                        onChange={handleOtherDocumentsUpload}
+                        disabled={uploadingOtherDocs}
+                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 disabled:opacity-50"
+                      />
+                      {uploadingOtherDocs && <p className="mt-2 text-sm text-gray-500">Uploading...</p>}
+                      {otherDocuments.length > 0 && (
+                        <div className="mt-3 space-y-2">
+                          {otherDocuments.map((doc, index) => {
+                            const isPdf = doc.url.endsWith('.pdf');
+                            const isImage = doc.url.match(/\.(jpg|jpeg|png|gif|webp)$/i);
+                            return (
+                              <div key={index} className="p-3 bg-gray-50 rounded-lg border border-gray-200 flex items-center space-x-4">
+                                {isImage ? (
+                                  <img
+                                    src={getImageUrl(doc.url) || ''}
+                                    alt={doc.name}
+                                    className="h-16 w-16 object-cover rounded border border-gray-300"
+                                    crossOrigin="anonymous"
+                                  />
+                                ) : (
+                                  <div className="h-16 w-16 bg-gray-200 rounded border border-gray-300 flex items-center justify-center">
+                                    <span className="text-2xl">{isPdf ? '📄' : '📎'}</span>
+                                  </div>
+                                )}
+                                <div className="flex-1">
+                                  <p className="text-sm font-medium text-gray-900 truncate" title={doc.name}>{doc.name}</p>
+                                  <p className="text-xs text-gray-500">
+                                    {isPdf ? 'PDF Document' : isImage ? 'Image File' : 'Document'}
+                                  </p>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveOtherDocument(index)}
+                                  className="px-3 py-1.5 text-sm text-red-600 hover:text-red-800 border border-red-300 rounded hover:bg-red-50"
+                                >
+                                  Remove
+                                </button>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Documents Submitted Checkboxes (Optional) */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-3">Documents Submitted (Optional)</label>
                       <div className="space-y-2 border border-gray-300 rounded-md p-4">
                         {[
                           'Resume',
