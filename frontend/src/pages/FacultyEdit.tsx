@@ -92,12 +92,30 @@ export const FacultyEdit: React.FC = () => {
           }
         }
         
+        console.log('Faculty data fetched successfully:', {
+          userId: user?.id,
+          userName: user?.name,
+          hasProfile: !!profile,
+          profileId: profile?.id,
+          hasDocuments: !!profile?.documents,
+          documentsType: profile?.documents ? typeof profile?.documents : 'null',
+          hasExpertise: !!profile?.expertise,
+          expertiseType: profile?.expertise ? typeof profile?.expertise : 'null',
+          hasAvailability: !!profile?.availability,
+          availabilityType: profile?.availability ? typeof profile?.availability : 'null',
+        });
+        
         return {
           user: user,
           profile: profile,
         };
       } catch (error: any) {
         console.error('Error fetching faculty data:', error);
+        console.error('Error details:', {
+          message: error?.message,
+          response: error?.response?.data,
+          status: error?.response?.status,
+        });
         throw error;
       }
     },
@@ -341,16 +359,21 @@ export const FacultyEdit: React.FC = () => {
     if (facultyData) {
       const { user: facultyUser, profile } = facultyData || { user: null, profile: null };
       
-      console.log('Faculty data loaded:', {
-        user: facultyUser,
-        profile: profile,
-        parsedDocuments,
-        personalInfo,
-        employmentInfo,
-        bankInfo,
-        emergencyInfo,
-        parsedExpertise,
-        parsedAvailability,
+      console.log('Faculty data loaded in component:', {
+        userId: facultyUser?.id,
+        userName: facultyUser?.name,
+        hasProfile: !!profile,
+        profileId: profile?.id,
+        hasDocuments: !!profile?.documents,
+        documentsType: profile?.documents ? typeof profile?.documents : 'null',
+        documentsKeys: parsedDocuments ? Object.keys(parsedDocuments) : [],
+        hasPersonalInfo: Object.keys(personalInfo).length > 0,
+        personalInfoKeys: Object.keys(personalInfo),
+        hasEmploymentInfo: Object.keys(employmentInfo).length > 0,
+        hasBankInfo: Object.keys(bankInfo).length > 0,
+        hasEmergencyInfo: Object.keys(emergencyInfo).length > 0,
+        expertise: parsedExpertise,
+        availability: parsedAvailability,
       });
     }
   }, [facultyData, parsedDocuments, personalInfo, employmentInfo, bankInfo, emergencyInfo, parsedExpertise, parsedAvailability]);
@@ -1292,7 +1315,7 @@ export const FacultyEdit: React.FC = () => {
               <>
             {/* Step 1: Account Information */}
             {currentStep === 1 && (
-              <form key={`step1-${facultyUser.id}-${facultyUser.name || ''}`} onSubmit={handleStep1Submit} className="space-y-6">
+              <form key={`step1-${facultyUser.id}-${facultyUser.name || ''}-${facultyUser.email || ''}`} onSubmit={handleStep1Submit} className="space-y-6">
                 <h2 className="text-2xl font-bold mb-6">Account Information</h2>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div>
