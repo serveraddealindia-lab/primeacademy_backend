@@ -67,29 +67,14 @@ export const FacultyEdit: React.FC = () => {
         }
         
         // Get faculty profile - it should be included in the user response
+        // The backend getUserById endpoint includes facultyProfile in the response
         let profile = user.facultyProfile || null;
         
-        // If not included, try to fetch separately
+        // Note: There's no separate GET /api/faculty/:id endpoint
+        // All faculty profile data comes from /api/users/:id which includes facultyProfile
         if (!profile) {
-          try {
-            const profileResponse = await api.get(`/faculty/${id}`);
-            console.log('Profile response:', profileResponse);
-            // Try multiple possible response structures
-            if (profileResponse?.data?.data?.facultyProfile) {
-              profile = profileResponse.data.data.facultyProfile;
-            } else if (profileResponse?.data?.facultyProfile) {
-              profile = profileResponse.data.facultyProfile;
-            } else if (profileResponse?.data?.data && profileResponse.data.data.id) {
-              // Sometimes the profile is directly in data.data
-              profile = profileResponse.data.data;
-            } else if (profileResponse?.data?.id) {
-              // If profileResponse.data itself is the profile
-              profile = profileResponse.data;
-            }
-            console.log('Extracted profile:', profile);
-          } catch (profileError: any) {
-            console.warn('Could not fetch faculty profile separately:', profileError?.message);
-          }
+          console.warn('Faculty profile not found in user response. Profile might not exist yet.');
+          console.log('User data:', user);
         }
         
         console.log('Faculty data fetched successfully:', {
