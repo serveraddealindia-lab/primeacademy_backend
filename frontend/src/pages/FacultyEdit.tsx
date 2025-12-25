@@ -73,7 +73,20 @@ export const FacultyEdit: React.FC = () => {
         if (!profile) {
           try {
             const profileResponse = await api.get(`/faculty/${id}`);
-            profile = profileResponse.data?.data?.facultyProfile || profileResponse.data?.facultyProfile || null;
+            console.log('Profile response:', profileResponse);
+            // Try multiple possible response structures
+            if (profileResponse?.data?.data?.facultyProfile) {
+              profile = profileResponse.data.data.facultyProfile;
+            } else if (profileResponse?.data?.facultyProfile) {
+              profile = profileResponse.data.facultyProfile;
+            } else if (profileResponse?.data?.data && profileResponse.data.data.id) {
+              // Sometimes the profile is directly in data.data
+              profile = profileResponse.data.data;
+            } else if (profileResponse?.data?.id) {
+              // If profileResponse.data itself is the profile
+              profile = profileResponse.data;
+            }
+            console.log('Extracted profile:', profile);
           } catch (profileError: any) {
             console.warn('Could not fetch faculty profile separately:', profileError?.message);
           }
@@ -90,6 +103,10 @@ export const FacultyEdit: React.FC = () => {
     },
     enabled: !!id,
     retry: 1,
+    staleTime: 5 * 60 * 1000, // Keep data fresh for 5 minutes to prevent unnecessary refetches
+    gcTime: 10 * 60 * 1000, // Keep in cache for 10 minutes
+    refetchOnWindowFocus: false, // Don't refetch when window regains focus
+    refetchOnReconnect: false, // Don't refetch on reconnect
   });
 
   const updateUserMutation = useMutation({
@@ -160,29 +177,36 @@ export const FacultyEdit: React.FC = () => {
         });
       }
       
-      // Invalidate and refetch to ensure we have the latest data
+      // Only invalidate queries on success, not refetch immediately to avoid clearing form
       queryClient.invalidateQueries({ queryKey: ['faculty', id] });
       queryClient.invalidateQueries({ queryKey: ['faculty'] });
       queryClient.invalidateQueries({ queryKey: ['faculty-profile', id] });
       queryClient.invalidateQueries({ queryKey: ['users'] });
       
-      // Refetch the faculty data to ensure we have the latest
-      await queryClient.refetchQueries({ queryKey: ['faculty', id] });
-      
       // Only navigate away if this is the final step
       if (variables?.isFinalStep) {
+        // Refetch before navigating to ensure we have latest data
+        await queryClient.refetchQueries({ queryKey: ['faculty', id] });
         alert('Faculty updated successfully!');
         navigate('/faculty');
       } else {
         // Show success message for intermediate steps
         console.log('Step data saved successfully');
+        // Don't refetch immediately - let the form keep the current data
+        // The data will be refetched when user navigates or when needed
       }
     },
     onError: (error: any) => {
       console.error('Update profile error:', error);
       console.error('Error response:', error?.response?.data);
       console.error('Error message:', error?.message);
-      alert(error?.response?.data?.message || error?.message || 'Failed to update faculty profile');
+      
+      // Don't invalidate queries on error - preserve the form data
+      // Only show error message to user
+      const errorMessage = error?.response?.data?.message || error?.message || 'Failed to update faculty profile';
+      alert(errorMessage);
+      
+      // Don't refetch or clear data on error - let user keep their input
     },
   });
 
@@ -267,6 +291,51 @@ export const FacultyEdit: React.FC = () => {
     return parsedDocuments?.emergencyInfo || {};
   }, [parsedDocuments]);
 
+  // Parse expertise and availability - handle JSON strings
+  const parsedExpertise = useMemo(() => {
+    const profile = facultyData?.profile;
+    if (!profile?.expertise) return '';
+    
+    let expertise = profile.expertise;
+    if (typeof expertise === 'string') {
+      try {
+        const parsed = JSON.parse(expertise);
+        if (typeof parsed === 'object' && parsed !== null) {
+          return parsed.description || parsed.expertise || parsed.text || expertise;
+        }
+        return parsed;
+      } catch (e) {
+        // Not JSON, return as is
+        return expertise;
+      }
+    } else if (typeof expertise === 'object') {
+      return expertise.description || expertise.expertise || expertise.text || JSON.stringify(expertise);
+    }
+    return '';
+  }, [facultyData?.profile?.expertise]);
+
+  const parsedAvailability = useMemo(() => {
+    const profile = facultyData?.profile;
+    if (!profile?.availability) return '';
+    
+    let availability = profile.availability;
+    if (typeof availability === 'string') {
+      try {
+        const parsed = JSON.parse(availability);
+        if (typeof parsed === 'object' && parsed !== null) {
+          return parsed.schedule || parsed.availability || parsed.text || availability;
+        }
+        return parsed;
+      } catch (e) {
+        // Not JSON, return as is
+        return availability;
+      }
+    } else if (typeof availability === 'object') {
+      return availability.schedule || availability.availability || availability.text || JSON.stringify(availability);
+    }
+    return '';
+  }, [facultyData?.profile?.availability]);
+
   // Debug: Log when data changes (moved before early returns to fix hooks order)
   React.useEffect(() => {
     if (facultyData) {
@@ -280,9 +349,11 @@ export const FacultyEdit: React.FC = () => {
         employmentInfo,
         bankInfo,
         emergencyInfo,
+        parsedExpertise,
+        parsedAvailability,
       });
     }
-  }, [facultyData, parsedDocuments, personalInfo, employmentInfo, bankInfo, emergencyInfo]);
+  }, [facultyData, parsedDocuments, personalInfo, employmentInfo, bankInfo, emergencyInfo, parsedExpertise, parsedAvailability]);
 
   // Handle Photo upload
   const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -301,14 +372,27 @@ export const FacultyEdit: React.FC = () => {
       const uploadResponse = await uploadAPI.uploadFile(file);
       if (uploadResponse.data && uploadResponse.data.files && uploadResponse.data.files.length > 0) {
         const uploadedFile = uploadResponse.data.files[0];
-        // Clean the URL before saving to remove any duplicate domain issues
-        const cleanedUrl = getImageUrl(uploadedFile.url) || uploadedFile.url;
+        // Store relative URL in database (backend will serve it)
+        const relativeUrl = uploadedFile.url;
         setPhoto({
           name: uploadedFile.originalName,
-          url: cleanedUrl,
+          url: relativeUrl, // Store relative URL for database
           size: uploadedFile.size,
         });
+        // Immediately update user's avatarUrl with relative URL
+        if (id) {
+          try {
+            await userAPI.updateUser(Number(id), { avatarUrl: relativeUrl });
+            queryClient.invalidateQueries({ queryKey: ['faculty', id] });
+            queryClient.invalidateQueries({ queryKey: ['faculty'] });
+          } catch (error: any) {
+            console.error('Error updating avatarUrl:', error);
+            // Don't fail the upload if avatarUrl update fails
+          }
+        }
         alert('Photo uploaded successfully!');
+      } else {
+        throw new Error('No file returned from upload');
       }
     } catch (error: any) {
       console.error('Photo upload error:', error);
@@ -1169,16 +1253,46 @@ export const FacultyEdit: React.FC = () => {
           </div>
 
           <div className="p-8 max-h-[calc(100vh-12rem)] overflow-y-auto">
-            {!facultyUser && (
+            {/* Show loading state */}
+            {isLoading && (
               <div className="text-center py-8">
                 <p className="text-gray-500">Loading faculty data...</p>
               </div>
             )}
-            {facultyUser && (
+
+            {/* Show error state */}
+            {facultyError && !isLoading && (
+              <div className="text-center py-8">
+                <p className="text-red-600 font-semibold mb-2">Error loading faculty data</p>
+                <p className="text-gray-600 text-sm mb-4">{(facultyError as any)?.message || 'Failed to load faculty data'}</p>
+                <button
+                  onClick={() => navigate('/faculty')}
+                  className="mt-4 px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700"
+                >
+                  Back to Faculty
+                </button>
+              </div>
+            )}
+
+            {/* Final safety check - ensure we have valid data before rendering */}
+            {!isLoading && !facultyError && (!facultyUser || !facultyUser.id) && (
+              <div className="text-center py-8">
+                <p className="text-red-600 font-semibold mb-2">Cannot render faculty edit form</p>
+                <p className="text-gray-600 text-sm mb-4">Required faculty data is missing.</p>
+                <button
+                  onClick={() => navigate('/faculty')}
+                  className="mt-4 px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700"
+                >
+                  Back to Faculty
+                </button>
+              </div>
+            )}
+
+            {!isLoading && !facultyError && facultyUser && facultyUser.id && (
               <>
             {/* Step 1: Account Information */}
             {currentStep === 1 && (
-              <form key={`step1-${facultyUser.id}`} onSubmit={handleStep1Submit} className="space-y-6">
+              <form key={`step1-${facultyUser.id}-${facultyUser.name || ''}`} onSubmit={handleStep1Submit} className="space-y-6">
                 <h2 className="text-2xl font-bold mb-6">Account Information</h2>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div>
@@ -1240,7 +1354,7 @@ export const FacultyEdit: React.FC = () => {
 
             {/* Step 2: Personal Information */}
             {currentStep === 2 && (
-              <form key={`step2-${facultyUser?.id}-${JSON.stringify(personalInfo)}`} onSubmit={handleStep2Submit} className="space-y-6">
+              <form key={`step2-${facultyUser?.id}-${personalInfo?.dateOfBirth || ''}-${personalInfo?.gender || ''}`} onSubmit={handleStep2Submit} className="space-y-6">
                 <h2 className="text-2xl font-bold mb-6">Personal Information</h2>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div>
@@ -1372,7 +1486,7 @@ export const FacultyEdit: React.FC = () => {
 
             {/* Step 3: Employment Details */}
             {currentStep === 3 && (
-              <form key={`step3-${facultyUser?.id}-${JSON.stringify(employmentInfo)}`} onSubmit={handleStep3Submit} className="space-y-6">
+              <form key={`step3-${facultyUser?.id}-${employmentInfo?.department || ''}-${parsedExpertise || ''}`} onSubmit={handleStep3Submit} className="space-y-6">
                 <h2 className="text-2xl font-bold mb-6">Employment Details</h2>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div>
@@ -1446,7 +1560,8 @@ export const FacultyEdit: React.FC = () => {
                       name="expertise"
                       rows={3}
                       required
-                      defaultValue={typeof profile?.expertise === 'string' ? profile.expertise : (profile?.expertise as any)?.description || ''}
+                      key={`expertise-${parsedExpertise || 'empty'}`}
+                      defaultValue={parsedExpertise}
                       placeholder="Describe your areas of expertise and specialization"
                       className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
                     />
@@ -1457,7 +1572,8 @@ export const FacultyEdit: React.FC = () => {
                       name="availability"
                       rows={2}
                       required
-                      defaultValue={typeof profile?.availability === 'string' ? profile.availability : (profile?.availability as any)?.schedule || ''}
+                      key={`availability-${parsedAvailability || 'empty'}`}
+                      defaultValue={parsedAvailability}
                       placeholder="e.g., Monday-Friday 9 AM - 5 PM"
                       className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
                     />
@@ -1484,7 +1600,7 @@ export const FacultyEdit: React.FC = () => {
 
             {/* Step 4: Software Proficiency */}
             {currentStep === 4 && (
-              <form key={`step4-${facultyUser?.id}`} onSubmit={handleStep4Submit} className="space-y-6">
+              <form key={`step4-${facultyUser?.id}-${selectedSoftwares.join(',') || ''}`} onSubmit={handleStep4Submit} className="space-y-6">
                 <h2 className="text-2xl font-bold mb-6">Software Proficiency</h2>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -1583,7 +1699,7 @@ export const FacultyEdit: React.FC = () => {
 
             {/* Step 5: Bank Details */}
             {currentStep === 5 && (
-              <form key={`step5-${facultyUser?.id}-${JSON.stringify(bankInfo)}`} onSubmit={handleStep5Submit} className="space-y-6">
+              <form key={`step5-${facultyUser?.id}-${bankInfo?.accountNumber || ''}-${bankInfo?.panNumber || ''}`} onSubmit={handleStep5Submit} className="space-y-6">
                 <h2 className="text-2xl font-bold mb-6">Bank Details</h2>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div>
@@ -1669,9 +1785,9 @@ export const FacultyEdit: React.FC = () => {
               </form>
             )}
 
-            {/* Step 6: Emergency Contact */}
+            {/* Step 6: Expertise & Availability */}
             {currentStep === 6 && (
-              <form key={`step6-${facultyUser?.id}-${JSON.stringify(emergencyInfo)}`} onSubmit={handleStep6Submit} className="space-y-6">
+              <form key={`step6-${facultyUser?.id}-${parsedExpertise || ''}-${parsedAvailability || ''}`} onSubmit={handleStep6Submit} className="space-y-6">
                 <h2 className="text-2xl font-bold mb-6">Emergency Contact Information</h2>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div>

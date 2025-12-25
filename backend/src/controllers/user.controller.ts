@@ -1483,6 +1483,7 @@ export const updateEmployeeProfile = async (
     ifscCode?: string;
     branch?: string;
     panNumber?: string;
+    address?: string;
     city?: string;
     state?: string;
     postalCode?: string;
@@ -1607,6 +1608,7 @@ export const updateEmployeeProfile = async (
     if (req.body.ifscCode !== undefined) employeeProfile.ifscCode = req.body.ifscCode;
     if (req.body.branch !== undefined) employeeProfile.branch = req.body.branch;
     if (req.body.panNumber !== undefined) employeeProfile.panNumber = req.body.panNumber;
+    if (req.body.address !== undefined) employeeProfile.address = req.body.address;
     if (req.body.city !== undefined) employeeProfile.city = req.body.city;
     if (req.body.state !== undefined) employeeProfile.state = req.body.state;
     if (req.body.postalCode !== undefined) employeeProfile.postalCode = req.body.postalCode;

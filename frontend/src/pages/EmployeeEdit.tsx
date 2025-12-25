@@ -89,7 +89,20 @@ export const EmployeeEdit: React.FC = () => {
         try {
           const profileResponse = await employeeAPI.getEmployeeProfile(Number(id));
           console.log('Profile response:', profileResponse);
-          profile = profileResponse.data?.employeeProfile || null;
+          // Try multiple possible response structures
+          const responseData: any = profileResponse;
+          if (responseData?.data?.employeeProfile) {
+            profile = responseData.data.employeeProfile;
+          } else if (responseData?.employeeProfile) {
+            profile = responseData.employeeProfile;
+          } else if (responseData?.data && responseData.data.id) {
+            // Sometimes the profile is directly in data
+            profile = responseData.data;
+          } else if (responseData?.id) {
+            // If profileResponse itself is the profile
+            profile = responseData;
+          }
+          console.log('Extracted profile:', profile);
         } catch (profileError: any) {
           console.warn('Could not fetch employee profile:', profileError?.message);
           // Continue without profile - it might not exist yet
@@ -373,17 +386,18 @@ export const EmployeeEdit: React.FC = () => {
       const uploadResponse = await uploadAPI.uploadFile(file);
       if (uploadResponse.data && uploadResponse.data.files && uploadResponse.data.files.length > 0) {
         const uploadedFile = uploadResponse.data.files[0];
-        // Clean the URL before saving to remove any duplicate domain issues
-        const cleanedUrl = getImageUrl(uploadedFile.url) || uploadedFile.url;
+        // Store relative URL in database (backend will serve it)
+        const relativeUrl = uploadedFile.url;
+        
         setPhoto({
           name: uploadedFile.originalName,
-          url: cleanedUrl,
+          url: relativeUrl, // Store relative URL for database
           size: uploadedFile.size,
         });
-        // Immediately update user's avatarUrl
+        // Immediately update user's avatarUrl with relative URL
         if (id) {
           try {
-            await userAPI.updateUser(Number(id), { avatarUrl: cleanedUrl });
+            await userAPI.updateUser(Number(id), { avatarUrl: relativeUrl });
             queryClient.invalidateQueries({ queryKey: ['employee', id] });
             queryClient.invalidateQueries({ queryKey: ['employees'] });
           } catch (error: any) {
@@ -580,6 +594,10 @@ export const EmployeeEdit: React.FC = () => {
     const dateOfBirth = (formData.get('dateOfBirth') as string) || '';
     const nationality = (formData.get('nationality') as string) || '';
     const maritalStatus = (formData.get('maritalStatus') as string) || '';
+    const address = (formData.get('address') as string) || '';
+    const city = (formData.get('city') as string) || '';
+    const state = (formData.get('state') as string) || '';
+    const postalCode = (formData.get('postalCode') as string) || '';
     
     // Validate
     const newErrors: Record<string, string> = {};
@@ -593,6 +611,14 @@ export const EmployeeEdit: React.FC = () => {
     if (nationalityError) newErrors.nationality = nationalityError;
     const maritalStatusError = validateRequired(maritalStatus, 'Marital Status');
     if (maritalStatusError) newErrors.maritalStatus = maritalStatusError;
+    const addressError = validateRequired(address, 'Address');
+    if (addressError) newErrors.address = addressError;
+    const cityError = validateRequired(city, 'City');
+    if (cityError) newErrors.city = cityError;
+    const stateError = validateRequired(state, 'State');
+    if (stateError) newErrors.state = stateError;
+    const postalCodeError = validatePostalCode(postalCode);
+    if (postalCodeError) newErrors.postalCode = postalCodeError;
     
     setErrors(newErrors);
     if (Object.keys(newErrors).length > 0) {
@@ -605,6 +631,10 @@ export const EmployeeEdit: React.FC = () => {
       dateOfBirth: dateOfBirth || undefined,
       nationality: nationality || undefined,
       maritalStatus: maritalStatus || undefined,
+      address: address || undefined,
+      city: city || undefined,
+      state: state || undefined,
+      postalCode: postalCode || undefined,
       isFinalStep: false,
     };
     
@@ -682,9 +712,6 @@ export const EmployeeEdit: React.FC = () => {
     const ifscCode = (formData.get('ifscCode') as string) || '';
     const branch = (formData.get('branch') as string) || '';
     const panNumber = (formData.get('panNumber') as string) || '';
-    const city = (formData.get('city') as string) || '';
-    const state = (formData.get('state') as string) || '';
-    const postalCode = (formData.get('postalCode') as string) || '';
     
     // Validate
     const newErrors: Record<string, string> = {};
@@ -698,12 +725,6 @@ export const EmployeeEdit: React.FC = () => {
     if (branchError) newErrors.branch = branchError;
     const panError = validatePAN(panNumber);
     if (panError) newErrors.panNumber = panError;
-    const cityError = validateRequired(city, 'City');
-    if (cityError) newErrors.city = cityError;
-    const stateError = validateRequired(state, 'State');
-    if (stateError) newErrors.state = stateError;
-    const postalCodeError = validatePostalCode(postalCode);
-    if (postalCodeError) newErrors.postalCode = postalCodeError;
     
     setErrors(newErrors);
     if (Object.keys(newErrors).length > 0) {
@@ -716,9 +737,6 @@ export const EmployeeEdit: React.FC = () => {
       ifscCode: ifscCode || undefined,
       branch: branch || undefined,
       panNumber: panNumber || undefined,
-      city: city || undefined,
-      state: state || undefined,
-      postalCode: postalCode || undefined,
       isFinalStep: false,
     };
     
@@ -874,12 +892,27 @@ export const EmployeeEdit: React.FC = () => {
     }
   };
 
+  // Show loading state
+  if (isLoading) {
+    return (
+      <Layout>
+        <div className="max-w-7xl mx-auto">
+          <div className="bg-white shadow-xl rounded-lg p-6">
+            <p className="text-gray-600">Loading employee data...</p>
+          </div>
+        </div>
+      </Layout>
+    );
+  }
+
   // Final safety check - ensure we have valid data before rendering
   if (!employeeUser || !employeeUser.id) {
     console.error('EmployeeEdit: Cannot render - missing employee user data', {
       employeeUser,
       profile,
       employeeData,
+      isLoading,
+      employeeError,
     });
     return (
       <Layout>
@@ -887,6 +920,9 @@ export const EmployeeEdit: React.FC = () => {
           <div className="bg-white shadow-xl rounded-lg p-6">
             <p className="text-red-600 font-semibold mb-2">Cannot render employee edit form</p>
             <p className="text-gray-600 text-sm mb-4">Required employee data is missing.</p>
+            {employeeError && (
+              <p className="text-red-500 text-sm mb-4">Error: {(employeeError as any)?.message || 'Failed to load employee data'}</p>
+            )}
             <button
               onClick={() => navigate('/employees')}
               className="mt-4 px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700"
@@ -908,7 +944,7 @@ export const EmployeeEdit: React.FC = () => {
   return (
     <Layout>
       <div className="max-w-4xl mx-auto">
-        <div className="bg-white shadow-xl rounded-lg overflow-hidden">
+        <div className="bg-white shadow-xl rounded-lg overflow-hidden overflow-x-auto">
           <div className="bg-gradient-to-r from-orange-600 to-orange-500 px-8 py-6">
             <div className="flex justify-between items-center">
               <div>
@@ -963,7 +999,7 @@ export const EmployeeEdit: React.FC = () => {
           <div className="p-8 max-h-[calc(100vh-12rem)] overflow-y-auto">
             {/* Step 1: Basic Information */}
             {currentStep === 1 && (
-              <form onSubmit={handleStep1Submit} className="space-y-6">
+              <form key={`step1-${employeeUser?.id}-${employeeUser?.name}`} onSubmit={handleStep1Submit} className="space-y-6">
                 <h2 className="text-2xl font-bold mb-6">Basic Information</h2>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div>
@@ -1038,7 +1074,7 @@ export const EmployeeEdit: React.FC = () => {
 
             {/* Step 2: Personal Information */}
             {currentStep === 2 && (
-              <form onSubmit={handleStep2Submit} className="space-y-6">
+              <form key={`step2-${employeeUser?.id}-${profile?.employeeId}-${profile?.gender}-${profile?.dateOfBirth}-${profile?.address || ''}-${profile?.city || ''}-${profile?.state || ''}-${profile?.postalCode || ''}`} onSubmit={handleStep2Submit} className="space-y-6">
                 <h2 className="text-2xl font-bold mb-6">Personal Information</h2>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div>
@@ -1125,6 +1161,76 @@ export const EmployeeEdit: React.FC = () => {
                     )}
                   </div>
                 </div>
+                
+                {/* Address Section */}
+                <div className="mt-6">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Address *</label>
+                    <textarea
+                      name="address"
+                      required
+                      rows={3}
+                      key={`address-${profile?.address || 'empty'}`}
+                      defaultValue={profile?.address || ''}
+                      className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 ${
+                        errors.address ? 'border-red-500' : 'border-gray-300'
+                      }`}
+                    />
+                    {errors.address && (
+                      <p className="mt-1 text-sm text-red-600">{errors.address}</p>
+                    )}
+                  </div>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-6">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">City *</label>
+                      <input
+                        type="text"
+                        name="city"
+                        required
+                        defaultValue={profile?.city || ''}
+                        className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 ${
+                          errors.city ? 'border-red-500' : 'border-gray-300'
+                        }`}
+                      />
+                      {errors.city && (
+                        <p className="mt-1 text-sm text-red-600">{errors.city}</p>
+                      )}
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">State/Province *</label>
+                      <input
+                        type="text"
+                        name="state"
+                        required
+                        defaultValue={profile?.state || ''}
+                        className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 ${
+                          errors.state ? 'border-red-500' : 'border-gray-300'
+                        }`}
+                      />
+                      {errors.state && (
+                        <p className="mt-1 text-sm text-red-600">{errors.state}</p>
+                      )}
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Postal Code *</label>
+                      <input
+                        type="text"
+                        name="postalCode"
+                        required
+                        maxLength={6}
+                        defaultValue={profile?.postalCode || ''}
+                        className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 ${
+                          errors.postalCode ? 'border-red-500' : 'border-gray-300'
+                        }`}
+                      />
+                      {errors.postalCode && (
+                        <p className="mt-1 text-sm text-red-600">{errors.postalCode}</p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+                
                 <div className="flex gap-4 pt-6">
                   <button
                     type="button"
@@ -1146,7 +1252,7 @@ export const EmployeeEdit: React.FC = () => {
 
             {/* Step 3: Employment Details */}
             {currentStep === 3 && (
-              <form onSubmit={handleStep3Submit} className="space-y-6">
+              <form key={`step3-${employeeUser?.id}-${profile?.department}-${profile?.designation}`} onSubmit={handleStep3Submit} className="space-y-6">
                 <h2 className="text-2xl font-bold mb-6">Employment Details</h2>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div>
@@ -1266,7 +1372,7 @@ export const EmployeeEdit: React.FC = () => {
 
             {/* Step 4: Bank Details */}
             {currentStep === 4 && (
-              <form onSubmit={handleStep4Submit} className="space-y-6">
+              <form key={`step4-${employeeUser?.id}-${profile?.bankName}-${profile?.accountNumber}`} onSubmit={handleStep4Submit} className="space-y-6">
                 <h2 className="text-2xl font-bold mb-6">Bank Details</h2>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div>
@@ -1345,52 +1451,6 @@ export const EmployeeEdit: React.FC = () => {
                     />
                     {errors.panNumber && (
                       <p className="mt-1 text-sm text-red-600">{errors.panNumber}</p>
-                    )}
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">City *</label>
-                    <input
-                      type="text"
-                      name="city"
-                      required
-                      defaultValue={profile?.city || ''}
-                      className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 ${
-                        errors.city ? 'border-red-500' : 'border-gray-300'
-                      }`}
-                    />
-                    {errors.city && (
-                      <p className="mt-1 text-sm text-red-600">{errors.city}</p>
-                    )}
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">State *</label>
-                    <input
-                      type="text"
-                      name="state"
-                      required
-                      defaultValue={profile?.state || ''}
-                      className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 ${
-                        errors.state ? 'border-red-500' : 'border-gray-300'
-                      }`}
-                    />
-                    {errors.state && (
-                      <p className="mt-1 text-sm text-red-600">{errors.state}</p>
-                    )}
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Postal Code *</label>
-                    <input
-                      type="text"
-                      name="postalCode"
-                      required
-                      maxLength={6}
-                      defaultValue={profile?.postalCode || ''}
-                      className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 ${
-                        errors.postalCode ? 'border-red-500' : 'border-gray-300'
-                      }`}
-                    />
-                    {errors.postalCode && (
-                      <p className="mt-1 text-sm text-red-600">{errors.postalCode}</p>
                     )}
                   </div>
                 </div>
@@ -1605,7 +1665,7 @@ export const EmployeeEdit: React.FC = () => {
 
             {/* Step 6: Documents */}
             {currentStep === 6 && (
-              <form onSubmit={handleStep6Submit} className="space-y-6">
+              <form key={`step6-${employeeUser?.id}-${JSON.stringify(parsedProfileDocuments)}`} onSubmit={handleStep6Submit} className="space-y-6">
                 <h2 className="text-2xl font-bold mb-6">Documents</h2>
                 
                 {/* Photo */}

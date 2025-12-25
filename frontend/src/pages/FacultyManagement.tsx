@@ -8,6 +8,7 @@ import { userAPI } from '../api/user.api';
 import { uploadAPI } from '../api/upload.api';
 import { getImageUrl } from '../utils/imageUtils';
 import { formatDateDDMMYYYY } from '../utils/dateUtils';
+import api from '../api/axios';
 
 export const FacultyManagement: React.FC = () => {
   const { user } = useAuth();
@@ -41,38 +42,68 @@ export const FacultyManagement: React.FC = () => {
       try {
         const userResponse = await userAPI.getUser(selectedFaculty.id);
         console.log('Faculty profile API response:', userResponse);
-        if (userResponse?.data?.user) {
-          const user = userResponse.data.user;
-          let profile = user.facultyProfile || null;
-          
-          // If profile exists but might be incomplete, ensure we have all data
-          // The profile should already be included in the user response
-          if (profile && typeof profile === 'object') {
-            // Profile is already included, use it
-            console.log('Faculty user data:', user);
-            console.log('Faculty profile data:', profile);
-            console.log('Profile documents:', profile.documents);
-            return {
-              user: user,
-              profile: profile,
-            };
-          }
-          
-          // If profile is missing, try to get it from the selected faculty
-          if (!profile && selectedFaculty.facultyProfile) {
-            profile = selectedFaculty.facultyProfile;
-          }
-          
+        
+        // Try multiple possible response structures
+        let user = null;
+        const responseData: any = userResponse?.data || userResponse;
+        
+        if (responseData?.data?.user) {
+          user = responseData.data.user;
+        } else if (responseData?.data && !responseData.data.user && responseData.data.id) {
+          // Sometimes the user data is directly in data
+          user = responseData.data;
+        } else if (responseData?.user) {
+          user = responseData.user;
+        } else if (responseData?.id) {
+          // If responseData itself is the user object
+          user = responseData;
+        }
+        
+        if (!user || !user.id) {
+          console.warn('Invalid user response structure, using fallback:', responseData);
           return {
-            user: user,
-            profile: profile,
+            user: selectedFaculty,
+            profile: selectedFaculty.facultyProfile || null,
           };
         }
-        // Fallback to existing data
-        console.warn('Unexpected response structure, using fallback faculty data:', selectedFaculty);
+        
+        // Get faculty profile - it should be included in the user response
+        let profile = user.facultyProfile || null;
+        
+        // If not included, try to fetch separately
+        if (!profile) {
+          try {
+            const profileResponse = await api.get(`/faculty/${selectedFaculty.id}`);
+            console.log('Profile response:', profileResponse);
+            // Try multiple possible response structures
+            if (profileResponse?.data?.data?.facultyProfile) {
+              profile = profileResponse.data.data.facultyProfile;
+            } else if (profileResponse?.data?.facultyProfile) {
+              profile = profileResponse.data.facultyProfile;
+            } else if (profileResponse?.data?.data && profileResponse.data.data.id) {
+              // Sometimes the profile is directly in data.data
+              profile = profileResponse.data.data;
+            } else if (profileResponse?.data?.id) {
+              // If profileResponse.data itself is the profile
+              profile = profileResponse.data;
+            }
+            console.log('Extracted profile:', profile);
+          } catch (profileError: any) {
+            console.warn('Could not fetch faculty profile separately:', profileError?.message);
+            // Try to get from selected faculty as fallback
+            if (selectedFaculty.facultyProfile) {
+              profile = selectedFaculty.facultyProfile;
+            }
+          }
+        }
+        
+        console.log('Faculty user data:', user);
+        console.log('Faculty profile data:', profile);
+        console.log('Profile documents:', profile?.documents);
+        
         return {
-          user: selectedFaculty,
-          profile: selectedFaculty.facultyProfile || null,
+          user: user,
+          profile: profile,
         };
       } catch (error: any) {
         console.error('Error fetching faculty profile:', error);
@@ -595,7 +626,7 @@ export const FacultyManagement: React.FC = () => {
                     Retry
                   </button>
                 </div>
-              ) : facultyProfileData && facultyProfileData.user ? (
+              ) : (facultyProfileData && facultyProfileData.user) || selectedFaculty ? (
                 <div className="space-y-6">
                   {/* Basic Information */}
                   <div>
@@ -604,42 +635,47 @@ export const FacultyManagement: React.FC = () => {
                       <div>
                         <label className="block text-sm font-medium text-gray-700">Photo</label>
                         <div className="mt-2">
-                          {facultyProfileData.user.avatarUrl ? (
-                            <img
-                              src={getImageUrl(facultyProfileData.user.avatarUrl) || ''}
-                              alt={facultyProfileData.user.name}
-                              className="h-24 w-24 rounded-full object-cover border-2 border-gray-200"
-                              crossOrigin="anonymous"
-                              onError={(e) => {
-                                (e.target as HTMLImageElement).src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iOTYiIGhlaWdodD0iOTYiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHJlY3Qgd2lkdGg9IjEwMCUiIGhlaWdodD0iMTAwJSIgZmlsbD0iI2ZmOTUwMCIvPjx0ZXh0IHg9IjUwJSIgeT0iNTAlIiBmb250LWZhbWlseT0iQXJpYWwsIHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMzYiIGZpbGw9IiNmZmYiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGR5PSIuM2VtIj57e2ZhY3VsdHlQcm9maWxlRGF0YS51c2VyLm5hbWUuY2hhckF0KDApfX08L3RleHQ+PC9zdmc+';
-                              }}
-                            />
-                          ) : (
-                            <div className="h-24 w-24 rounded-full bg-orange-500 flex items-center justify-center text-white font-semibold text-2xl">
-                              {facultyProfileData.user.name.charAt(0).toUpperCase()}
-                            </div>
-                          )}
+                          {(() => {
+                            const user = facultyProfileData?.user || selectedFaculty;
+                            const avatarUrl = user?.avatarUrl;
+                            const name = user?.name || '';
+                            return avatarUrl ? (
+                              <img
+                                src={getImageUrl(avatarUrl) || ''}
+                                alt={name}
+                                className="h-24 w-24 rounded-full object-cover border-2 border-gray-200"
+                                crossOrigin="anonymous"
+                                onError={(e) => {
+                                  (e.target as HTMLImageElement).src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iOTYiIGhlaWdodD0iOTYiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHJlY3Qgd2lkdGg9IjEwMCUiIGhlaWdodD0iMTAwJSIgZmlsbD0iI2ZmOTUwMCIvPjx0ZXh0IHg9IjUwJSIgeT0iNTAlIiBmb250LWZhbWlseT0iQXJpYWwsIHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMzYiIGZpbGw9IiNmZmYiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGR5PSIuM2VtIj57e25hbWUuY2hhckF0KDApfX08L3RleHQ+PC9zdmc+';
+                                }}
+                              />
+                            ) : (
+                              <div className="h-24 w-24 rounded-full bg-orange-500 flex items-center justify-center text-white font-semibold text-2xl">
+                                {name.charAt(0).toUpperCase()}
+                              </div>
+                            );
+                          })()}
                         </div>
                       </div>
                       <div>
                         <label className="block text-sm font-medium text-gray-700">Name</label>
-                        <p className="mt-1 text-sm text-gray-900">{facultyProfileData.user.name}</p>
+                        <p className="mt-1 text-sm text-gray-900">{(facultyProfileData?.user || selectedFaculty)?.name || '-'}</p>
                       </div>
                       <div>
                         <label className="block text-sm font-medium text-gray-700">Email</label>
-                        <p className="mt-1 text-sm text-gray-900">{facultyProfileData.user.email}</p>
+                        <p className="mt-1 text-sm text-gray-900">{(facultyProfileData?.user || selectedFaculty)?.email || '-'}</p>
                       </div>
                       <div>
                         <label className="block text-sm font-medium text-gray-700">Phone</label>
-                        <p className="mt-1 text-sm text-gray-900">{facultyProfileData.user.phone || '-'}</p>
+                        <p className="mt-1 text-sm text-gray-900">{(facultyProfileData?.user || selectedFaculty)?.phone || '-'}</p>
                       </div>
                       <div>
                         <label className="block text-sm font-medium text-gray-700">Status</label>
                         <p className="mt-1">
                           <span className={`px-2 py-1 rounded text-xs font-semibold ${
-                            facultyProfileData.user.isActive ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
+                            (facultyProfileData?.user || selectedFaculty)?.isActive ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
                           }`}>
-                            {facultyProfileData.user.isActive ? 'Active' : 'Inactive'}
+                            {(facultyProfileData?.user || selectedFaculty)?.isActive ? 'Active' : 'Inactive'}
                           </span>
                         </p>
                       </div>
@@ -647,37 +683,74 @@ export const FacultyManagement: React.FC = () => {
                   </div>
 
                   {/* Faculty Profile Information */}
-                  {facultyProfileData.profile ? (
+                  {(facultyProfileData?.profile || selectedFaculty?.facultyProfile) ? (
                     <>
                       <div>
                         <h3 className="text-lg font-semibold text-gray-900 mb-4 border-b pb-2">Faculty Profile</h3>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          {facultyProfileData.profile.expertise && (
-                            <div>
-                              <label className="block text-sm font-medium text-gray-700">Expertise</label>
-                              <p className="mt-1 text-sm text-gray-900">
-                                {typeof facultyProfileData.profile.expertise === 'string' 
-                                  ? facultyProfileData.profile.expertise 
-                                  : JSON.stringify(facultyProfileData.profile.expertise)}
-                              </p>
-                            </div>
-                          )}
-                          {facultyProfileData.profile.availability && (
-                            <div>
-                              <label className="block text-sm font-medium text-gray-700">Availability</label>
-                              <p className="mt-1 text-sm text-gray-900">
-                                {typeof facultyProfileData.profile.availability === 'string' 
-                                  ? facultyProfileData.profile.availability 
-                                  : JSON.stringify(facultyProfileData.profile.availability)}
-                              </p>
-                            </div>
-                          )}
+                          {(() => {
+                            const profile = facultyProfileData?.profile || selectedFaculty?.facultyProfile;
+                            let expertise = profile?.expertise;
+                            let availability = profile?.availability;
+                            
+                            // Parse expertise if it's a JSON string
+                            if (expertise && typeof expertise === 'string') {
+                              try {
+                                const parsed = JSON.parse(expertise);
+                                if (typeof parsed === 'object' && parsed !== null) {
+                                  // If it's an object, extract meaningful values
+                                  expertise = parsed.description || parsed.expertise || parsed.text || JSON.stringify(parsed);
+                                } else {
+                                  expertise = parsed;
+                                }
+                              } catch (e) {
+                                // Not JSON, use as is
+                              }
+                            } else if (expertise && typeof expertise === 'object') {
+                              expertise = expertise.description || expertise.expertise || expertise.text || JSON.stringify(expertise);
+                            }
+                            
+                            // Parse availability if it's a JSON string
+                            if (availability && typeof availability === 'string') {
+                              try {
+                                const parsed = JSON.parse(availability);
+                                if (typeof parsed === 'object' && parsed !== null) {
+                                  // If it's an object, extract meaningful values
+                                  availability = parsed.schedule || parsed.availability || parsed.text || JSON.stringify(parsed);
+                                } else {
+                                  availability = parsed;
+                                }
+                              } catch (e) {
+                                // Not JSON, use as is
+                              }
+                            } else if (availability && typeof availability === 'object') {
+                              availability = availability.schedule || availability.availability || availability.text || JSON.stringify(availability);
+                            }
+                            
+                            return (
+                              <>
+                                <div>
+                                  <label className="block text-sm font-medium text-gray-700">Expertise</label>
+                                  <p className="mt-1 text-sm text-gray-900">
+                                    {expertise || <span className="text-gray-400 italic">Not provided</span>}
+                                  </p>
+                                </div>
+                                <div>
+                                  <label className="block text-sm font-medium text-gray-700">Availability</label>
+                                  <p className="mt-1 text-sm text-gray-900">
+                                    {availability || <span className="text-gray-400 italic">Not provided</span>}
+                                  </p>
+                                </div>
+                              </>
+                            );
+                          })()}
                         </div>
                       </div>
 
                       {/* Parse and display additional profile information from documents */}
                       {(() => {
-                        const documents = facultyProfileData.profile?.documents;
+                        const currentProfile = facultyProfileData?.profile || selectedFaculty?.facultyProfile;
+                        const documents = currentProfile?.documents;
                         let parsedDocuments: any = null;
                         
                         if (documents) {
@@ -699,204 +772,189 @@ export const FacultyManagement: React.FC = () => {
                         const softwareProficiency = parsedDocuments?.softwareProficiency || '';
                         
                         // Also check profile.dateOfBirth if not in personalInfo
-                        if (!personalInfo.dateOfBirth && facultyProfileData.profile?.dateOfBirth) {
-                          personalInfo.dateOfBirth = facultyProfileData.profile.dateOfBirth;
+                        if (!personalInfo.dateOfBirth && currentProfile?.dateOfBirth) {
+                          personalInfo.dateOfBirth = currentProfile.dateOfBirth;
                         }
 
-                        const hasPersonalInfo = Object.keys(personalInfo).length > 0 || !!facultyProfileData.profile?.dateOfBirth;
-                        const hasEmploymentInfo = Object.keys(employmentInfo).length > 0;
-                        const hasBankInfo = Object.keys(bankInfo).length > 0;
-                        const hasEmergencyInfo = Object.keys(emergencyInfo).length > 0;
-                        const hasSoftware = softwareProficiency && softwareProficiency.trim() !== '';
-                        const hasExpertise = !!facultyProfileData.profile?.expertise;
-                        const hasAvailability = !!facultyProfileData.profile?.availability;
-
-                        if (!hasPersonalInfo && !hasEmploymentInfo && !hasBankInfo && !hasEmergencyInfo && !hasSoftware && !hasExpertise && !hasAvailability) {
-                          return null;
-                        }
-
+                        // Always show all sections, even if empty
                         return (
                           <>
                             {/* Personal Information */}
-                            {hasPersonalInfo && (
-                              <div>
-                                <h3 className="text-lg font-semibold text-gray-900 mb-4 border-b pb-2">Personal Information</h3>
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                  {personalInfo.gender && (
-                                    <div>
-                                      <label className="block text-sm font-medium text-gray-700">Gender</label>
-                                      <p className="mt-1 text-sm text-gray-900">{personalInfo.gender}</p>
-                                    </div>
-                                  )}
-                                  {(personalInfo.dateOfBirth || facultyProfileData.profile?.dateOfBirth) && (
+                            <div>
+                              <h3 className="text-lg font-semibold text-gray-900 mb-4 border-b pb-2">Personal Information</h3>
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                  <label className="block text-sm font-medium text-gray-700">Gender</label>
+                                  <p className="mt-1 text-sm text-gray-900">
+                                    {personalInfo.gender || <span className="text-gray-400 italic">Not provided</span>}
+                                  </p>
+                                </div>
+                                {(() => {
+                                  const currentProfile = facultyProfileData?.profile || selectedFaculty?.facultyProfile;
+                                  const dob = personalInfo.dateOfBirth || currentProfile?.dateOfBirth;
+                                  return (
                                     <div>
                                       <label className="block text-sm font-medium text-gray-700">Date of Birth</label>
                                       <p className="mt-1 text-sm text-gray-900">
-                                        {formatDateDDMMYYYY(personalInfo.dateOfBirth || facultyProfileData.profile?.dateOfBirth)}
+                                        {dob ? formatDateDDMMYYYY(dob) : <span className="text-gray-400 italic">Not provided</span>}
                                       </p>
                                     </div>
-                                  )}
-                                  {personalInfo.nationality && (
-                                    <div>
-                                      <label className="block text-sm font-medium text-gray-700">Nationality</label>
-                                      <p className="mt-1 text-sm text-gray-900">{personalInfo.nationality}</p>
-                                    </div>
-                                  )}
-                                  {personalInfo.maritalStatus && (
-                                    <div>
-                                      <label className="block text-sm font-medium text-gray-700">Marital Status</label>
-                                      <p className="mt-1 text-sm text-gray-900">{personalInfo.maritalStatus}</p>
-                                    </div>
-                                  )}
-                                  {personalInfo.address && (
-                                    <div className="md:col-span-2">
-                                      <label className="block text-sm font-medium text-gray-700">Address</label>
-                                      <p className="mt-1 text-sm text-gray-900">{personalInfo.address}</p>
-                                    </div>
-                                  )}
-                                  {personalInfo.city && (
-                                    <div>
-                                      <label className="block text-sm font-medium text-gray-700">City</label>
-                                      <p className="mt-1 text-sm text-gray-900">{personalInfo.city}</p>
-                                    </div>
-                                  )}
-                                  {personalInfo.state && (
-                                    <div>
-                                      <label className="block text-sm font-medium text-gray-700">State</label>
-                                      <p className="mt-1 text-sm text-gray-900">{personalInfo.state}</p>
-                                    </div>
-                                  )}
-                                  {personalInfo.postalCode && (
-                                    <div>
-                                      <label className="block text-sm font-medium text-gray-700">Postal Code</label>
-                                      <p className="mt-1 text-sm text-gray-900">{personalInfo.postalCode}</p>
-                                    </div>
-                                  )}
+                                  );
+                                })()}
+                                <div>
+                                  <label className="block text-sm font-medium text-gray-700">Nationality</label>
+                                  <p className="mt-1 text-sm text-gray-900">
+                                    {personalInfo.nationality || <span className="text-gray-400 italic">Not provided</span>}
+                                  </p>
+                                </div>
+                                <div>
+                                  <label className="block text-sm font-medium text-gray-700">Marital Status</label>
+                                  <p className="mt-1 text-sm text-gray-900">
+                                    {personalInfo.maritalStatus || <span className="text-gray-400 italic">Not provided</span>}
+                                  </p>
+                                </div>
+                                <div className="md:col-span-2">
+                                  <label className="block text-sm font-medium text-gray-700">Address</label>
+                                  <p className="mt-1 text-sm text-gray-900">
+                                    {personalInfo.address || <span className="text-gray-400 italic">Not provided</span>}
+                                  </p>
+                                </div>
+                                <div>
+                                  <label className="block text-sm font-medium text-gray-700">City</label>
+                                  <p className="mt-1 text-sm text-gray-900">
+                                    {personalInfo.city || <span className="text-gray-400 italic">Not provided</span>}
+                                  </p>
+                                </div>
+                                <div>
+                                  <label className="block text-sm font-medium text-gray-700">State</label>
+                                  <p className="mt-1 text-sm text-gray-900">
+                                    {personalInfo.state || <span className="text-gray-400 italic">Not provided</span>}
+                                  </p>
+                                </div>
+                                <div>
+                                  <label className="block text-sm font-medium text-gray-700">Postal Code</label>
+                                  <p className="mt-1 text-sm text-gray-900">
+                                    {personalInfo.postalCode || <span className="text-gray-400 italic">Not provided</span>}
+                                  </p>
                                 </div>
                               </div>
-                            )}
+                            </div>
 
                             {/* Employment Information */}
-                            {hasEmploymentInfo && (
-                              <div>
-                                <h3 className="text-lg font-semibold text-gray-900 mb-4 border-b pb-2">Employment Information</h3>
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                  {employmentInfo.department && (
-                                    <div>
-                                      <label className="block text-sm font-medium text-gray-700">Department</label>
-                                      <p className="mt-1 text-sm text-gray-900">{employmentInfo.department}</p>
-                                    </div>
-                                  )}
-                                  {employmentInfo.designation && (
-                                    <div>
-                                      <label className="block text-sm font-medium text-gray-700">Designation</label>
-                                      <p className="mt-1 text-sm text-gray-900">{employmentInfo.designation}</p>
-                                    </div>
-                                  )}
-                                  {employmentInfo.dateOfJoining && (
-                                    <div>
-                                      <label className="block text-sm font-medium text-gray-700">Date of Joining</label>
-                                      <p className="mt-1 text-sm text-gray-900">{formatDateDDMMYYYY(employmentInfo.dateOfJoining)}</p>
-                                    </div>
-                                  )}
-                                  {employmentInfo.employmentType && (
-                                    <div>
-                                      <label className="block text-sm font-medium text-gray-700">Employment Type</label>
-                                      <p className="mt-1 text-sm text-gray-900">{employmentInfo.employmentType}</p>
-                                    </div>
-                                  )}
-                                  {employmentInfo.reportingManager && (
-                                    <div>
-                                      <label className="block text-sm font-medium text-gray-700">Reporting Manager</label>
-                                      <p className="mt-1 text-sm text-gray-900">{employmentInfo.reportingManager}</p>
-                                    </div>
-                                  )}
-                                  {employmentInfo.workLocation && (
-                                    <div>
-                                      <label className="block text-sm font-medium text-gray-700">Work Location</label>
-                                      <p className="mt-1 text-sm text-gray-900">{employmentInfo.workLocation}</p>
-                                    </div>
-                                  )}
+                            <div>
+                              <h3 className="text-lg font-semibold text-gray-900 mb-4 border-b pb-2">Employment Information</h3>
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                  <label className="block text-sm font-medium text-gray-700">Department</label>
+                                  <p className="mt-1 text-sm text-gray-900">
+                                    {employmentInfo.department || <span className="text-gray-400 italic">Not provided</span>}
+                                  </p>
+                                </div>
+                                <div>
+                                  <label className="block text-sm font-medium text-gray-700">Designation</label>
+                                  <p className="mt-1 text-sm text-gray-900">
+                                    {employmentInfo.designation || <span className="text-gray-400 italic">Not provided</span>}
+                                  </p>
+                                </div>
+                                <div>
+                                  <label className="block text-sm font-medium text-gray-700">Date of Joining</label>
+                                  <p className="mt-1 text-sm text-gray-900">
+                                    {employmentInfo.dateOfJoining ? formatDateDDMMYYYY(employmentInfo.dateOfJoining) : <span className="text-gray-400 italic">Not provided</span>}
+                                  </p>
+                                </div>
+                                <div>
+                                  <label className="block text-sm font-medium text-gray-700">Employment Type</label>
+                                  <p className="mt-1 text-sm text-gray-900">
+                                    {employmentInfo.employmentType || <span className="text-gray-400 italic">Not provided</span>}
+                                  </p>
+                                </div>
+                                <div>
+                                  <label className="block text-sm font-medium text-gray-700">Reporting Manager</label>
+                                  <p className="mt-1 text-sm text-gray-900">
+                                    {employmentInfo.reportingManager || <span className="text-gray-400 italic">Not provided</span>}
+                                  </p>
+                                </div>
+                                <div>
+                                  <label className="block text-sm font-medium text-gray-700">Work Location</label>
+                                  <p className="mt-1 text-sm text-gray-900">
+                                    {employmentInfo.workLocation || <span className="text-gray-400 italic">Not provided</span>}
+                                  </p>
                                 </div>
                               </div>
-                            )}
+                            </div>
 
                             {/* Bank Information */}
-                            {hasBankInfo && (
-                              <div>
-                                <h3 className="text-lg font-semibold text-gray-900 mb-4 border-b pb-2">Bank Information</h3>
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                  {bankInfo.bankName && (
-                                    <div>
-                                      <label className="block text-sm font-medium text-gray-700">Bank Name</label>
-                                      <p className="mt-1 text-sm text-gray-900">{bankInfo.bankName}</p>
-                                    </div>
-                                  )}
-                                  {bankInfo.accountNumber && (
-                                    <div>
-                                      <label className="block text-sm font-medium text-gray-700">Account Number</label>
-                                      <p className="mt-1 text-sm text-gray-900">{bankInfo.accountNumber}</p>
-                                    </div>
-                                  )}
-                                  {bankInfo.ifscCode && (
-                                    <div>
-                                      <label className="block text-sm font-medium text-gray-700">IFSC Code</label>
-                                      <p className="mt-1 text-sm text-gray-900">{bankInfo.ifscCode}</p>
-                                    </div>
-                                  )}
-                                  {bankInfo.branch && (
-                                    <div>
-                                      <label className="block text-sm font-medium text-gray-700">Branch</label>
-                                      <p className="mt-1 text-sm text-gray-900">{bankInfo.branch}</p>
-                                    </div>
-                                  )}
-                                  {bankInfo.panNumber && (
-                                    <div>
-                                      <label className="block text-sm font-medium text-gray-700">PAN Number</label>
-                                      <p className="mt-1 text-sm text-gray-900">{bankInfo.panNumber}</p>
-                                    </div>
-                                  )}
+                            <div>
+                              <h3 className="text-lg font-semibold text-gray-900 mb-4 border-b pb-2">Bank Information</h3>
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                  <label className="block text-sm font-medium text-gray-700">Bank Name</label>
+                                  <p className="mt-1 text-sm text-gray-900">
+                                    {bankInfo.bankName || <span className="text-gray-400 italic">Not provided</span>}
+                                  </p>
+                                </div>
+                                <div>
+                                  <label className="block text-sm font-medium text-gray-700">Account Number</label>
+                                  <p className="mt-1 text-sm text-gray-900">
+                                    {bankInfo.accountNumber || <span className="text-gray-400 italic">Not provided</span>}
+                                  </p>
+                                </div>
+                                <div>
+                                  <label className="block text-sm font-medium text-gray-700">IFSC Code</label>
+                                  <p className="mt-1 text-sm text-gray-900">
+                                    {bankInfo.ifscCode || <span className="text-gray-400 italic">Not provided</span>}
+                                  </p>
+                                </div>
+                                <div>
+                                  <label className="block text-sm font-medium text-gray-700">Branch</label>
+                                  <p className="mt-1 text-sm text-gray-900">
+                                    {bankInfo.branch || <span className="text-gray-400 italic">Not provided</span>}
+                                  </p>
+                                </div>
+                                <div>
+                                  <label className="block text-sm font-medium text-gray-700">PAN Number</label>
+                                  <p className="mt-1 text-sm text-gray-900">
+                                    {bankInfo.panNumber || <span className="text-gray-400 italic">Not provided</span>}
+                                  </p>
                                 </div>
                               </div>
-                            )}
+                            </div>
 
                             {/* Emergency Contact Information */}
-                            {hasEmergencyInfo && (
-                              <div>
-                                <h3 className="text-lg font-semibold text-gray-900 mb-4 border-b pb-2">Emergency Contact</h3>
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                  {(emergencyInfo.emergencyContactName || emergencyInfo.name) && (
-                                    <div>
-                                      <label className="block text-sm font-medium text-gray-700">Emergency Contact Name</label>
-                                      <p className="mt-1 text-sm text-gray-900">{emergencyInfo.emergencyContactName || emergencyInfo.name}</p>
-                                    </div>
-                                  )}
-                                  {(emergencyInfo.emergencyPhoneNumber || emergencyInfo.number) && (
-                                    <div>
-                                      <label className="block text-sm font-medium text-gray-700">Emergency Contact Number</label>
-                                      <p className="mt-1 text-sm text-gray-900">{emergencyInfo.emergencyPhoneNumber || emergencyInfo.number}</p>
-                                    </div>
-                                  )}
-                                  {(emergencyInfo.emergencyRelationship || emergencyInfo.relation) && (
-                                    <div>
-                                      <label className="block text-sm font-medium text-gray-700">Relationship</label>
-                                      <p className="mt-1 text-sm text-gray-900">{emergencyInfo.emergencyRelationship || emergencyInfo.relation}</p>
-                                    </div>
-                                  )}
-                                  {emergencyInfo.emergencyAlternatePhone && (
-                                    <div>
-                                      <label className="block text-sm font-medium text-gray-700">Alternate Phone Number</label>
-                                      <p className="mt-1 text-sm text-gray-900">{emergencyInfo.emergencyAlternatePhone}</p>
-                                    </div>
-                                  )}
+                            <div>
+                              <h3 className="text-lg font-semibold text-gray-900 mb-4 border-b pb-2">Emergency Contact</h3>
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                  <label className="block text-sm font-medium text-gray-700">Emergency Contact Name</label>
+                                  <p className="mt-1 text-sm text-gray-900">
+                                    {emergencyInfo.emergencyContactName || emergencyInfo.name || <span className="text-gray-400 italic">Not provided</span>}
+                                  </p>
+                                </div>
+                                <div>
+                                  <label className="block text-sm font-medium text-gray-700">Emergency Contact Number</label>
+                                  <p className="mt-1 text-sm text-gray-900">
+                                    {emergencyInfo.emergencyPhoneNumber || emergencyInfo.number || <span className="text-gray-400 italic">Not provided</span>}
+                                  </p>
+                                </div>
+                                <div>
+                                  <label className="block text-sm font-medium text-gray-700">Relationship</label>
+                                  <p className="mt-1 text-sm text-gray-900">
+                                    {emergencyInfo.emergencyRelationship || emergencyInfo.relation || <span className="text-gray-400 italic">Not provided</span>}
+                                  </p>
+                                </div>
+                                <div>
+                                  <label className="block text-sm font-medium text-gray-700">Alternate Phone Number</label>
+                                  <p className="mt-1 text-sm text-gray-900">
+                                    {emergencyInfo.emergencyAlternatePhone || <span className="text-gray-400 italic">Not provided</span>}
+                                  </p>
                                 </div>
                               </div>
-                            )}
+                            </div>
 
                             {/* Software Proficiency */}
-                            {hasSoftware && (
-                              <div>
-                                <h3 className="text-lg font-semibold text-gray-900 mb-4 border-b pb-2">Software Proficiency</h3>
+                            <div>
+                              <h3 className="text-lg font-semibold text-gray-900 mb-4 border-b pb-2">Software Proficiency</h3>
+                              {softwareProficiency && softwareProficiency.trim() !== '' ? (
                                 <div className="flex flex-wrap gap-2">
                                   {softwareProficiency.split(',').map((software: string, idx: number) => (
                                     <span key={idx} className="px-3 py-1 bg-blue-100 text-blue-800 rounded text-sm font-medium">
@@ -904,8 +962,10 @@ export const FacultyManagement: React.FC = () => {
                                     </span>
                                   ))}
                                 </div>
-                              </div>
-                            )}
+                              ) : (
+                                <p className="text-sm text-gray-400 italic">Not provided</p>
+                              )}
+                            </div>
                           </>
                         );
                       })()}
@@ -923,11 +983,12 @@ export const FacultyManagement: React.FC = () => {
                   {/* Documents Section */}
                   {(() => {
                     // Only show documents section if profile exists
-                    if (!facultyProfileData.profile) {
+                    const currentProfile = facultyProfileData?.profile || selectedFaculty?.facultyProfile;
+                    if (!currentProfile) {
                       return null;
                     }
 
-                    const documents = facultyProfileData.profile?.documents;
+                    const documents = currentProfile?.documents;
                     let parsedDocuments: any = null;
                     
                     if (documents) {

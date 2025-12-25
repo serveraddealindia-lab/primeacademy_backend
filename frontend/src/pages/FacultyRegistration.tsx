@@ -13,6 +13,36 @@ interface RegisterUserRequest {
   role: 'faculty';
 }
 
+interface FacultyFormData {
+  gender: string;
+  dateOfBirth: string;
+  nationality: string;
+  maritalStatus: string;
+  address: string;
+  city: string;
+  state: string;
+  postalCode: string;
+  department: string;
+  designation: string;
+  dateOfJoining: string;
+  employmentType: string;
+  reportingManager: string;
+  workLocation: string;
+  bankName: string;
+  accountNumber: string;
+  ifscCode: string;
+  branch: string;
+  panNumber: string;
+  emergencyContactName: string;
+  emergencyRelationship: string;
+  emergencyPhoneNumber: string;
+  emergencyAlternatePhone: string;
+  expertise: string;
+  availability: string;
+  softwareProficiency: string[];
+  documents: string[];
+}
+
 export const FacultyRegistration: React.FC = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -21,6 +51,37 @@ export const FacultyRegistration: React.FC = () => {
   const [createdUserId, setCreatedUserId] = useState<number | null>(null);
   const [showOtherSoftware, setShowOtherSoftware] = useState(false);
   const [otherSoftware, setOtherSoftware] = useState('');
+  
+  // State to persist form data across steps
+  const [formData, setFormData] = useState<FacultyFormData>({
+    gender: '',
+    dateOfBirth: '',
+    nationality: '',
+    maritalStatus: '',
+    address: '',
+    city: '',
+    state: '',
+    postalCode: '',
+    department: '',
+    designation: '',
+    dateOfJoining: '',
+    employmentType: '',
+    reportingManager: '',
+    workLocation: '',
+    bankName: '',
+    accountNumber: '',
+    ifscCode: '',
+    branch: '',
+    panNumber: '',
+    emergencyContactName: '',
+    emergencyRelationship: '',
+    emergencyPhoneNumber: '',
+    emergencyAlternatePhone: '',
+    expertise: '',
+    availability: '',
+    softwareProficiency: [],
+    documents: [],
+  });
 
   // Register user first
   const registerUserMutation = useMutation({
@@ -221,15 +282,31 @@ export const FacultyRegistration: React.FC = () => {
       return;
     }
     
-    const formData = new FormData(e.currentTarget);
+    // Create FormData from state (which has all steps) and current form
+    const currentFormData = new FormData(e.currentTarget);
+    const combinedFormData = new FormData();
+    
+    // Add all data from state
+    Object.entries(formData).forEach(([key, value]) => {
+      if (Array.isArray(value)) {
+        value.forEach(v => combinedFormData.append(key, v));
+      } else if (value) {
+        combinedFormData.append(key, value);
+      }
+    });
+    
+    // Override with current form values (in case user changed something)
+    for (const [key, value] of currentFormData.entries()) {
+      combinedFormData.set(key, value);
+    }
     
     if (!createdUserId) {
       alert('Please complete user registration first');
       return;
     }
 
-    // Validate all fields
-    const validation = validateAllFields(formData);
+    // Validate all fields using combined form data
+    const validation = validateAllFields(combinedFormData);
     if (!validation.isValid) {
       // Find the first step with errors
       let errorStep = 1;
@@ -257,51 +334,51 @@ export const FacultyRegistration: React.FC = () => {
       return;
     }
 
-    // Get selected software
-    const selectedSoftware = formData.getAll('softwareProficiency') as string[];
+    // Get selected software from state or form
+    const selectedSoftware = combinedFormData.getAll('softwareProficiency') as string[];
     let softwareList = selectedSoftware.filter(s => s !== 'Other');
     if (showOtherSoftware && otherSoftware.trim()) {
       softwareList.push(otherSoftware.trim());
     }
     const softwareProficiency = softwareList.length > 0 ? softwareList.join(', ') : undefined;
 
-    // Get selected documents
-    const documentsSubmitted = formData.getAll('documents') as string[];
+    // Get selected documents from state or form
+    const documentsSubmitted = combinedFormData.getAll('documents') as string[];
     
-    // Structure all data properly
+    // Structure all data properly - use state values as primary source
     const personalInfo = {
-      gender: formData.get('gender') as string,
-      dateOfBirth: formData.get('dateOfBirth') as string,
-      nationality: formData.get('nationality') as string,
-      maritalStatus: formData.get('maritalStatus') as string,
-      address: formData.get('address') as string,
-      city: formData.get('city') as string,
-      state: formData.get('state') as string,
-      postalCode: formData.get('postalCode') as string,
+      gender: combinedFormData.get('gender') as string || formData.gender,
+      dateOfBirth: combinedFormData.get('dateOfBirth') as string || formData.dateOfBirth,
+      nationality: combinedFormData.get('nationality') as string || formData.nationality,
+      maritalStatus: combinedFormData.get('maritalStatus') as string || formData.maritalStatus,
+      address: combinedFormData.get('address') as string || formData.address,
+      city: combinedFormData.get('city') as string || formData.city,
+      state: combinedFormData.get('state') as string || formData.state,
+      postalCode: combinedFormData.get('postalCode') as string || formData.postalCode,
     };
 
     const employmentInfo = {
-      department: formData.get('department') as string,
-      designation: formData.get('designation') as string,
-      dateOfJoining: formData.get('dateOfJoining') as string,
-      employmentType: formData.get('employmentType') as string,
-      reportingManager: formData.get('reportingManager') as string || undefined,
-      workLocation: formData.get('workLocation') as string,
+      department: combinedFormData.get('department') as string || formData.department,
+      designation: combinedFormData.get('designation') as string || formData.designation,
+      dateOfJoining: combinedFormData.get('dateOfJoining') as string || formData.dateOfJoining,
+      employmentType: combinedFormData.get('employmentType') as string || formData.employmentType,
+      reportingManager: (combinedFormData.get('reportingManager') as string) || formData.reportingManager || undefined,
+      workLocation: combinedFormData.get('workLocation') as string || formData.workLocation,
     };
 
     const bankInfo = {
-      bankName: formData.get('bankName') as string,
-      accountNumber: formData.get('accountNumber') as string,
-      ifscCode: formData.get('ifscCode') as string,
-      branch: formData.get('branch') as string,
-      panNumber: formData.get('panNumber') as string,
+      bankName: combinedFormData.get('bankName') as string || formData.bankName,
+      accountNumber: combinedFormData.get('accountNumber') as string || formData.accountNumber,
+      ifscCode: combinedFormData.get('ifscCode') as string || formData.ifscCode,
+      branch: combinedFormData.get('branch') as string || formData.branch,
+      panNumber: combinedFormData.get('panNumber') as string || formData.panNumber,
     };
 
     const emergencyInfo = {
-      emergencyContactName: formData.get('emergencyContactName') as string,
-      emergencyRelationship: formData.get('emergencyRelationship') as string,
-      emergencyPhoneNumber: formData.get('emergencyPhoneNumber') as string,
-      emergencyAlternatePhone: formData.get('emergencyAlternatePhone') as string || undefined,
+      emergencyContactName: combinedFormData.get('emergencyContactName') as string || formData.emergencyContactName,
+      emergencyRelationship: combinedFormData.get('emergencyRelationship') as string || formData.emergencyRelationship,
+      emergencyPhoneNumber: combinedFormData.get('emergencyPhoneNumber') as string || formData.emergencyPhoneNumber,
+      emergencyAlternatePhone: (combinedFormData.get('emergencyAlternatePhone') as string) || formData.emergencyAlternatePhone || undefined,
     };
 
     const documents = {
@@ -314,8 +391,8 @@ export const FacultyRegistration: React.FC = () => {
     
     const data: CreateFacultyRequest = {
       userId: createdUserId,
-      expertise: formData.get('expertise') as string,
-      availability: formData.get('availability') as string,
+      expertise: (combinedFormData.get('expertise') as string) || formData.expertise,
+      availability: (combinedFormData.get('availability') as string) || formData.availability,
       documents,
       softwareProficiency,
     };
@@ -472,15 +549,39 @@ export const FacultyRegistration: React.FC = () => {
                         </label>
                         <div className="flex gap-4 mt-2">
                           <label className="flex items-center">
-                            <input type="radio" name="gender" value="male" required className="mr-2" />
+                            <input 
+                              type="radio" 
+                              name="gender" 
+                              value="male" 
+                              required 
+                              checked={formData.gender === 'male'}
+                              onChange={(e) => setFormData(prev => ({ ...prev, gender: e.target.value }))}
+                              className="mr-2" 
+                            />
                             <span>Male</span>
                           </label>
                           <label className="flex items-center">
-                            <input type="radio" name="gender" value="female" required className="mr-2" />
+                            <input 
+                              type="radio" 
+                              name="gender" 
+                              value="female" 
+                              required 
+                              checked={formData.gender === 'female'}
+                              onChange={(e) => setFormData(prev => ({ ...prev, gender: e.target.value }))}
+                              className="mr-2" 
+                            />
                             <span>Female</span>
                           </label>
                           <label className="flex items-center">
-                            <input type="radio" name="gender" value="other" required className="mr-2" />
+                            <input 
+                              type="radio" 
+                              name="gender" 
+                              value="other" 
+                              required 
+                              checked={formData.gender === 'other'}
+                              onChange={(e) => setFormData(prev => ({ ...prev, gender: e.target.value }))}
+                              className="mr-2" 
+                            />
                             <span>Other</span>
                           </label>
                         </div>
