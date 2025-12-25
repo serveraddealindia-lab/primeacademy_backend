@@ -315,6 +315,9 @@ export const FacultyEdit: React.FC = () => {
       gender: info.gender,
       address: info.address,
       city: info.city,
+      dateOfBirth: info.dateOfBirth,
+      dateOfBirthType: typeof info.dateOfBirth,
+      profileDateOfBirth: facultyData?.profile?.dateOfBirth,
     });
     return info;
   }, [parsedDocuments, facultyData?.profile?.dateOfBirth]);
@@ -1430,7 +1433,19 @@ export const FacultyEdit: React.FC = () => {
                       type="text"
                       name="dateOfBirth"
                       placeholder="DD/MM/YYYY"
-                      defaultValue={personalInfo?.dateOfBirth ? formatDateDDMMYYYY(personalInfo.dateOfBirth) : ''}
+                      key={`dateOfBirth-${personalInfo?.dateOfBirth || facultyData?.profile?.dateOfBirth || 'empty'}-${facultyUser?.id || ''}`}
+                      defaultValue={(() => {
+                        const dob = personalInfo?.dateOfBirth || facultyData?.profile?.dateOfBirth;
+                        if (!dob) return '';
+                        try {
+                          const formatted = formatDateDDMMYYYY(dob);
+                          // formatDateDDMMYYYY returns '-' for invalid dates, we want empty string
+                          return formatted === '-' ? '' : formatted;
+                        } catch (e) {
+                          console.error('Error formatting date of birth:', e, 'Date value:', dob);
+                          return '';
+                        }
+                      })()}
                       required
                       pattern="\d{2}/\d{2}/\d{4}"
                       title="Please enter date in DD/MM/YYYY format (e.g., 01/01/1990)"
