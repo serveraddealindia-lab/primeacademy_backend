@@ -22,6 +22,12 @@ StudentProfile.init({
             key: 'id',
         },
     },
+    serialNo: {
+        type: sequelize_1.DataTypes.STRING(50),
+        allowNull: true,
+        unique: true,
+        comment: 'Serial number for the student',
+    },
     dob: {
         type: sequelize_1.DataTypes.DATE,
         allowNull: true,

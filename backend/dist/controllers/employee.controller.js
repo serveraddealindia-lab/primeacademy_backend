@@ -92,10 +92,102 @@ const createEmployeeProfile = async (req, res) => {
             return;
         }
         const { userId, employeeId, ...profileData } = req.body;
-        if (!userId || !employeeId) {
+        // Validation - All fields required except documents
+        const validationErrors = [];
+        if (!userId) {
+            validationErrors.push('User ID is required');
+        }
+        if (!employeeId || !employeeId.trim()) {
+            validationErrors.push('Employee ID is required');
+        }
+        if (!profileData.gender || !profileData.gender.trim()) {
+            validationErrors.push('Gender is required');
+        }
+        if (!profileData.dateOfBirth || !profileData.dateOfBirth.trim()) {
+            validationErrors.push('Date of Birth is required');
+        }
+        else {
+            const dobDate = new Date(profileData.dateOfBirth);
+            if (isNaN(dobDate.getTime())) {
+                validationErrors.push('Invalid date of birth format');
+            }
+            else {
+                if (dobDate > new Date()) {
+                    validationErrors.push('Date of birth cannot be in the future');
+                }
+                else {
+                    // Check if age is at least 18
+                    const today = new Date();
+                    let age = today.getFullYear() - dobDate.getFullYear();
+                    const monthDiff = today.getMonth() - dobDate.getMonth();
+                    const dayDiff = today.getDate() - dobDate.getDate();
+                    if (monthDiff < 0 || (monthDiff === 0 && dayDiff < 0)) {
+                        age--;
+                    }
+                    if (age < 18) {
+                        validationErrors.push('Employee must be at least 18 years old');
+                    }
+                }
+            }
+        }
+        if (!profileData.nationality || !profileData.nationality.trim()) {
+            validationErrors.push('Nationality is required');
+        }
+        if (!profileData.maritalStatus || !profileData.maritalStatus.trim()) {
+            validationErrors.push('Marital Status is required');
+        }
+        if (!profileData.department || !profileData.department.trim()) {
+            validationErrors.push('Department is required');
+        }
+        if (!profileData.designation || !profileData.designation.trim()) {
+            validationErrors.push('Designation is required');
+        }
+        if (!profileData.dateOfJoining || !profileData.dateOfJoining.trim()) {
+            validationErrors.push('Date of Joining is required');
+        }
+        if (!profileData.employmentType || !profileData.employmentType.trim()) {
+            validationErrors.push('Employment Type is required');
+        }
+        if (!profileData.workLocation || !profileData.workLocation.trim()) {
+            validationErrors.push('Work Location is required');
+        }
+        if (!profileData.bankName || !profileData.bankName.trim()) {
+            validationErrors.push('Bank Name is required');
+        }
+        if (!profileData.accountNumber || !profileData.accountNumber.trim()) {
+            validationErrors.push('Account Number is required');
+        }
+        if (!profileData.ifscCode || !profileData.ifscCode.trim()) {
+            validationErrors.push('IFSC Code is required');
+        }
+        if (!profileData.branch || !profileData.branch.trim()) {
+            validationErrors.push('Branch is required');
+        }
+        if (!profileData.panNumber || !profileData.panNumber.trim()) {
+            validationErrors.push('PAN Number is required');
+        }
+        if (!profileData.city || !profileData.city.trim()) {
+            validationErrors.push('City is required');
+        }
+        if (!profileData.state || !profileData.state.trim()) {
+            validationErrors.push('State is required');
+        }
+        if (!profileData.postalCode || !profileData.postalCode.trim()) {
+            validationErrors.push('Postal Code is required');
+        }
+        // Validate PAN format
+        if (profileData.panNumber && !/^[A-Z]{5}[0-9]{4}[A-Z]{1}$/.test(profileData.panNumber.toUpperCase())) {
+            validationErrors.push('Invalid PAN Number format. PAN should be 10 characters (e.g., ABCDE1234F)');
+        }
+        // Validate IFSC format
+        if (profileData.ifscCode && !/^[A-Z]{4}0[A-Z0-9]{6}$/.test(profileData.ifscCode.toUpperCase())) {
+            validationErrors.push('Invalid IFSC Code format. IFSC should be 11 characters (e.g., ABCD0123456)');
+        }
+        if (validationErrors.length > 0) {
             res.status(400).json({
                 status: 'error',
-                message: 'User ID and Employee ID are required',
+                message: 'Validation failed',
+                errors: validationErrors,
             });
             return;
         }
@@ -141,28 +233,45 @@ const createEmployeeProfile = async (req, res) => {
             });
             return;
         }
+        // Prepare documents object for emergency contact and address
+        const documents = {};
+        // Store address if provided
+        if (profileData.address && profileData.address.trim()) {
+            documents.address = profileData.address.trim();
+        }
+        // Store emergency contact information if provided
+        if (profileData.emergencyContactName || profileData.emergencyRelationship ||
+            profileData.emergencyPhoneNumber || profileData.emergencyAlternatePhone) {
+            documents.emergencyContact = {
+                emergencyContactName: profileData.emergencyContactName?.trim() || null,
+                emergencyRelationship: profileData.emergencyRelationship?.trim() || null,
+                emergencyPhoneNumber: profileData.emergencyPhoneNumber?.trim() || null,
+                emergencyAlternatePhone: profileData.emergencyAlternatePhone?.trim() || null,
+            };
+        }
         // Create employee profile
         const employeeProfile = await models_1.default.EmployeeProfile.create({
             userId,
-            employeeId,
-            gender: profileData.gender,
-            dateOfBirth: profileData.dateOfBirth ? new Date(profileData.dateOfBirth) : null,
-            nationality: profileData.nationality || null,
-            maritalStatus: profileData.maritalStatus,
-            department: profileData.department || null,
-            designation: profileData.designation || null,
-            dateOfJoining: profileData.dateOfJoining ? new Date(profileData.dateOfJoining) : null,
-            employmentType: profileData.employmentType,
-            reportingManager: profileData.reportingManager || null,
-            workLocation: profileData.workLocation || null,
-            bankName: profileData.bankName || null,
-            accountNumber: profileData.accountNumber || null,
-            ifscCode: profileData.ifscCode || null,
-            branch: profileData.branch || null,
-            panNumber: profileData.panNumber || null,
-            city: profileData.city || null,
-            state: profileData.state || null,
-            postalCode: profileData.postalCode || null,
+            employeeId: employeeId.trim(),
+            gender: profileData.gender.trim(),
+            dateOfBirth: new Date(profileData.dateOfBirth.trim()),
+            nationality: profileData.nationality.trim(),
+            maritalStatus: profileData.maritalStatus.trim(),
+            department: profileData.department.trim(),
+            designation: profileData.designation.trim(),
+            dateOfJoining: new Date(profileData.dateOfJoining.trim()),
+            employmentType: profileData.employmentType.trim(),
+            reportingManager: profileData.reportingManager?.trim() || null,
+            workLocation: profileData.workLocation.trim(),
+            bankName: profileData.bankName.trim(),
+            accountNumber: profileData.accountNumber.trim(),
+            ifscCode: profileData.ifscCode.trim().toUpperCase(),
+            branch: profileData.branch.trim(),
+            panNumber: profileData.panNumber.trim().toUpperCase(),
+            city: profileData.city.trim(),
+            state: profileData.state.trim(),
+            postalCode: profileData.postalCode.trim(),
+            documents: Object.keys(documents).length > 0 ? documents : null,
         });
         // Fetch created profile with user
         const createdProfile = await models_1.default.EmployeeProfile.findByPk(employeeProfile.id, {

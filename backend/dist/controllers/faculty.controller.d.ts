@@ -5,6 +5,8 @@ export declare const createFaculty: (req: AuthRequest & {
         userId: number;
         expertise?: string;
         availability?: string;
+        documents?: any;
+        softwareProficiency?: string;
     };
 }, res: Response) => Promise<void>;
 export declare const updateFacultyProfile: (req: AuthRequest & {

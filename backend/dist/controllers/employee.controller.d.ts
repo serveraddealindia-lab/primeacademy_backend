@@ -27,6 +27,11 @@ export declare const createEmployeeProfile: (req: AuthRequest & {
         city?: string;
         state?: string;
         postalCode?: string;
+        address?: string;
+        emergencyContactName?: string;
+        emergencyRelationship?: string;
+        emergencyPhoneNumber?: string;
+        emergencyAlternatePhone?: string;
     };
 }, res: Response) => Promise<void>;
 //# sourceMappingURL=employee.controller.d.ts.map

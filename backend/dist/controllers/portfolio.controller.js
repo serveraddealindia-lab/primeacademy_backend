@@ -35,12 +35,25 @@ const getAllPortfolios = async (req, res) => {
         }
         const { studentId, batchId, status } = req.query;
         const where = {};
-        if (studentId)
-            where.studentId = parseInt(studentId, 10);
-        if (batchId)
-            where.batchId = parseInt(batchId, 10);
-        if (status)
-            where.status = status;
+        // If student, only show their own portfolios (ignore query param studentId for security)
+        if (req.user.role === User_1.UserRole.STUDENT) {
+            where.studentId = req.user.userId;
+            // Allow students to see all their portfolios (pending, approved, rejected)
+            // Status filter can be applied via query parameter if needed
+            if (status)
+                where.status = status;
+            if (batchId)
+                where.batchId = parseInt(batchId, 10);
+        }
+        else {
+            // For admins/faculty, allow query params
+            if (studentId)
+                where.studentId = parseInt(studentId, 10);
+            if (batchId)
+                where.batchId = parseInt(batchId, 10);
+            if (status)
+                where.status = status;
+        }
         // If faculty, only show portfolios for batches they're assigned to
         if (req.user.role === User_1.UserRole.FACULTY) {
             const facultyAssignments = await models_1.default.BatchFacultyAssignment.findAll({
@@ -59,6 +72,12 @@ const getAllPortfolios = async (req, res) => {
             }
             where.batchId = assignedBatchIds;
         }
+        // Log query details for debugging
+        logger_1.logger.info('Fetching portfolios with where clause:', {
+            where,
+            userRole: req.user.role,
+            userId: req.user.userId,
+        });
         const portfolios = await models_1.default.Portfolio.findAll({
             where,
             include: [
@@ -80,10 +99,37 @@ const getAllPortfolios = async (req, res) => {
             ],
             order: [['createdAt', 'DESC']],
         });
+        logger_1.logger.info(`Found ${portfolios.length} portfolios for user ${req.user.userId} (${req.user.role})`);
+        // Log first portfolio details for debugging
+        if (portfolios.length > 0) {
+            const firstPortfolio = portfolios[0];
+            logger_1.logger.info('Sample portfolio:', {
+                id: firstPortfolio.id,
+                studentId: firstPortfolio.studentId,
+                status: firstPortfolio.status,
+                hasFiles: !!firstPortfolio.files,
+                filesType: typeof firstPortfolio.files,
+            });
+        }
+        // Ensure files are properly serialized (Sequelize JSON fields might need parsing)
+        const serializedPortfolios = portfolios.map((portfolio) => {
+            const portfolioData = portfolio.toJSON();
+            // If files is a string, try to parse it
+            if (portfolioData.files && typeof portfolioData.files === 'string') {
+                try {
+                    portfolioData.files = JSON.parse(portfolioData.files);
+                }
+                catch (e) {
+                    logger_1.logger.warn(`Failed to parse portfolio files for portfolio ${portfolioData.id}:`, e);
+                }
+            }
+            return portfolioData;
+        });
+        logger_1.logger.info(`Returning ${serializedPortfolios.length} serialized portfolios`);
         res.status(200).json({
             status: 'success',
             data: {
-                portfolios,
+                portfolios: serializedPortfolios,
             },
         });
     }

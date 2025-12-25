@@ -1,13 +1,47 @@
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.downloadReceipt = exports.updatePayment = exports.createPayment = exports.getPaymentById = exports.getPayments = void 0;
+exports.bulkUploadPayments = exports.downloadReceipt = exports.generateReceipt = exports.updatePayment = exports.createPayment = exports.getPaymentById = exports.getPayments = void 0;
 // @ts-ignore - pdfmake doesn't have type definitions
 const pdfmake_1 = __importDefault(require("pdfmake"));
 const path_1 = __importDefault(require("path"));
 const fs_1 = __importDefault(require("fs"));
+const XLSX = __importStar(require("xlsx"));
 const models_1 = __importDefault(require("../models"));
 const PaymentTransaction_1 = require("../models/PaymentTransaction");
 const logger_1 = require("../utils/logger");
@@ -167,6 +201,8 @@ const generateReceiptNumber = (paymentId, _date) => {
 const generateReceiptPDF = async (receiptNumber, studentName, _studentEmail, studentPhone, _amount, paidAmount, _paymentMethod, _transactionId, paymentDate, courseName, notes) => {
     return new Promise((resolve, reject) => {
         try {
+            // Ensure paidAmount is a number
+            const paidAmountNum = Number(paidAmount) || 0;
             // Use Times-Roman which better supports Unicode characters including rupee symbol
             const fonts = {
                 Roboto: {
@@ -177,32 +213,60 @@ const generateReceiptPDF = async (receiptNumber, studentName, _studentEmail, stu
                 },
             };
             const printer = new pdfmake_1.default(fonts);
-            const filename = `receipt_${receiptNumber.replace(/\//g, '_')}_${Date.now()}.pdf`;
+            // Sanitize receipt number for filename - replace special characters that break URLs
+            const sanitizedReceiptNumber = receiptNumber.replace(/\//g, '_').replace(/#/g, 'PRI').replace(/[^a-zA-Z0-9_-]/g, '_');
+            const filename = `receipt_${sanitizedReceiptNumber}_${Date.now()}.pdf`;
             const filepath = path_1.default.join(receiptsDir, filename);
             // Load rupee symbol image - try multiple formats and paths
             const possiblePaths = [
-                // Try PNG first (better quality)
+                // Try PNG first (better quality) - check uploads directory
+                path_1.default.join(process.cwd(), 'uploads', 'rupee.png'),
+                path_1.default.join(__dirname, '../../uploads', 'rupee.png'),
+                path_1.default.join(process.cwd(), 'uploads', 'general', 'rupee.png'),
+                path_1.default.join(__dirname, '../../uploads', 'general', 'rupee.png'),
+                // Try root directories
                 path_1.default.join(process.cwd(), 'rupee.png'),
                 path_1.default.join(__dirname, '../../rupee.png'),
                 path_1.default.join(process.cwd(), 'backend', 'rupee.png'),
-                // Then try JPG
+                // Then try JPG - check uploads directory
+                path_1.default.join(process.cwd(), 'uploads', 'rupee.jpg'),
+                path_1.default.join(__dirname, '../../uploads', 'rupee.jpg'),
+                path_1.default.join(process.cwd(), 'uploads', 'general', 'rupee.jpg'),
+                path_1.default.join(__dirname, '../../uploads', 'general', 'rupee.jpg'),
+                // Try root directories
                 path_1.default.join(process.cwd(), 'rupee.jpg'),
                 path_1.default.join(__dirname, '../../rupee.jpg'),
                 path_1.default.join(process.cwd(), 'backend', 'rupee.jpg'),
-                // Then try SVG
+                // Then try SVG - check uploads directory
+                path_1.default.join(process.cwd(), 'uploads', 'rupee.svg'),
+                path_1.default.join(__dirname, '../../uploads', 'rupee.svg'),
+                path_1.default.join(process.cwd(), 'uploads', 'general', 'rupee.svg'),
+                path_1.default.join(__dirname, '../../uploads', 'general', 'rupee.svg'),
+                // Try root directories
                 path_1.default.join(process.cwd(), 'rupee.svg'),
                 path_1.default.join(__dirname, '../../rupee.svg'),
                 path_1.default.join(process.cwd(), 'backend', 'rupee.svg'),
             ];
-            let rupeeImageBase64 = null;
+            let rupeeImageDataUri = null;
+            let rupeeImageType = 'png'; // default
             for (const imagePath of possiblePaths) {
                 if (fs_1.default.existsSync(imagePath)) {
                     try {
-                        const rupeeImageBuffer = fs_1.default.readFileSync(imagePath);
-                        // pdfmake 0.2.20 expects base64 string WITHOUT data URI prefix
-                        rupeeImageBase64 = rupeeImageBuffer.toString('base64');
-                        logger_1.logger.info(`✅ Rupee image loaded successfully from: ${imagePath} (${rupeeImageBuffer.length} bytes)`);
-                        logger_1.logger.info(`📝 Image base64 length: ${rupeeImageBase64.length} characters`);
+                        const buffer = fs_1.default.readFileSync(imagePath);
+                        const base64 = buffer.toString('base64');
+                        // Determine image type from file extension
+                        if (imagePath.endsWith('.jpg') || imagePath.endsWith('.jpeg')) {
+                            rupeeImageType = 'jpeg';
+                        }
+                        else if (imagePath.endsWith('.png')) {
+                            rupeeImageType = 'png';
+                        }
+                        else if (imagePath.endsWith('.svg')) {
+                            rupeeImageType = 'svg';
+                        }
+                        // Use data URI format which pdfmake supports better
+                        rupeeImageDataUri = `data:image/${rupeeImageType};base64,${base64}`;
+                        logger_1.logger.info(`✅ Rupee image loaded successfully from: ${imagePath} (${buffer.length} bytes, type: ${rupeeImageType})`);
                         break;
                     }
                     catch (error) {
@@ -210,43 +274,14 @@ const generateReceiptPDF = async (receiptNumber, studentName, _studentEmail, stu
                     }
                 }
             }
-            // If no image found, use inline SVG rupee symbol (always available)
-            if (!rupeeImageBase64) {
-                logger_1.logger.warn('⚠️ Rupee image file not found, using inline SVG rupee symbol');
-                // Create a simple SVG rupee symbol - this always works
-                const rupeeSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
-  <path fill="#000000" d="M17.5 2C19.43 2 21 3.57 21 5.5S19.43 9 17.5 9C15.57 9 14 7.43 14 5.5S15.57 2 17.5 2M17.5 3.5C16.4 3.5 15.5 4.4 15.5 5.5S16.4 7.5 17.5 7.5S19.5 6.6 19.5 5.5S18.6 3.5 17.5 3.5M3 13.5C3 9.36 6.36 6 10.5 6H13V4L17 8L13 12V10H10.5C8.57 10 7 11.57 7 13.5S8.57 17 10.5 17H18V18.5H10.5C6.36 18.5 3 15.14 3 11V13.5Z"/>
-</svg>`;
-                rupeeImageBase64 = Buffer.from(rupeeSvg).toString('base64');
-                logger_1.logger.info('✅ Using inline SVG rupee symbol');
+            // If no image found, don't use image - just use text symbol
+            if (!rupeeImageDataUri) {
+                logger_1.logger.warn('⚠️ Rupee image file not found, will use text symbol ₹');
             }
             // Helper function to create rupee symbol with amount
             const createRupeeAmount = (amount, fontSize = 10, bold = false, margin = [0, 0, 0, 0]) => {
-                const imageSize = Math.max(fontSize * 0.7, 8); // Minimum 8px, scale with font
-                // Try base64 string first (pdfmake 0.2.20 format)
-                if (rupeeImageBase64) {
-                    return {
-                        columns: [
-                            {
-                                image: rupeeImageBase64, // Base64 string without data URI prefix
-                                width: imageSize,
-                                height: imageSize,
-                                fit: [imageSize, imageSize],
-                            },
-                            {
-                                text: amount,
-                                fontSize: fontSize,
-                                bold: bold,
-                                alignment: 'right',
-                                margin: [3, 0, 0, 0],
-                            },
-                        ],
-                        columnGap: 2,
-                        margin: margin,
-                    };
-                }
-                // Fallback to text if image not found
-                logger_1.logger.warn(`⚠️ Rupee image not available, using text symbol for amount: ${amount}`);
+                // Always use text symbol to avoid image-related errors
+                // Images can cause issues with pdfmake in some environments
                 return { text: `₹${amount}`, fontSize: fontSize, bold: bold, alignment: 'right', margin: margin };
             };
             // Format date as DD-MM-YYYY
@@ -284,7 +319,7 @@ const generateReceiptPDF = async (receiptNumber, studentName, _studentEmail, stu
                 }
                 return amount.toString();
             };
-            const amountInWords = formatAmountInWords(Math.floor(paidAmount)) + ' Rupees Only';
+            const amountInWords = formatAmountInWords(Math.floor(paidAmountNum)) + ' Rupees Only';
             // Document definition matching Paid Invoice format exactly
             const docDefinition = {
                 pageSize: 'A4',
@@ -420,10 +455,10 @@ const generateReceiptPDF = async (receiptNumber, studentName, _studentEmail, stu
                                         fontSize: 10,
                                         margin: [5, 5, 5, 5]
                                     },
-                                    createRupeeAmount(paidAmount.toFixed(2), 10, false, [5, 5, 5, 5]),
+                                    createRupeeAmount(paidAmountNum.toFixed(2), 10, false, [5, 5, 5, 5]),
                                     { text: '1.00', fontSize: 10, alignment: 'center', margin: [5, 5, 5, 5] },
                                     createRupeeAmount('0.00', 10, false, [5, 5, 5, 5]),
-                                    createRupeeAmount(paidAmount.toFixed(2), 10, true, [5, 5, 5, 5]),
+                                    createRupeeAmount(paidAmountNum.toFixed(2), 10, true, [5, 5, 5, 5]),
                                 ],
                             ],
                         },
@@ -461,7 +496,7 @@ const generateReceiptPDF = async (receiptNumber, studentName, _studentEmail, stu
                                     {
                                         columns: [
                                             { text: 'Sub Total:', fontSize: 10, width: '*', margin: [0, 0, 0, 5] },
-                                            createRupeeAmount(paidAmount.toFixed(2), 10, false),
+                                            createRupeeAmount(paidAmountNum.toFixed(2), 10, false),
                                         ],
                                     },
                                     {
@@ -473,7 +508,7 @@ const generateReceiptPDF = async (receiptNumber, studentName, _studentEmail, stu
                                     {
                                         columns: [
                                             { text: 'Total:', fontSize: 11, bold: true, width: '*', margin: [0, 5, 0, 5] },
-                                            createRupeeAmount(paidAmount.toFixed(2), 11, true),
+                                            createRupeeAmount(paidAmountNum.toFixed(2), 11, true),
                                         ],
                                     },
                                 ],
@@ -485,12 +520,7 @@ const generateReceiptPDF = async (receiptNumber, studentName, _studentEmail, stu
                     {
                         columns: [
                             { text: 'IN WORDS: ', fontSize: 10, bold: true },
-                            ...(rupeeImageBase64 ? [
-                                { image: rupeeImageBase64, width: 10, height: 10, fit: [10, 10] },
-                                { text: ` ${amountInWords}`, fontSize: 10, bold: true }
-                            ] : [
-                                { text: `₹ ${amountInWords}`, fontSize: 10, bold: true }
-                            ]),
+                            { text: `₹ ${amountInWords}`, fontSize: 10, bold: true }
                         ],
                         columnGap: 2,
                         margin: [0, 0, 0, 20],
@@ -557,24 +587,84 @@ const generateReceiptPDF = async (receiptNumber, studentName, _studentEmail, stu
                     font: 'Roboto',
                 },
             };
-            const pdfDoc = printer.createPdfKitDocument(docDefinition);
+            // Ensure receipts directory exists
+            if (!fs_1.default.existsSync(receiptsDir)) {
+                fs_1.default.mkdirSync(receiptsDir, { recursive: true });
+                logger_1.logger.info(`Created receipts directory: ${receiptsDir}`);
+            }
+            // Create PDF document with error handling
+            let pdfDoc;
+            try {
+                pdfDoc = printer.createPdfKitDocument(docDefinition);
+            }
+            catch (createError) {
+                logger_1.logger.error('Error creating PDF document:', createError);
+                reject(new Error(`Failed to create PDF document: ${createError.message || createError}`));
+                return;
+            }
             const stream = fs_1.default.createWriteStream(filepath);
+            // Handle PDF generation errors
+            pdfDoc.on('error', (error) => {
+                logger_1.logger.error('PDF generation error:', error);
+                stream.destroy();
+                reject(new Error(`PDF generation failed: ${error.message}`));
+            });
             pdfDoc.pipe(stream);
             pdfDoc.end();
             stream.on('finish', () => {
+                logger_1.logger.info(`✅ Receipt PDF generated successfully: ${filepath}`);
                 resolve(`/receipts/${filename}`);
             });
             stream.on('error', (error) => {
-                reject(error);
+                logger_1.logger.error('File stream error:', error);
+                reject(new Error(`Failed to write PDF file: ${error.message}`));
             });
         }
         catch (error) {
-            reject(error);
+            logger_1.logger.error('Unexpected error in generateReceiptPDF:', error);
+            reject(new Error(`Unexpected error: ${error.message || error}`));
         }
     });
 };
 const formatPayment = (payment) => {
     const json = payment.toJSON();
+    // Extract paymentPlan from enrollment or studentProfile
+    let paymentPlan = null;
+    if (json.enrollment?.paymentPlan) {
+        // Use enrollment paymentPlan, ensuring it has all fields
+        paymentPlan = {
+            totalDeal: json.enrollment.paymentPlan.totalDeal !== undefined && json.enrollment.paymentPlan.totalDeal !== null ? Number(json.enrollment.paymentPlan.totalDeal) : null,
+            bookingAmount: json.enrollment.paymentPlan.bookingAmount !== undefined && json.enrollment.paymentPlan.bookingAmount !== null ? Number(json.enrollment.paymentPlan.bookingAmount) : null,
+            balanceAmount: json.enrollment.paymentPlan.balanceAmount !== undefined && json.enrollment.paymentPlan.balanceAmount !== null ? Number(json.enrollment.paymentPlan.balanceAmount) : null,
+            emiPlan: json.enrollment.paymentPlan.emiPlan !== undefined ? json.enrollment.paymentPlan.emiPlan : null,
+            emiPlanDate: json.enrollment.paymentPlan.emiPlanDate || null,
+            emiInstallments: json.enrollment.paymentPlan.emiInstallments && Array.isArray(json.enrollment.paymentPlan.emiInstallments) ? json.enrollment.paymentPlan.emiInstallments : null,
+        };
+    }
+    else if (json.student?.studentProfile?.documents) {
+        // Try to get paymentPlan from studentProfile documents
+        let documents = json.student.studentProfile.documents;
+        if (typeof documents === 'string') {
+            try {
+                documents = JSON.parse(documents);
+            }
+            catch (e) {
+                logger_1.logger.warn(`Failed to parse documents JSON for payment ${json.id}:`, e);
+                documents = null;
+            }
+        }
+        const metadata = documents?.enrollmentMetadata;
+        if (metadata) {
+            paymentPlan = {
+                totalDeal: metadata.totalDeal !== undefined && metadata.totalDeal !== null ? Number(metadata.totalDeal) : null,
+                bookingAmount: metadata.bookingAmount !== undefined && metadata.bookingAmount !== null ? Number(metadata.bookingAmount) : null,
+                balanceAmount: metadata.balanceAmount !== undefined && metadata.balanceAmount !== null ? Number(metadata.balanceAmount) : null,
+                emiPlan: metadata.emiPlan !== undefined ? metadata.emiPlan : null,
+                emiPlanDate: metadata.emiPlanDate || null,
+                emiInstallments: metadata.emiInstallments && Array.isArray(metadata.emiInstallments) ? metadata.emiInstallments : null,
+            };
+        }
+    }
     return {
         id: json.id,
         studentId: json.studentId,
@@ -599,8 +689,10 @@ const formatPayment = (payment) => {
                         title: json.enrollment.batch.title,
                     }
                     : null,
+                paymentPlan: json.enrollment.paymentPlan || null,
             }
             : null,
+        paymentPlan: paymentPlan, // Add paymentPlan at payment level for easier access
     };
 };
 const ensureAdminAccess = (req, res) => {
@@ -615,18 +707,52 @@ const ensureAdminAccess = (req, res) => {
 };
 const getPayments = async (req, res) => {
     try {
-        if (!ensureAdminAccess(req, res)) {
+        if (!req.user) {
+            res.status(401).json({
+                status: 'error',
+                message: 'Authentication required',
+            });
             return;
         }
         const { studentId, status } = req.query;
         const where = {};
-        if (studentId) {
-            const parsedId = Number(studentId);
-            if (Number.isNaN(parsedId)) {
-                res.status(400).json({ status: 'error', message: 'Invalid studentId' });
+        // Check if user is admin/superadmin or student viewing their own payments
+        const isAdmin = req.user.role === User_1.UserRole.ADMIN || req.user.role === User_1.UserRole.SUPERADMIN;
+        const isStudent = req.user.role === User_1.UserRole.STUDENT;
+        // If student, they can only view their own payments
+        if (isStudent) {
+            // Force studentId to be the logged-in user's ID
+            // Use userId if available, otherwise fall back to id
+            const studentUserId = req.user.userId || req.user.id;
+            if (!studentUserId) {
+                res.status(400).json({
+                    status: 'error',
+                    message: 'User ID not found',
+                });
                 return;
             }
-            where.studentId = parsedId;
+            where.studentId = studentUserId;
+            logger_1.logger.info(`Student ${studentUserId} viewing their own payments`);
+        }
+        else if (!isAdmin) {
+            // Non-admin, non-student users (faculty, employees) cannot view payments
+            res.status(403).json({
+                status: 'error',
+                message: 'Only admins and students can view payments',
+            });
+            return;
+        }
+        else {
+            // Admin can view all payments or filter by studentId
+            if (studentId) {
+                const parsedId = Number(studentId);
+                if (Number.isNaN(parsedId)) {
+                    res.status(400).json({ status: 'error', message: 'Invalid studentId' });
+                    return;
+                }
+                where.studentId = parsedId;
+                logger_1.logger.info(`Admin fetching payments for studentId: ${parsedId} (original: ${studentId}, type: ${typeof studentId})`);
+            }
         }
         if (status) {
             const normalizedStatus = String(status).toLowerCase();
@@ -641,6 +767,10 @@ const getPayments = async (req, res) => {
         }
         let payments = [];
         try {
+            logger_1.logger.info(`Querying payments with where clause:`, JSON.stringify(where));
+            if (studentId) {
+                logger_1.logger.info(`Looking for payments with studentId: ${Number(studentId)} (type: ${typeof Number(studentId)})`);
+            }
             payments = await models_1.default.PaymentTransaction.findAll({
                 where,
                 include: [
@@ -649,6 +779,14 @@ const getPayments = async (req, res) => {
                         as: 'student',
                         attributes: ['id', 'name', 'email', 'phone'],
                         required: false,
+                        include: [
+                            {
+                                model: models_1.default.StudentProfile,
+                                as: 'studentProfile',
+                                attributes: ['id', 'documents'],
+                                required: false,
+                            },
+                        ],
                     },
                     {
                         model: models_1.default.Enrollment,
@@ -664,19 +802,74 @@ const getPayments = async (req, res) => {
                 ],
                 order: [['dueDate', 'DESC'], ['id', 'DESC']],
             });
+            logger_1.logger.info(`Found ${payments.length} payments for query:`, JSON.stringify(where));
+            // Debug: If no payments found for a specific student, check if any payments exist at all
+            if (studentId && payments.length === 0) {
+                const totalPayments = await models_1.default.PaymentTransaction.count();
+                logger_1.logger.info(`Total payments in database: ${totalPayments}`);
+                // Check a few sample payments to see their studentId format
+                const samplePayments = await models_1.default.PaymentTransaction.findAll({
+                    attributes: ['id', 'studentId'],
+                    limit: 5,
+                });
+                logger_1.logger.info(`Sample payment studentIds:`, samplePayments.map((p) => ({
+                    paymentId: p.id,
+                    studentId: p.studentId,
+                    studentIdType: typeof p.studentId,
+                })));
+            }
         }
         catch (queryError) {
             logger_1.logger.error('Get payments query error:', queryError);
+            logger_1.logger.error('Error details:', {
+                message: queryError?.message,
+                code: queryError?.parent?.code,
+                errno: queryError?.parent?.errno,
+                sql: queryError?.parent?.sql,
+            });
+            // Check if error is about enrollmentId column
+            const isEnrollmentIdError = queryError?.message?.includes('enrollmentId') ||
+                queryError?.parent?.message?.includes('enrollmentId') ||
+                queryError?.parent?.code === 'ER_BAD_FIELD_ERROR';
             // Try without includes if query fails
             try {
-                payments = await models_1.default.PaymentTransaction.findAll({
-                    where,
-                    order: [['dueDate', 'DESC'], ['id', 'DESC']],
-                });
-                logger_1.logger.warn('Fetched payments without relations due to query error');
+                if (isEnrollmentIdError) {
+                    // Fallback: explicitly specify attributes to exclude enrollmentId if it's causing issues
+                    logger_1.logger.info('Attempting fallback query - enrollmentId column issue detected');
+                    payments = await models_1.default.PaymentTransaction.findAll({
+                        where,
+                        attributes: {
+                            exclude: ['enrollmentId'], // Explicitly exclude if causing issues
+                        },
+                        include: [
+                            {
+                                model: models_1.default.User,
+                                as: 'student',
+                                attributes: ['id', 'name', 'email', 'phone'],
+                                required: false,
+                            },
+                        ],
+                        order: [['dueDate', 'DESC'], ['id', 'DESC']],
+                    });
+                    logger_1.logger.info(`Fallback query successful: fetched ${payments.length} payments without enrollmentId`);
+                }
+                else {
+                    // Other error - try without relations
+                    payments = await models_1.default.PaymentTransaction.findAll({
+                        where,
+                        order: [['dueDate', 'DESC'], ['id', 'DESC']],
+                    });
+                    logger_1.logger.warn('Fetched payments without relations due to query error');
+                }
             }
             catch (fallbackError) {
                 logger_1.logger.error('Get payments fallback error:', fallbackError);
+                logger_1.logger.error('Fallback error details:', {
+                    message: fallbackError?.message,
+                    code: fallbackError?.parent?.code,
+                    errno: fallbackError?.parent?.errno,
+                    sql: fallbackError?.parent?.sql,
+                });
                 throw new Error(`Failed to fetch payments: ${fallbackError.message}`);
             }
         }
@@ -967,7 +1160,10 @@ const updatePayment = async (req, res) => {
                         : null;
                     const paidDate = updates.paidAt || payment.paidAt || new Date();
                     const receiptNumber = generateReceiptNumber(payment.id, paidDate);
-                    const receiptUrl = await generateReceiptPDF(receiptNumber, student?.name || 'Student', student?.email || '', student?.phone || null, payment.amount, updates.paidAmount || payment.paidAmount || payment.amount, updates.paymentMethod || payment.paymentMethod || null, updates.transactionId || payment.transactionId || null, paidDate, enrollment?.batch?.title || null, updates.notes || payment.notes || null);
+                    // Ensure amounts are numbers
+                    const paymentAmount = Number(payment.amount) || 0;
+                    const paidAmountValue = Number(updates.paidAmount || payment.paidAmount || payment.amount) || paymentAmount;
+                    const receiptUrl = await generateReceiptPDF(receiptNumber, student?.name || 'Student', student?.email || '', student?.phone || null, paymentAmount, paidAmountValue, updates.paymentMethod || payment.paymentMethod || null, updates.transactionId || payment.transactionId || null, paidDate, enrollment?.batch?.title || null, updates.notes || payment.notes || null);
                     updates.receiptUrl = receiptUrl;
                 }
                 catch (receiptError) {
@@ -1001,7 +1197,10 @@ const updatePayment = async (req, res) => {
                             : null;
                         const paidDate = updates.paidAt || payment.paidAt || new Date();
                         const receiptNumber = generateReceiptNumber(payment.id, paidDate);
-                        const receiptUrl = await generateReceiptPDF(receiptNumber, student?.name || 'Student', student?.email || '', student?.phone || null, payment.amount, newPaidAmount, updates.paymentMethod || payment.paymentMethod || null, updates.transactionId || payment.transactionId || null, paidDate, enrollment?.batch?.title || null, updates.notes || payment.notes || null);
+                        // Ensure amounts are numbers
+                        const paymentAmount = Number(payment.amount) || 0;
+                        const paidAmountValue = Number(newPaidAmount) || paymentAmount;
+                        const receiptUrl = await generateReceiptPDF(receiptNumber, student?.name || 'Student', student?.email || '', student?.phone || null, paymentAmount, paidAmountValue, updates.paymentMethod || payment.paymentMethod || null, updates.transactionId || payment.transactionId || null, paidDate, enrollment?.batch?.title || null, updates.notes || payment.notes || null);
                         updates.receiptUrl = receiptUrl;
                     }
                     catch (receiptError) {
@@ -1061,6 +1260,87 @@ const updatePayment = async (req, res) => {
     }
 };
 exports.updatePayment = updatePayment;
+// POST /api/payments/:paymentId/generate-receipt - Generate receipt for a payment
+const generateReceipt = async (req, res) => {
+    try {
+        if (!ensureAdminAccess(req, res))
+            return;
+        const paymentId = Number(req.params.paymentId);
+        if (Number.isNaN(paymentId)) {
+            res.status(400).json({ status: 'error', message: 'Invalid payment id' });
+            return;
+        }
+        const payment = await models_1.default.PaymentTransaction.findByPk(paymentId, {
+            include: [
+                { model: models_1.default.User, as: 'student', attributes: ['id', 'name', 'email', 'phone'] },
+                {
+                    model: models_1.default.Enrollment,
+                    as: 'enrollment',
+                    include: [{ model: models_1.default.Batch, as: 'batch', attributes: ['id', 'title'] }],
+                },
+            ],
+        });
+        if (!payment) {
+            res.status(404).json({
+                status: 'error',
+                message: 'Payment not found',
+            });
+            return;
+        }
+        // Only generate receipt for paid or partial payments
+        if (payment.status !== PaymentTransaction_1.PaymentStatus.PAID && payment.status !== PaymentTransaction_1.PaymentStatus.PARTIAL) {
+            res.status(400).json({
+                status: 'error',
+                message: 'Receipt can only be generated for paid or partial payments',
+            });
+            return;
+        }
+        const student = payment.student;
+        if (!student) {
+            res.status(404).json({
+                status: 'error',
+                message: 'Student not found for this payment',
+            });
+            return;
+        }
+        const enrollment = payment.enrollment;
+        const paidDate = payment.paidAt || payment.createdAt || new Date();
+        const receiptNumber = generateReceiptNumber(payment.id, paidDate);
+        // Ensure amounts are numbers (database might return strings)
+        const paymentAmount = Number(payment.amount) || 0;
+        const paymentPaidAmount = Number(payment.paidAmount) || paymentAmount;
+        try {
+            const receiptUrl = await generateReceiptPDF(receiptNumber, student.name || 'Student', student.email || '', student.phone || null, paymentAmount, paymentPaidAmount, payment.paymentMethod || null, payment.transactionId || null, paidDate, enrollment?.batch?.title || null, payment.notes || null);
+            // Update payment with receipt URL
+            await payment.update({ receiptUrl });
+            res.json({
+                status: 'success',
+                message: 'Receipt generated successfully',
+                data: {
+                    receiptUrl,
+                },
+            });
+        }
+        catch (receiptError) {
+            logger_1.logger.error('Generate receipt PDF error:', receiptError);
+            const errorMessage = receiptError.message || 'Failed to generate receipt PDF';
+            res.status(500).json({
+                status: 'error',
+                message: errorMessage,
+                error: process.env.NODE_ENV === 'development' ? receiptError.stack : undefined,
+            });
+        }
+    }
+    catch (error) {
+        logger_1.logger.error('Generate receipt error:', error);
+        res.status(500).json({
+            status: 'error',
+            message: error.message || 'Failed to generate receipt',
+            error: process.env.NODE_ENV === 'development' ? error.stack : undefined,
+        });
+    }
+};
+exports.generateReceipt = generateReceipt;
 // GET /api/payments/:paymentId/receipt - Download receipt PDF
 const downloadReceipt = async (req, res) => {
     try {
@@ -1123,4 +1403,301 @@ const downloadReceipt = async (req, res) => {
     }
 };
 exports.downloadReceipt = downloadReceipt;
+/**
+ * Parse date from Excel - handles Excel serial dates, various string formats, and Date objects
+ * Supports DD/MM/YYYY format (primary) and other formats
+ */
+function parseExcelDate(dateValue) {
+    if (!dateValue)
+        return null;
+    try {
+        // If it's already a Date object
+        if (dateValue instanceof Date) {
+            if (!isNaN(dateValue.getTime()))
+                return dateValue;
+            return null;
+        }
+        // If it's a number (Excel serial date)
+        if (typeof dateValue === 'number') {
+            // Excel serial date starts from 1900-01-01
+            const excelEpoch = new Date(1899, 11, 30);
+            const date = new Date(excelEpoch.getTime() + dateValue * 24 * 60 * 60 * 1000);
+            if (!isNaN(date.getTime()))
+                return date;
+            return null;
+        }
+        // If it's a string, try to parse it
+        if (typeof dateValue === 'string') {
+            const trimmed = dateValue.trim();
+            if (!trimmed)
+                return null;
+            // Try DD/MM/YYYY format (primary format)
+            const ddmmyyyy = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+            if (ddmmyyyy) {
+                const [, day, month, year] = ddmmyyyy;
+                const date = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+                if (!isNaN(date.getTime()))
+                    return date;
+            }
+            // Try YYYY-MM-DD format
+            const yyyymmdd = trimmed.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+            if (yyyymmdd) {
+                const [, year, month, day] = yyyymmdd;
+                const date = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+                if (!isNaN(date.getTime()))
+                    return date;
+            }
+            // Try MM/DD/YYYY format (fallback)
+            const mmddyyyy = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+            if (mmddyyyy) {
+                const [, month, day, year] = mmddyyyy;
+                const date = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+                if (!isNaN(date.getTime()))
+                    return date;
+            }
+            // Try generic Date parsing
+            const date = new Date(trimmed);
+            if (!isNaN(date.getTime()))
+                return date;
+        }
+        return null;
+    }
+    catch (error) {
+        logger_1.logger.warn(`Failed to parse date: ${dateValue}`, error);
+        return null;
+    }
+}
+// POST /api/payments/bulk-upload - Bulk upload payments from Excel (student-wise)
+const bulkUploadPayments = async (req, res) => {
+    try {
+        if (!req.user) {
+            res.status(401).json({
+                status: 'error',
+                message: 'Authentication required',
+            });
+            return;
+        }
+        // Only SuperAdmin and Admin can bulk upload payments
+        if (req.user.role !== User_1.UserRole.SUPERADMIN && req.user.role !== User_1.UserRole.ADMIN) {
+            res.status(403).json({
+                status: 'error',
+                message: 'Only admins can bulk upload payments',
+            });
+            return;
+        }
+        if (!req.file) {
+            logger_1.logger.error('Bulk payment upload: No file received');
+            res.status(400).json({
+                status: 'error',
+                message: 'Excel file is required',
+            });
+            return;
+        }
+        logger_1.logger.info(`Bulk payment upload: File received - name: ${req.file.originalname}, size: ${req.file.size}, mimetype: ${req.file.mimetype}`);
+        // Parse Excel file with date parsing enabled
+        let workbook;
+        try {
+            workbook = XLSX.read(req.file.buffer, {
+                type: 'buffer',
+                cellDates: true, // Parse dates automatically as Date objects
+            });
+            logger_1.logger.info(`Bulk payment upload: Excel file parsed successfully - sheets: ${workbook.SheetNames.join(', ')}`);
+        }
+        catch (parseError) {
+            logger_1.logger.error('Bulk payment upload: Failed to parse Excel file:', parseError);
+            res.status(400).json({
+                status: 'error',
+                message: `Failed to parse Excel file: ${parseError.message}`,
+            });
+            return;
+        }
+        const sheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[sheetName];
+        // Log available columns for debugging
+        const headerRow = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: null })[0];
+        logger_1.logger.info(`Excel file columns detected: ${headerRow ? headerRow.join(', ') : 'No headers found'}`);
+        const rows = XLSX.utils.sheet_to_json(worksheet, { raw: true, defval: null, blankrows: false });
+        if (rows.length === 0) {
+            res.status(400).json({
+                status: 'error',
+                message: 'Excel file is empty',
+            });
+            return;
+        }
+        const result = {
+            success: 0,
+            failed: 0,
+            errors: [],
+        };
+        // Helper to get column value (case-insensitive, handles variations)
+        const getValue = (row, names) => {
+            for (const name of names) {
+                const keys = Object.keys(row);
+                const key = keys.find(k => k.trim().toLowerCase() === name.toLowerCase());
+                if (key && row[key] !== null && row[key] !== undefined && row[key] !== '') {
+                    return row[key];
+                }
+            }
+            return null;
+        };
+        // Process each row
+        for (let i = 0; i < rows.length; i++) {
+            const row = rows[i];
+            const rowNumber = i + 2; // +2 because Excel rows start at 1 and we skip header
+            try {
+                // Get student identifier (email or phone)
+                const studentEmail = getValue(row, ['email', 'student email', 'email address', 'studentemail']);
+                const studentPhone = getValue(row, ['phone', 'phone number', 'mobile', 'mobile number', 'student phone', 'studentphone']);
+                if (!studentEmail && !studentPhone) {
+                    result.failed++;
+                    result.errors.push({
+                        row: rowNumber,
+                        error: 'Student email or phone is required',
+                    });
+                    continue;
+                }
+                // Find student
+                let student;
+                if (studentEmail) {
+                    student = await models_1.default.User.findOne({
+                        where: { email: studentEmail.trim(), role: 'student' },
+                    });
+                }
+                if (!student && studentPhone) {
+                    student = await models_1.default.User.findOne({
+                        where: { phone: studentPhone.trim().toString(), role: 'student' },
+                    });
+                }
+                if (!student) {
+                    result.failed++;
+                    result.errors.push({
+                        row: rowNumber,
+                        error: `Student not found with email: ${studentEmail || 'N/A'} or phone: ${studentPhone || 'N/A'}`,
+                    });
+                    continue;
+                }
+                // Get amount
+                const amountValue = getValue(row, ['amount', 'total amount', 'payment amount', 'totalamount']);
+                if (!amountValue) {
+                    result.failed++;
+                    result.errors.push({
+                        row: rowNumber,
+                        error: 'Amount is required',
+                    });
+                    continue;
+                }
+                const amount = parseFloat(amountValue);
+                if (isNaN(amount) || amount <= 0) {
+                    result.failed++;
+                    result.errors.push({
+                        row: rowNumber,
+                        error: `Invalid amount: ${amountValue}`,
+                    });
+                    continue;
+                }
+                // Get due date
+                const dueDateValue = getValue(row, ['due date', 'duedate', 'due_date', 'due']);
+                if (!dueDateValue) {
+                    result.failed++;
+                    result.errors.push({
+                        row: rowNumber,
+                        error: 'Due date is required',
+                    });
+                    continue;
+                }
+                const dueDate = parseExcelDate(dueDateValue);
+                if (!dueDate) {
+                    result.failed++;
+                    result.errors.push({
+                        row: rowNumber,
+                        error: `Invalid due date format: ${dueDateValue}. Please use DD/MM/YYYY format`,
+                    });
+                    continue;
+                }
+                // Optional fields
+                const enrollmentIdValue = getValue(row, ['enrollment id', 'enrollmentid', 'enrollment_id', 'enrollment']);
+                let enrollmentId = null;
+                if (enrollmentIdValue) {
+                    const parsed = parseInt(enrollmentIdValue);
+                    if (!isNaN(parsed)) {
+                        enrollmentId = parsed;
+                    }
+                }
+                const paymentMethod = getValue(row, ['payment method', 'paymentmethod', 'payment_method', 'method']);
+                const transactionId = getValue(row, ['transaction id', 'transactionid', 'transaction_id', 'transaction']);
+                const notes = getValue(row, ['notes', 'note', 'remarks', 'description']);
+                // Handle software list (optional - updates student profile if provided)
+                const softwareListValue = getValue(row, ['software list', 'softwarelist', 'software_list', 'software', 'softwares', 'softwares included', 'softwaresincluded']);
+                if (softwareListValue && typeof softwareListValue === 'string') {
+                    try {
+                        // Parse comma-separated software list
+                        const softwareArray = softwareListValue
+                            .split(',')
+                            .map((s) => s.trim())
+                            .filter((s) => s.length > 0);
+                        if (softwareArray.length > 0) {
+                            // Get or create student profile
+                            let studentProfile = await models_1.default.StudentProfile.findOne({
+                                where: { userId: student.id },
+                            });
+                            if (studentProfile) {
+                                // Update existing profile with new software list
+                                await studentProfile.update({
+                                    softwareList: softwareArray,
+                                });
+                                logger_1.logger.info(`Updated software list for student ${student.id}: ${softwareArray.join(', ')}`);
+                            }
+                            else {
+                                // Create new profile with software list
+                                await models_1.default.StudentProfile.create({
+                                    userId: student.id,
+                                    softwareList: softwareArray,
+                                });
+                                logger_1.logger.info(`Created student profile with software list for student ${student.id}: ${softwareArray.join(', ')}`);
+                            }
+                        }
+                    }
+                    catch (softwareError) {
+                        logger_1.logger.warn(`Failed to process software list for student ${student.id}:`, softwareError);
+                        // Don't fail the payment creation if software list processing fails
+                    }
+                }
+                // Create payment
+                await models_1.default.PaymentTransaction.create({
+                    studentId: student.id,
+                    enrollmentId: enrollmentId || null,
+                    amount: amount,
+                    paidAmount: 0,
+                    dueDate: dueDate,
+                    status: PaymentTransaction_1.PaymentStatus.PENDING,
+                    paymentMethod: paymentMethod || null,
+                    transactionId: transactionId || null,
+                    notes: notes || null,
+                });
+                result.success++;
+            }
+            catch (error) {
+                logger_1.logger.error(`Error processing row ${rowNumber}:`, error);
+                result.failed++;
+                result.errors.push({
+                    row: rowNumber,
+                    error: error.message || 'Unknown error',
+                });
+            }
+        }
+        res.status(200).json({
+            status: 'success',
+            message: `Bulk payment upload completed. ${result.success} payments created, ${result.failed} failed.`,
+            data: result,
+        });
+    }
+    catch (error) {
+        logger_1.logger.error('Bulk payment upload error:', error);
+        res.status(500).json({
+            status: 'error',
+            message: error.message || 'Failed to process bulk payment upload',
+        });
+    }
+};
+exports.bulkUploadPayments = bulkUploadPayments;
 //# sourceMappingURL=payment.controller.js.map

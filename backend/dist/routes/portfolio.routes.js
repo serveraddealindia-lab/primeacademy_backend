@@ -39,7 +39,8 @@ const auth_middleware_1 = require("../middleware/auth.middleware");
 const User_1 = require("../models/User");
 const router = (0, express_1.Router)();
 // GET /portfolios - Get all portfolios (with filters)
-router.get('/portfolios', auth_middleware_1.verifyTokenMiddleware, (0, auth_middleware_1.checkRole)(User_1.UserRole.ADMIN, User_1.UserRole.SUPERADMIN, User_1.UserRole.FACULTY), portfolioController.getAllPortfolios);
+// Students can access to view their own portfolios (filtered in controller)
+router.get('/portfolios', auth_middleware_1.verifyTokenMiddleware, (0, auth_middleware_1.checkRole)(User_1.UserRole.ADMIN, User_1.UserRole.SUPERADMIN, User_1.UserRole.FACULTY, User_1.UserRole.STUDENT), portfolioController.getAllPortfolios);
 // GET /students/:id/portfolio - Get student portfolio
 router.get('/students/:id/portfolio', auth_middleware_1.verifyTokenMiddleware, portfolioController.getStudentPortfolio);
 // POST /students/:id/portfolio - Upload/Update portfolio

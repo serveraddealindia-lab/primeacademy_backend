@@ -1703,9 +1703,18 @@ export const FacultyEdit: React.FC = () => {
                       defaultValue={emergencyInfo?.emergencyPhoneNumber || ''}
                       required
                       pattern="[0-9]{10}"
+                      minLength={10}
+                      maxLength={10}
+                      placeholder="10 digit phone number"
                       title="Phone number should be 10 digits"
+                      onChange={(e) => {
+                        // Only allow digits and limit to 10
+                        const value = e.target.value.replace(/\D/g, '').slice(0, 10);
+                        e.target.value = value;
+                      }}
                       className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
                     />
+                    <p className="mt-1 text-xs text-gray-500">Enter 10 digit phone number</p>
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">Alternate Phone Number</label>
@@ -1714,9 +1723,18 @@ export const FacultyEdit: React.FC = () => {
                       name="emergencyAlternatePhone"
                       defaultValue={emergencyInfo?.emergencyAlternatePhone || ''}
                       pattern="[0-9]{10}"
+                      minLength={10}
+                      maxLength={10}
+                      placeholder="10 digit phone number (optional)"
                       title="Phone number should be 10 digits"
+                      onChange={(e) => {
+                        // Only allow digits and limit to 10
+                        const value = e.target.value.replace(/\D/g, '').slice(0, 10);
+                        e.target.value = value;
+                      }}
                       className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
                     />
+                    <p className="mt-1 text-xs text-gray-500">Enter 10 digit phone number (optional)</p>
                   </div>
                 </div>
                 <div className="flex gap-4 pt-6">

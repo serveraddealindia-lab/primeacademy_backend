@@ -48,7 +48,7 @@ export interface CreateFacultyResponse {
   status: string;
   message: string;
   data: {
-    facultyProfile: {
+    facultyProfile?: {
       id: number;
       userId: number;
       expertise?: string;
@@ -57,6 +57,7 @@ export interface CreateFacultyResponse {
       createdAt: string;
       updatedAt: string;
     };
+    user?: FacultyUser;
   };
 }
 

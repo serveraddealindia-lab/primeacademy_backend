@@ -22,6 +22,7 @@ export interface EmployeeProfile {
   city?: string;
   state?: string;
   postalCode?: string;
+  documents?: Record<string, any> | string | null;
   createdAt?: string;
   updatedAt?: string;
   user?: {
@@ -86,6 +87,7 @@ export interface CreateEmployeeProfileRequest {
   city?: string;
   state?: string;
   postalCode?: string;
+  documents?: Record<string, any> | string | null;
 }
 
 export const employeeAPI = {
@@ -106,7 +108,7 @@ export const employeeAPI = {
     const response = await api.post<EmployeeProfileResponse>('/employees', data);
     return response.data;
   },
-  updateEmployeeProfile: async (userId: number, data: Partial<CreateEmployeeProfileRequest>): Promise<EmployeeProfileResponse> => {
+  updateEmployeeProfile: async (userId: number, data: Partial<CreateEmployeeProfileRequest & { documents?: Record<string, any> | string | null }>): Promise<EmployeeProfileResponse> => {
     const response = await api.put<EmployeeProfileResponse>(`/users/${userId}/employee-profile`, data);
     return response.data;
   },

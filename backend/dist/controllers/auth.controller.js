@@ -3,12 +3,13 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.impersonateUser = exports.getMe = exports.login = exports.register = void 0;
+exports.resetPassword = exports.forgotPassword = exports.impersonateUser = exports.getMe = exports.login = exports.register = void 0;
 const bcrypt_1 = __importDefault(require("bcrypt"));
 const jwt_1 = require("../utils/jwt");
 const User_1 = require("../models/User");
 const models_1 = __importDefault(require("../models"));
 const logger_1 = require("../utils/logger");
+const email_1 = require("../utils/email");
 const register = async (req, res) => {
     try {
         const { name, email, phone, role, password } = req.body;
@@ -296,4 +297,135 @@ const impersonateUser = async (req, res) => {
     }
 };
 exports.impersonateUser = impersonateUser;
+const forgotPassword = async (req, res) => {
+    try {
+        const { email } = req.body;
+        if (!email) {
+            res.status(400).json({
+                status: 'error',
+                message: 'Email is required',
+            });
+            return;
+        }
+        const user = await models_1.default.User.findOne({ where: { email: email.trim().toLowerCase() } });
+        // Always return success to prevent email enumeration
+        if (user && user.isActive) {
+            // Generate a password reset token (expires in 1 hour)
+            const resetToken = (0, jwt_1.generateToken)({
+                userId: user.id,
+                email: user.email,
+                role: user.role,
+            }, '1h' // 1 hour expiration
+            );
+            // Build reset link
+            const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+            const resetLink = `${frontendUrl}/reset-password?token=${resetToken}`;
+            // Send password reset email
+            const emailSent = await email_1.emailService.sendEmail({
+                to: user.email,
+                subject: 'Password Reset Request - Prime Academy',
+                html: email_1.emailTemplates.passwordReset(resetLink, user.name),
+            });
+            if (emailSent) {
+                logger_1.logger.info(`Password reset email sent successfully to ${user.email}`);
+            }
+            else {
+                // Log reset link in development if email service is not configured
+                if (process.env.NODE_ENV === 'development') {
+                    logger_1.logger.warn(`Email service not configured. Reset link for ${user.email}:`);
+                    logger_1.logger.warn(`Reset link: ${resetLink}`);
+                }
+                else {
+                    logger_1.logger.error(`Failed to send password reset email to ${user.email}`);
+                }
+            }
+        }
+        res.status(200).json({
+            status: 'success',
+            message: 'If an account with that email exists, a password reset link has been sent.',
+        });
+    }
+    catch (error) {
+        logger_1.logger.error('Forgot password error:', error);
+        res.status(500).json({
+            status: 'error',
+            message: 'Internal server error',
+        });
+    }
+};
+exports.forgotPassword = forgotPassword;
+const resetPassword = async (req, res) => {
+    try {
+        const { token, newPassword } = req.body;
+        if (!token || !newPassword) {
+            res.status(400).json({
+                status: 'error',
+                message: 'Token and new password are required',
+            });
+            return;
+        }
+        if (newPassword.length < 6) {
+            res.status(400).json({
+                status: 'error',
+                message: 'Password must be at least 6 characters long',
+            });
+            return;
+        }
+        // Verify the reset token
+        let decoded;
+        try {
+            decoded = (0, jwt_1.verifyToken)(token);
+        }
+        catch (tokenError) {
+            if (tokenError.message?.includes('expired')) {
+                res.status(400).json({
+                    status: 'error',
+                    message: 'Reset token has expired. Please request a new one.',
+                });
+                return;
+            }
+            else {
+                res.status(400).json({
+                    status: 'error',
+                    message: 'Invalid reset token',
+                });
+                return;
+            }
+        }
+        const user = await models_1.default.User.findByPk(decoded.userId);
+        if (!user) {
+            res.status(404).json({
+                status: 'error',
+                message: 'User not found',
+            });
+            return;
+        }
+        if (!user.isActive) {
+            res.status(400).json({
+                status: 'error',
+                message: 'User account is inactive',
+            });
+            return;
+        }
+        // Hash the new password
+        const saltRounds = 10;
+        const passwordHash = await bcrypt_1.default.hash(newPassword, saltRounds);
+        // Update user password
+        user.passwordHash = passwordHash;
+        await user.save();
+        logger_1.logger.info(`Password reset successful for user ${user.id} (${user.email})`);
+        res.status(200).json({
+            status: 'success',
+            message: 'Password has been reset successfully',
+        });
+    }
+    catch (error) {
+        logger_1.logger.error('Reset password error:', error);
+        res.status(500).json({
+            status: 'error',
+            message: 'Internal server error',
+        });
+    }
+};
+exports.resetPassword = resetPassword;
 //# sourceMappingURL=auth.controller.js.map

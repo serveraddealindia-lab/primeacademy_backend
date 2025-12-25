@@ -22,10 +22,11 @@ export interface EmployeeProfileAttributes {
     city: string | null;
     state: string | null;
     postalCode: string | null;
+    documents: Record<string, any> | null;
     createdAt?: Date;
     updatedAt?: Date;
 }
-export interface EmployeeProfileCreationAttributes extends Optional<EmployeeProfileAttributes, 'id' | 'gender' | 'dateOfBirth' | 'nationality' | 'maritalStatus' | 'department' | 'designation' | 'dateOfJoining' | 'employmentType' | 'reportingManager' | 'workLocation' | 'bankName' | 'accountNumber' | 'ifscCode' | 'branch' | 'panNumber' | 'city' | 'state' | 'postalCode' | 'createdAt' | 'updatedAt'> {
+export interface EmployeeProfileCreationAttributes extends Optional<EmployeeProfileAttributes, 'id' | 'gender' | 'dateOfBirth' | 'nationality' | 'maritalStatus' | 'department' | 'designation' | 'dateOfJoining' | 'employmentType' | 'reportingManager' | 'workLocation' | 'bankName' | 'accountNumber' | 'ifscCode' | 'branch' | 'panNumber' | 'city' | 'state' | 'postalCode' | 'documents' | 'createdAt' | 'updatedAt'> {
 }
 declare class EmployeeProfile extends Model<EmployeeProfileAttributes, EmployeeProfileCreationAttributes> implements EmployeeProfileAttributes {
     id: number;
@@ -49,6 +50,7 @@ declare class EmployeeProfile extends Model<EmployeeProfileAttributes, EmployeeP
     city: string | null;
     state: string | null;
     postalCode: string | null;
+    documents: Record<string, any> | null;
     readonly createdAt: Date;
     readonly updatedAt: Date;
     getUser: BelongsToGetAssociationMixin<User>;

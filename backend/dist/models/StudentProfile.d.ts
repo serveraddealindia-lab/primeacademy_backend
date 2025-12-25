@@ -3,6 +3,7 @@ import User from './User';
 export interface StudentProfileAttributes {
     id: number;
     userId: number;
+    serialNo: string | null;
     dob: Date | null;
     address: string | null;
     documents: Record<string, unknown> | null;
@@ -16,11 +17,12 @@ export interface StudentProfileAttributes {
     createdAt?: Date;
     updatedAt?: Date;
 }
-export interface StudentProfileCreationAttributes extends Optional<StudentProfileAttributes, 'id' | 'dob' | 'address' | 'documents' | 'photoUrl' | 'softwareList' | 'enrollmentDate' | 'status' | 'finishedBatches' | 'currentBatches' | 'pendingBatches' | 'createdAt' | 'updatedAt'> {
+export interface StudentProfileCreationAttributes extends Optional<StudentProfileAttributes, 'id' | 'serialNo' | 'dob' | 'address' | 'documents' | 'photoUrl' | 'softwareList' | 'enrollmentDate' | 'status' | 'finishedBatches' | 'currentBatches' | 'pendingBatches' | 'createdAt' | 'updatedAt'> {
 }
 declare class StudentProfile extends Model<StudentProfileAttributes, StudentProfileCreationAttributes> implements StudentProfileAttributes {
     id: number;
     userId: number;
+    serialNo: string | null;
     dob: Date | null;
     address: string | null;
     documents: Record<string, unknown> | null;

@@ -8,6 +8,9 @@ export interface Student {
   phone?: string;
   avatarUrl?: string;
   createdAt?: string;
+  updatedAt?: string;
+  isActive?: boolean;
+  studentProfile?: StudentProfile | null;
 }
 
 export interface StudentsResponse {
@@ -36,6 +39,12 @@ export interface StudentDetails extends Student {
       mode?: string | null;
       status?: string | null;
       schedule?: Record<string, unknown> | null;
+      courseId?: number | null;
+      course?: {
+        id: number;
+        name: string;
+        software?: string | string[] | null;
+      } | null;
     } | null;
   }>;
 }
@@ -79,10 +88,10 @@ export interface EnrollmentResponse {
 export interface CompleteEnrollmentRequest {
   // Basic Information
   studentName: string;
-  email?: string;
+  email: string;
   phone: string;
   whatsappNumber?: string;
-  dateOfAdmission?: string;
+  dateOfAdmission: string;
   
   // Address
   localAddress?: string;
@@ -158,6 +167,19 @@ export const studentAPI = {
     return response.data;
   },
 
+  // Unified import - handles both enrollment and software progress
+  unifiedStudentImport: async (file: File): Promise<{ status: string; message: string; data: { success: number; failed: number; errors: any[] } }> => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const response = await api.post('/students/unified-import', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+    return response.data;
+  },
+
+  // Legacy bulk enroll - kept for backward compatibility
   bulkEnrollStudents: async (file: File): Promise<{ status: string; message: string; data: { success: number; failed: number; errors: any[] } }> => {
     const formData = new FormData();
     formData.append('file', file);
@@ -169,6 +191,14 @@ export const studentAPI = {
     return response.data;
   },
 
+  downloadUnifiedTemplate: async (): Promise<Blob> => {
+    const response = await api.get('/students/template', {
+      responseType: 'blob',
+    });
+    return response.data;
+  },
+
+  // Legacy template download - kept for backward compatibility
   downloadEnrollmentTemplate: async (): Promise<Blob> => {
     const response = await api.get('/students/template', {
       responseType: 'blob',
@@ -183,6 +213,11 @@ export const studentAPI = {
 
   getAllSoftware: async (): Promise<{ status: string; data: { software: string[]; count: number } }> => {
     const response = await api.get('/students/all-software');
+    return response.data;
+  },
+
+  getCourseNames: async (): Promise<{ status: string; data: { courseNames: string[]; count: number } }> => {
+    const response = await api.get('/students/course-names');
     return response.data;
   },
 };

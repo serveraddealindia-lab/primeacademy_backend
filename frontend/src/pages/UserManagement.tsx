@@ -21,6 +21,10 @@ export const UserManagement: React.FC = () => {
   const [isCreateRoleModalOpen, setIsCreateRoleModalOpen] = useState(false);
   const [isEditRoleModalOpen, setIsEditRoleModalOpen] = useState(false);
   const [isDeleteRoleModalOpen, setIsDeleteRoleModalOpen] = useState(false);
+  const [isPasswordResetModalOpen, setIsPasswordResetModalOpen] = useState(false);
+  const [resetPasswordResult, setResetPasswordResult] = useState<{ newPassword: string; email: string } | null>(null);
+  const [customPassword, setCustomPassword] = useState('');
+  const [useCustomPassword, setUseCustomPassword] = useState(false);
   const [selectedRole, setSelectedRole] = useState<Role | null>(null);
   const [userPermissions, setUserPermissions] = useState<Permission[]>([]);
   const [availableModules, setAvailableModules] = useState<Array<{ value: string; label: string }>>([]);
@@ -274,6 +278,21 @@ export const UserManagement: React.FC = () => {
     },
   });
 
+  const resetPasswordMutation = useMutation({
+    mutationFn: ({ userId, newPassword }: { userId: number; newPassword?: string }) =>
+      userAPI.resetPassword(userId, newPassword),
+    onSuccess: (data) => {
+      setResetPasswordResult({
+        newPassword: data.data.newPassword,
+        email: data.data.email,
+      });
+    },
+    onError: (error: any) => {
+      alert(error.response?.data?.message || 'Failed to reset password');
+      setIsPasswordResetModalOpen(false);
+    },
+  });
+
   const allUsers = usersData?.data.users || [];
   
   // Filter users based on search query
@@ -430,6 +449,24 @@ export const UserManagement: React.FC = () => {
         perm.module === module ? { ...perm, [field]: value } : perm
       )
     );
+  };
+
+  const handleResetPassword = () => {
+    if (!selectedUser) return;
+    setResetPasswordResult(null);
+    setCustomPassword('');
+    setUseCustomPassword(false);
+    setIsPasswordResetModalOpen(true);
+  };
+
+  const handleConfirmPasswordReset = () => {
+    if (!selectedUser) return;
+    const passwordToUse = useCustomPassword && customPassword ? customPassword : undefined;
+    if (useCustomPassword && (!customPassword || customPassword.length < 6)) {
+      alert('Password must be at least 6 characters long');
+      return;
+    }
+    resetPasswordMutation.mutate({ userId: selectedUser.id, newPassword: passwordToUse });
   };
 
   // Initialize role permissions when creating new role
@@ -662,8 +699,8 @@ export const UserManagement: React.FC = () => {
 
       {/* View Profile Modal */}
       {isViewModalOpen && selectedUser && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-4 md:p-6 max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg p-4 sm:p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-2xl font-bold">User Profile</h2>
               <button
@@ -723,8 +760,8 @@ export const UserManagement: React.FC = () => {
 
       {/* Edit User Modal */}
       {isEditModalOpen && selectedUser && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-4 md:p-6 max-w-md w-full mx-4 max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg p-4 sm:p-6 max-w-md w-full max-h-[90vh] overflow-y-auto">
             <h2 className="text-2xl font-bold mb-4">Edit User</h2>
             <form onSubmit={handleUpdateUser}>
               <div className="mb-4">
@@ -786,6 +823,18 @@ export const UserManagement: React.FC = () => {
                   <option value="false">Inactive</option>
                 </select>
               </div>
+              <div className="mb-4 pt-4 border-t border-gray-200">
+                <button
+                  type="button"
+                  onClick={handleResetPassword}
+                  className="w-full px-4 py-2 bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700 transition-colors flex items-center justify-center gap-2"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+                  </svg>
+                  Reset Password
+                </button>
+              </div>
               <div className="flex gap-3">
                 <button
                   type="submit"
@@ -812,8 +861,8 @@ export const UserManagement: React.FC = () => {
 
       {/* Delete Confirmation Modal */}
       {isDeleteModalOpen && selectedUser && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-4 md:p-6 max-w-md w-full mx-4 max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg p-4 sm:p-6 max-w-md w-full max-h-[90vh] overflow-y-auto">
             <h2 className="text-2xl font-bold mb-4 text-red-600">Delete User</h2>
             <p className="mb-4 text-gray-700">
               Are you sure you want to delete <strong>{selectedUser.name}</strong>? This action cannot be undone.
@@ -842,8 +891,8 @@ export const UserManagement: React.FC = () => {
 
       {/* Create User Modal */}
       {isCreateModalOpen && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-4 md:p-6 max-w-md w-full mx-4 max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg p-4 sm:p-6 max-w-md w-full max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-2xl font-bold">Create New User</h2>
               <button
@@ -932,8 +981,8 @@ export const UserManagement: React.FC = () => {
 
       {/* Permission Management Modal */}
       {isPermissionModalOpen && selectedUser && currentUser?.role === 'superadmin' && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-4 md:p-6 max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg p-4 sm:p-6 max-w-4xl w-full max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-2xl font-bold">Manage Permissions - {selectedUser.name}</h2>
               <button
@@ -1037,8 +1086,8 @@ export const UserManagement: React.FC = () => {
 
       {/* Role Assignment Modal */}
       {isRoleAssignmentModalOpen && selectedUser && (currentUser?.role === 'admin' || currentUser?.role === 'superadmin') && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-4 md:p-6 max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg p-4 sm:p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-2xl font-bold">Assign Roles - {selectedUser.name}</h2>
               <button
@@ -1129,8 +1178,8 @@ export const UserManagement: React.FC = () => {
 
       {/* Role Management Modal */}
       {isRoleManagementModalOpen && currentUser?.role === 'superadmin' && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-4 md:p-6 max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg p-4 sm:p-6 max-w-4xl w-full max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-2xl font-bold">Custom Role Management</h2>
               <div className="flex gap-2">
@@ -1219,8 +1268,8 @@ export const UserManagement: React.FC = () => {
 
       {/* Create Role Modal */}
       {isCreateRoleModalOpen && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-4 md:p-6 max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg p-4 sm:p-6 max-w-4xl w-full max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-2xl font-bold">Create Custom Role</h2>
               <button
@@ -1342,8 +1391,8 @@ export const UserManagement: React.FC = () => {
 
       {/* Edit Role Modal */}
       {isEditRoleModalOpen && selectedRole && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-4 md:p-6 max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg p-4 sm:p-6 max-w-4xl w-full max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-2xl font-bold">Edit Role</h2>
               <button
@@ -1481,8 +1530,8 @@ export const UserManagement: React.FC = () => {
 
       {/* Delete Role Confirmation Modal */}
       {isDeleteRoleModalOpen && selectedRole && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-4 md:p-6 max-w-md w-full mx-4 max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg p-4 sm:p-6 max-w-md w-full max-h-[90vh] overflow-y-auto">
             <h2 className="text-2xl font-bold mb-4 text-red-600">Delete Role</h2>
             <p className="mb-4 text-gray-700">
               Are you sure you want to delete the role <strong>{selectedRole.name}</strong>? This action cannot be undone.
@@ -1508,6 +1557,118 @@ export const UserManagement: React.FC = () => {
                 Cancel
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Password Reset Modal */}
+      {isPasswordResetModalOpen && selectedUser && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg p-4 sm:p-6 max-w-md w-full max-h-[90vh] overflow-y-auto">
+            {resetPasswordResult ? (
+              <>
+                <h2 className="text-2xl font-bold mb-4 text-green-600">Password Reset Successful</h2>
+                <div className="mb-4 p-4 bg-green-50 border border-green-200 rounded-lg">
+                  <p className="text-sm text-gray-700 mb-2">
+                    Password has been reset for <strong>{resetPasswordResult.email}</strong>
+                  </p>
+                  <div className="mt-3">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">New Password:</label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={resetPasswordResult.newPassword}
+                        readOnly
+                        className="flex-1 px-3 py-2 border border-gray-300 rounded-md bg-gray-50 font-mono text-sm"
+                      />
+                      <button
+                        onClick={() => {
+                          navigator.clipboard.writeText(resetPasswordResult.newPassword);
+                          alert('Password copied to clipboard!');
+                        }}
+                        className="px-3 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors text-sm"
+                        title="Copy to clipboard"
+                      >
+                        Copy
+                      </button>
+                    </div>
+                  </div>
+                  <p className="mt-3 text-xs text-yellow-600">
+                    ⚠️ Please share this password with the user securely. They should change it after logging in.
+                  </p>
+                </div>
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => {
+                      setIsPasswordResetModalOpen(false);
+                      setResetPasswordResult(null);
+                      setCustomPassword('');
+                      setUseCustomPassword(false);
+                    }}
+                    className="flex-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-lg font-semibold hover:bg-gray-300 transition-colors"
+                  >
+                    Close
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <h2 className="text-2xl font-bold mb-4 text-red-600">Reset Password</h2>
+                <p className="mb-4 text-gray-700">
+                  Reset password for <strong>{selectedUser.name}</strong> ({selectedUser.email})
+                </p>
+                <div className="mb-4">
+                  <label className="flex items-center gap-2 mb-3">
+                    <input
+                      type="checkbox"
+                      checked={useCustomPassword}
+                      onChange={(e) => setUseCustomPassword(e.target.checked)}
+                      className="w-4 h-4 text-orange-600 focus:ring-orange-500 border-gray-300 rounded"
+                    />
+                    <span className="text-sm font-medium text-gray-700">Set custom password</span>
+                  </label>
+                  {useCustomPassword && (
+                    <div className="mt-2">
+                      <label className="block text-sm font-medium text-gray-700 mb-1">New Password *</label>
+                      <input
+                        type="password"
+                        value={customPassword}
+                        onChange={(e) => setCustomPassword(e.target.value)}
+                        placeholder="Enter new password (min 6 characters)"
+                        minLength={6}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
+                      />
+                      <p className="mt-1 text-xs text-gray-500">Password must be at least 6 characters long</p>
+                    </div>
+                  )}
+                  {!useCustomPassword && (
+                    <p className="text-sm text-gray-600 bg-blue-50 p-3 rounded-lg">
+                      A random password will be generated automatically. You'll be able to copy it after reset.
+                    </p>
+                  )}
+                </div>
+                <div className="flex gap-3">
+                  <button
+                    onClick={handleConfirmPasswordReset}
+                    disabled={resetPasswordMutation.isPending || (useCustomPassword && (!customPassword || customPassword.length < 6))}
+                    className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700 transition-colors disabled:opacity-50"
+                  >
+                    {resetPasswordMutation.isPending ? 'Resetting...' : 'Reset Password'}
+                  </button>
+                  <button
+                    onClick={() => {
+                      setIsPasswordResetModalOpen(false);
+                      setResetPasswordResult(null);
+                      setCustomPassword('');
+                      setUseCustomPassword(false);
+                    }}
+                    className="flex-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-lg font-semibold hover:bg-gray-300 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}

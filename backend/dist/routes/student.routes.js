@@ -66,13 +66,20 @@ const upload = (0, multer_1.default)({
 router.post('/enroll', auth_middleware_1.verifyTokenMiddleware, (0, auth_middleware_1.checkRole)(User_1.UserRole.ADMIN, User_1.UserRole.SUPERADMIN), studentController.completeEnrollment);
 // POST /students/create-dummy → Create a dummy student with all details (for testing)
 router.post('/create-dummy', auth_middleware_1.verifyTokenMiddleware, (0, auth_middleware_1.checkRole)(User_1.UserRole.ADMIN, User_1.UserRole.SUPERADMIN), studentController.createDummyStudent);
-// POST /students/bulk-enroll → Bulk enroll students from Excel (admin only)
+// POST /students/unified-import → Unified import for students (enrollment + software progress)
+router.post('/unified-import', auth_middleware_1.verifyTokenMiddleware, (0, auth_middleware_1.checkRole)(User_1.UserRole.ADMIN, User_1.UserRole.SUPERADMIN), upload.single('file'), studentController.unifiedStudentImport);
+// GET /students/template → Download unified student template (admin only)
+router.get('/template', auth_middleware_1.verifyTokenMiddleware, (0, auth_middleware_1.checkRole)(User_1.UserRole.ADMIN, User_1.UserRole.SUPERADMIN), studentController.downloadUnifiedTemplate);
+// POST /students/bulk-enroll → Bulk enroll students from Excel (admin only) - DEPRECATED, use unified-import
 router.post('/bulk-enroll', auth_middleware_1.verifyTokenMiddleware, (0, auth_middleware_1.checkRole)(User_1.UserRole.ADMIN, User_1.UserRole.SUPERADMIN), upload.single('file'), studentController.bulkEnrollStudents);
-// GET /students/template → Download enrollment template (admin only)
-router.get('/template', auth_middleware_1.verifyTokenMiddleware, (0, auth_middleware_1.checkRole)(User_1.UserRole.ADMIN, User_1.UserRole.SUPERADMIN), studentController.downloadEnrollmentTemplate);
 // POST /students/create-three-dummy → Create 3 dummy students with different scenarios
 router.post('/create-three-dummy', auth_middleware_1.verifyTokenMiddleware, (0, auth_middleware_1.checkRole)(User_1.UserRole.ADMIN, User_1.UserRole.SUPERADMIN), studentController.createThreeDummyStudents);
 // GET /students/all-software → Get all unique software from batches and profiles
 router.get('/all-software', auth_middleware_1.verifyTokenMiddleware, studentController.getAllSoftware);
+// GET /students/course-names → Get all course names from Excel file
+router.get('/course-names', auth_middleware_1.verifyTokenMiddleware, studentController.getCourseNames);
+// GET /students/:id/attendance → Get student's own attendance (students can view their own)
+// IMPORTANT: This must be before any other /:id routes to avoid route conflicts
+router.get('/:id/attendance', auth_middleware_1.verifyTokenMiddleware, studentController.getStudentAttendance);
 exports.default = router;
 //# sourceMappingURL=student.routes.js.map

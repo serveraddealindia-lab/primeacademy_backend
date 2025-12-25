@@ -22,11 +22,19 @@ FacultyProfile.init({
             key: 'id',
         },
     },
+    dateOfBirth: {
+        type: sequelize_1.DataTypes.DATEONLY,
+        allowNull: true,
+    },
     expertise: {
         type: sequelize_1.DataTypes.JSON,
         allowNull: true,
     },
     availability: {
+        type: sequelize_1.DataTypes.JSON,
+        allowNull: true,
+    },
+    documents: {
         type: sequelize_1.DataTypes.JSON,
         allowNull: true,
     },

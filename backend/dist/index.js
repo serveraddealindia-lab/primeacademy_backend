@@ -39,20 +39,24 @@ const studentAttendance_routes_1 = __importDefault(require("./routes/studentAtte
 const enrollment_routes_1 = __importDefault(require("./routes/enrollment.routes"));
 const student_routes_1 = __importDefault(require("./routes/student.routes"));
 const certificate_routes_1 = __importDefault(require("./routes/certificate.routes"));
+const course_routes_1 = __importDefault(require("./routes/course.routes"));
 const biometric_routes_1 = __importDefault(require("./routes/biometric.routes"));
 const studentSoftwareProgress_routes_1 = __importDefault(require("./routes/studentSoftwareProgress.routes"));
 const error_middleware_1 = require("./middleware/error.middleware");
 const logger_1 = require("./utils/logger");
 dotenv_1.default.config();
 const app = (0, express_1.default)();
-const PORT = process.env.PORT || 3000;
+const PORT = parseInt(process.env.PORT || '3001', 10);
 // Middleware
 app.use((0, helmet_1.default)());
 // CORS configuration - allow frontend domain
 const corsOptions = {
     origin: process.env.FRONTEND_URL?.split(',').map((origin) => origin.trim()) || [
         'http://localhost:5173',
+        'https://localhost:5173',
         'http://crm.prashantthakar.com',
+        'https://crm.prashantthakar.com',
+        'https://api.prashantthakar.com',
     ],
     credentials: true,
     optionsSuccessStatus: 200,
@@ -257,6 +261,7 @@ app.use('/receipts', (req, res, next) => {
     dotfiles: 'ignore',
 }));
 // Also serve receipts through /api/receipts/ for frontend compatibility
+// Custom handler to properly decode filenames with special characters
 app.use('/api/receipts', (req, res, next) => {
     const origin = req.headers.origin;
     const allowedOrigins = process.env.FRONTEND_URL?.split(',').map((o) => o.trim()) || [
@@ -276,6 +281,20 @@ app.use('/api/receipts', (req, res, next) => {
         res.sendStatus(200);
         return;
     }
+    // For GET requests, handle filename decoding
+    if (req.method === 'GET' && req.path) {
+        // Decode the filename from the URL path
+        const decodedPath = decodeURIComponent(req.path);
+        const filepath = path_1.default.join(receiptsStaticPath, decodedPath);
+        // Check if file exists
+        if (fs_1.default.existsSync(filepath) && fs_1.default.statSync(filepath).isFile()) {
+            res.setHeader('Content-Type', 'application/pdf');
+            res.setHeader('Cache-Control', 'public, max-age=31536000');
+            res.sendFile(filepath);
+            return;
+        }
+    }
+    // Fall back to static middleware for other cases
     next();
 }, express_1.default.static(receiptsStaticPath, {
     setHeaders: (res, _filePath) => {
@@ -411,9 +430,6 @@ app.use('/api/sessions', session_routes_1.default);
 // app.use('/api/reports', reportRoutes);
 app.use('/api', portfolio_routes_1.default);
 app.use('/api/payments', payment_routes_1.default);
-if (process.env.NODE_ENV === 'development') {
-    logger_1.logger.info('Payment routes registered: GET /api/payments, GET /api/payments/:id, POST /api/payments, PUT /api/payments/:id');
-}
 // app.use('/api/approvals', approvalRoutes);
 app.use('/api/upload', upload_routes_1.default);
 if (process.env.NODE_ENV === 'development') {
@@ -435,12 +451,22 @@ app.use('/api/enrollments', enrollment_routes_1.default);
 app.use('/api/students', student_routes_1.default);
 // Certificate API routes (must be after static file serving)
 app.use('/api/certificates', certificate_routes_1.default);
+app.use('/api/courses', course_routes_1.default);
 app.use('/api/biometric', biometric_routes_1.default);
 app.use('/api/student-software-progress', studentSoftwareProgress_routes_1.default);
-// Debug: Log registered student routes (development only)
-// if (process.env.NODE_ENV === 'development') {
-//   logger.info('Registered student routes: POST /api/students/bulk-enroll, GET /api/students/template');
-// }
+// Log registered routes for debugging
+logger_1.logger.info('=== Registered API Routes ===');
+logger_1.logger.info('Student routes:');
+logger_1.logger.info('  POST /api/students/unified-import');
+logger_1.logger.info('  GET /api/students/template');
+logger_1.logger.info('  POST /api/students/bulk-enroll');
+logger_1.logger.info('  POST /api/students/enroll');
+logger_1.logger.info('Payment routes:');
+logger_1.logger.info('  POST /api/payments/bulk-upload');
+logger_1.logger.info('  POST /api/payments/:paymentId/generate-receipt');
+logger_1.logger.info('  GET /api/payments');
+logger_1.logger.info('  POST /api/payments');
+logger_1.logger.info('============================');
 // Error handling middleware (must be last)
 app.use(error_middleware_1.notFoundHandler);
 app.use(error_middleware_1.errorHandler);
@@ -449,23 +475,58 @@ const startServer = async () => {
     try {
         // Test database connection
         await database_1.default.authenticate();
-        await (0, runMigrations_1.runPendingMigrations)();
         logger_1.logger.info('Database connection established successfully.');
+        // Run migrations - but don't crash if they fail
+        try {
+            await (0, runMigrations_1.runPendingMigrations)();
+        }
+        catch (migrationError) {
+            // Log the error but continue server startup
+            const errorMessage = migrationError instanceof Error ? migrationError.message : String(migrationError);
+            logger_1.logger.error('Migration failed, but continuing server startup:', errorMessage);
+            logger_1.logger.warn('Server will start without applying migrations. Please check and fix migrations manually.');
+        }
         // Sync database (use { force: true } only in development to drop and recreate tables)
         // In production, use migrations instead
         if (process.env.NODE_ENV === 'development') {
             await database_1.default.sync({ alter: false });
             logger_1.logger.info('Database models synchronized.');
         }
-        // Start server
-        app.listen(PORT, () => {
-            logger_1.logger.info(`Server is running on port ${PORT}`);
-            logger_1.logger.info(`Environment: ${process.env.NODE_ENV || 'development'}`);
-        });
+        // Start server - listen on 0.0.0.0 for production (allows external connections via nginx)
+        if (process.env.NODE_ENV === 'production') {
+            app.listen(PORT, '0.0.0.0', () => {
+                logger_1.logger.info(`Server is running on 0.0.0.0:${PORT}`);
+                logger_1.logger.info(`Environment: ${process.env.NODE_ENV || 'development'}`);
+            });
+        }
+        else {
+            app.listen(PORT, () => {
+                logger_1.logger.info(`Server is running on port ${PORT}`);
+                logger_1.logger.info(`Environment: ${process.env.NODE_ENV || 'development'}`);
+            });
+        }
     }
     catch (error) {
         logger_1.logger.error('Unable to start server:', error);
-        process.exit(1);
+        // Only exit if it's a critical error (database connection failure)
+        const errorMessage = String(error);
+        if (errorMessage.includes('ECONNREFUSED') || errorMessage.includes('authentication')) {
+            logger_1.logger.error('Critical database connection error. Server cannot start without database.');
+            process.exit(1);
+        }
+        else {
+            logger_1.logger.warn('Non-critical error. Server will attempt to start anyway.');
+            // Try to start server even with non-critical errors
+            try {
+                app.listen(PORT, '0.0.0.0', () => {
+                    logger_1.logger.warn(`Server started with warnings. Some features may not work correctly.`);
+                });
+            }
+            catch (listenError) {
+                logger_1.logger.error('Failed to start server:', listenError);
+                process.exit(1);
+            }
+        }
     }
 };
 startServer();

@@ -847,8 +847,8 @@ export const UnifiedAttendance: React.FC = () => {
 
                 {/* Batch History Modal */}
                 {selectedBatchForHistory && (
-                  <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-                    <div className="bg-white rounded-lg p-6 max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+                  <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                    <div className="bg-white rounded-lg p-4 sm:p-6 max-w-4xl w-full max-h-[90vh] overflow-y-auto">
                       <div className="flex justify-between items-center mb-4">
                         <h2 className="text-2xl font-bold">Batch History</h2>
                         <button
@@ -1190,8 +1190,8 @@ export const UnifiedAttendance: React.FC = () => {
 
                 {/* Break Reason Modal */}
                 {showBreakReasonModal && (
-                  <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-                    <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4 max-h-[90vh] overflow-y-auto">
+                  <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                    <div className="bg-white rounded-lg p-4 sm:p-6 max-w-md w-full max-h-[90vh] overflow-y-auto">
                       <h3 className="text-xl font-bold mb-4">Start Break</h3>
                       <div className="mb-4">
                         <label className="block text-sm font-medium text-gray-700 mb-2">

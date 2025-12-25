@@ -10,7 +10,10 @@ const JWT_EXPIRES_IN = (process.env.JWT_EXPIRES_IN ?? '24h');
 const TOKEN_OPTIONS = {
     expiresIn: JWT_EXPIRES_IN,
 };
-const generateToken = (payload) => jsonwebtoken_1.default.sign(payload, JWT_SECRET, TOKEN_OPTIONS);
+const generateToken = (payload, expiresIn) => {
+    const options = expiresIn ? { expiresIn: expiresIn } : TOKEN_OPTIONS;
+    return jsonwebtoken_1.default.sign(payload, JWT_SECRET, options);
+};
 exports.generateToken = generateToken;
 const verifyToken = (token) => {
     try {

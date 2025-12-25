@@ -60,6 +60,14 @@ Batch.init({
         type: sequelize_1.DataTypes.STRING,
         allowNull: true,
     },
+    courseId: {
+        type: sequelize_1.DataTypes.INTEGER,
+        allowNull: true,
+        references: {
+            model: 'courses',
+            key: 'id',
+        },
+    },
 }, {
     sequelize: database_1.default,
     tableName: 'batches',

@@ -39,13 +39,14 @@ const allowedMimeTypes = [
     'image/png',
     'image/webp',
     'image/gif',
+    'application/pdf',
 ];
 const fileFilter = (_req, file, cb) => {
     if (allowedMimeTypes.includes(file.mimetype)) {
         cb(null, true);
     }
     else {
-        cb(new Error(`File type ${file.mimetype} is not allowed. Only images (JPG, PNG, WEBP, GIF) are allowed.`));
+        cb(new Error(`File type ${file.mimetype} is not allowed. Only images (JPG, PNG, WEBP, GIF) and PDF files are allowed.`));
     }
 };
 exports.uploadMiddleware = (0, multer_1.default)({

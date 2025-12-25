@@ -36,6 +36,7 @@ export declare const updateStudentProfile: (req: AuthRequest & {
         id: string;
     };
     body: {
+        serialNo?: string;
         dob?: string;
         address?: string;
         photoUrl?: string;
@@ -50,8 +51,11 @@ export declare const updateFacultyProfile: (req: AuthRequest & {
         id: string;
     };
     body: {
+        dateOfBirth?: string;
         expertise?: string;
         availability?: string;
+        documents?: any;
+        softwareProficiency?: string;
     };
 }, res: Response) => Promise<void>;
 export declare const updateEmployeeProfile: (req: AuthRequest & {
@@ -86,4 +90,12 @@ export declare const loginAsUser: (req: AuthRequest & {
     };
 }, res: Response) => Promise<void>;
 export declare const getModulesList: (req: AuthRequest, res: Response) => Promise<void>;
+export declare const resetUserPassword: (req: AuthRequest & {
+    params: {
+        id: string;
+    };
+    body: {
+        newPassword?: string;
+    };
+}, res: Response) => Promise<void>;
 //# sourceMappingURL=user.controller.d.ts.map

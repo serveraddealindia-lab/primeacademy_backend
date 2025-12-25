@@ -1,4 +1,4 @@
-import React, { ReactNode, useState, useMemo } from 'react';
+import React, { ReactNode, useState, useMemo, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { Link, useLocation } from 'react-router-dom';
 import { hasModuleAccess } from '../utils/rolePermissions';
@@ -10,17 +10,33 @@ interface LayoutProps {
 export const Layout: React.FC<LayoutProps> = ({ children }) => {
   const { user, logout } = useAuth();
   const location = useLocation();
-  const [sidebarOpen, setSidebarOpen] = useState(false); // Start closed on mobile
+  
+  // Initialize sidebar state from localStorage, default to true for desktop, false for mobile
+  const [sidebarOpen, setSidebarOpen] = useState(() => {
+    const saved = localStorage.getItem('sidebarOpen');
+    if (saved !== null) {
+      return JSON.parse(saved);
+    }
+    // Default: open on desktop (lg breakpoint), closed on mobile
+    return window.innerWidth >= 1024;
+  });
+
+  // Persist sidebar state to localStorage whenever it changes
+  useEffect(() => {
+    localStorage.setItem('sidebarOpen', JSON.stringify(sidebarOpen));
+  }, [sidebarOpen]);
 
   // Navigation items with their corresponding module names for permission checking
   const allNavigationItems = [
     { name: 'Dashboard', href: '/dashboard', icon: '🏠', module: null }, // Dashboard is always accessible
     { name: 'Batches', href: '/batches', icon: '📚', module: 'batches' },
+    { name: 'Course Modules', href: '/course-modules', icon: '📖', module: 'batches' },
     { name: 'Students', href: '/students', icon: '👥', module: 'students' },
     { name: 'Faculty', href: '/faculty', icon: '👨‍🏫', module: 'faculty' },
     { name: 'Employees', href: '/employees', icon: '💼', module: 'employees' },
     { name: 'Attendance Management', href: '/attendance', icon: '✅', module: 'attendance' }, // Session-based attendance (admin/superadmin only)
     { name: 'Attendance', href: '/my-attendance', icon: '📸', module: 'attendance' }, // Unified attendance for faculty/employees
+    { name: 'My Attendance', href: '/student-attendance', icon: '📋', module: 'attendance' }, // Student attendance view (batch-wise, day-wise)
     { name: 'Payments', href: '/payments', icon: '💰', module: 'payments' },
     { name: 'Portfolios', href: '/portfolios', icon: '📁', module: 'portfolios' },
     { name: 'Reports', href: '/reports', icon: '📊', module: 'reports' },
@@ -40,14 +56,25 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
       // Dashboard is always accessible
       if (item.name === 'Dashboard') return true;
       
+      // Course Modules - hide from students and employees
+      if (item.name === 'Course Modules') {
+        if (user?.role === 'student' || user?.role === 'employee') {
+          return false;
+        }
+        // For other roles, check module access
+        return item.module ? hasModuleAccess(user?.role, item.module) : false;
+      }
+      
       // Roles is only for superadmin
       if (item.name === 'Roles') {
         return user?.role === 'superadmin';
       }
       
       // Certificates is only for admin/superadmin
+      // TEMPORARILY HIDDEN
       if (item.name === 'Certificates') {
-        return user?.role === 'admin' || user?.role === 'superadmin';
+        return false; // Temporarily hidden
+        // return user?.role === 'admin' || user?.role === 'superadmin';
       }
       
       // Biometric Settings is only for admin/superadmin
@@ -64,6 +91,11 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
       // Check by href to distinguish from session-based attendance
       if (item.href === '/my-attendance') {
         return (user?.role === 'employee' || user?.role === 'faculty') && hasModuleAccess(user?.role, 'attendance');
+      }
+      
+      // Student Attendance View - show only for students
+      if (item.href === '/student-attendance') {
+        return user?.role === 'student' && hasModuleAccess(user?.role, 'attendance');
       }
       
       // Session-based Attendance Management - admin/superadmin
@@ -106,7 +138,7 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
           sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
         } ${
           sidebarOpen ? 'w-64' : 'w-20'
-        } bg-white shadow-lg transition-all duration-300 ease-in-out fixed h-screen overflow-y-auto z-50 lg:static`}
+        } bg-white shadow-lg transition-all duration-300 ease-in-out fixed h-screen overflow-y-auto z-50 lg:fixed`}
       >
         <div className="p-4">
           {/* Logo and Toggle */}
@@ -192,7 +224,9 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
       </aside>
 
       {/* Main Content */}
-      <div className="flex-1 lg:ml-0 transition-all duration-300 min-h-screen w-full lg:w-auto">
+      <div className={`flex-1 transition-all duration-300 min-h-screen w-full ${
+        sidebarOpen ? 'lg:ml-64' : 'lg:ml-20'
+      }`}>
         {/* Top Bar */}
         <header className="bg-white shadow-sm sticky top-0 z-30">
           <div className="px-4 sm:px-6 py-4 flex items-center justify-between">

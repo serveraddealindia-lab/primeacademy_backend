@@ -15,10 +15,11 @@ export interface BatchAttributes {
     schedule: any | null;
     createdByAdminId: number | null;
     status: string | null;
+    courseId: number | null;
     createdAt?: Date;
     updatedAt?: Date;
 }
-export interface BatchCreationAttributes extends Optional<BatchAttributes, 'id' | 'software' | 'schedule' | 'createdByAdminId' | 'status' | 'createdAt' | 'updatedAt'> {
+export interface BatchCreationAttributes extends Optional<BatchAttributes, 'id' | 'software' | 'schedule' | 'createdByAdminId' | 'status' | 'courseId' | 'createdAt' | 'updatedAt'> {
 }
 declare class Batch extends Model<BatchAttributes, BatchCreationAttributes> implements BatchAttributes {
     id: number;
@@ -31,6 +32,7 @@ declare class Batch extends Model<BatchAttributes, BatchCreationAttributes> impl
     schedule: any | null;
     createdByAdminId: number | null;
     status: string | null;
+    courseId: number | null;
     readonly createdAt: Date;
     readonly updatedAt: Date;
 }

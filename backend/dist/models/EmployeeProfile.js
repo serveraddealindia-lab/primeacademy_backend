@@ -99,6 +99,10 @@ EmployeeProfile.init({
         type: sequelize_1.DataTypes.STRING,
         allowNull: true,
     },
+    documents: {
+        type: sequelize_1.DataTypes.JSON,
+        allowNull: true,
+    },
 }, {
     sequelize: database_1.default,
     tableName: 'employee_profiles',

@@ -10,11 +10,13 @@ export const Dashboard: React.FC = () => {
 
   const allModules = [
     { name: 'Batches', path: '/batches', icon: '📚', description: 'Manage training batches', module: 'batches' },
+    { name: 'Course Modules', path: '/course-modules', icon: '📖', description: 'Manage multiple courses with tabs', module: 'batches' },
     { name: 'Students', path: '/students', icon: '👥', description: 'Manage students', module: 'students' },
     { name: 'Faculty', path: '/faculty', icon: '👨‍🏫', description: 'Manage faculty members', module: 'faculty' },
     { name: 'Employees', path: '/employees', icon: '💼', description: 'Manage employees', module: 'employees' },
     { name: 'Attendance', path: '/attendance', icon: '✅', description: 'Track attendance', module: 'attendance' }, // Session-based (admin/superadmin)
     { name: 'Attendance', path: '/my-attendance', icon: '📸', description: 'Punch in/out and manage attendance', module: 'attendance' }, // Unified attendance (faculty/employees)
+    { name: 'My Attendance', path: '/student-attendance', icon: '📋', description: 'View your attendance by batch and day', module: 'attendance' }, // Student attendance view
     { name: 'Payments', path: '/payments', icon: '💰', description: 'Manage payments', module: 'payments' },
     { name: 'Portfolios', path: '/portfolios', icon: '📁', description: 'Student portfolios', module: 'portfolios' },
     { name: 'Reports', path: '/reports', icon: '📊', description: 'View reports', module: 'reports' },
@@ -28,6 +30,15 @@ export const Dashboard: React.FC = () => {
   // Filter modules based on user role permissions
   const modules = useMemo(() => {
     return allModules.filter((item) => {
+      // Course Modules - hide from students and employees
+      if (item.name === 'Course Modules') {
+        if (user?.role === 'student' || user?.role === 'employee') {
+          return false;
+        }
+        // For other roles, check module access
+        return item.module ? hasModuleAccess(user?.role, item.module) : false;
+      }
+      
       // Roles is only for superadmin
       if (item.name === 'Roles') {
         return user?.role === 'superadmin';
@@ -36,6 +47,11 @@ export const Dashboard: React.FC = () => {
       // Attendance (unified) - show for employees and faculty
       if (item.path === '/my-attendance') {
         return (user?.role === 'employee' || user?.role === 'faculty') && hasModuleAccess(user?.role, 'attendance');
+      }
+      
+      // Student Attendance View - show only for students
+      if (item.path === '/student-attendance') {
+        return user?.role === 'student' && hasModuleAccess(user?.role, 'attendance');
       }
       
       // Session-based Attendance Management - admin/superadmin

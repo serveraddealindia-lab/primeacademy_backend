@@ -40,6 +40,8 @@ const User_1 = require("../models/User");
 const router = (0, express_1.Router)();
 // GET /api/users - Get all users (Admin/SuperAdmin only)
 router.get('/', auth_middleware_1.verifyTokenMiddleware, (0, auth_middleware_1.checkRole)(User_1.UserRole.ADMIN, User_1.UserRole.SUPERADMIN), userController.getAllUsers);
+// GET /api/users/modules/list - Get list of available modules (must be before /:id routes)
+router.get('/modules/list', auth_middleware_1.verifyTokenMiddleware, userController.getModulesList);
 // PUT /api/users/:id/student-profile - Update student profile (must be before /:id)
 router.put('/:id/student-profile', auth_middleware_1.verifyTokenMiddleware, userController.updateStudentProfile);
 // PUT /api/users/:id/faculty-profile - Update faculty profile (must be before /:id)
@@ -48,13 +50,13 @@ router.put('/:id/faculty-profile', auth_middleware_1.verifyTokenMiddleware, user
 router.put('/:id/employee-profile', auth_middleware_1.verifyTokenMiddleware, userController.updateEmployeeProfile);
 // POST /api/users/:id/login-as → login as user (superadmin only) - Must be before /:id route
 router.post('/:id/login-as', auth_middleware_1.verifyTokenMiddleware, (0, auth_middleware_1.checkRole)(User_1.UserRole.SUPERADMIN), userController.loginAsUser);
+// POST /api/users/:id/reset-password → Reset user password (admin/superadmin only) - Must be before /:id route
+router.post('/:id/reset-password', auth_middleware_1.verifyTokenMiddleware, (0, auth_middleware_1.checkRole)(User_1.UserRole.ADMIN, User_1.UserRole.SUPERADMIN), userController.resetUserPassword);
 // GET /api/users/:id - Get user by ID
 router.get('/:id', auth_middleware_1.verifyTokenMiddleware, userController.getUserById);
 // PUT /api/users/:id - Update user
 router.put('/:id', auth_middleware_1.verifyTokenMiddleware, userController.updateUser);
 // DELETE /api/users/:id - Delete user (Admin/SuperAdmin only)
 router.delete('/:id', auth_middleware_1.verifyTokenMiddleware, (0, auth_middleware_1.checkRole)(User_1.UserRole.ADMIN, User_1.UserRole.SUPERADMIN), userController.deleteUser);
-// GET /api/users/modules/list - Get list of available modules
-router.get('/modules/list', auth_middleware_1.verifyTokenMiddleware, userController.getModulesList);
 exports.default = router;
 //# sourceMappingURL=user.routes.js.map

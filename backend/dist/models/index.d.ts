@@ -26,6 +26,7 @@ import BiometricDevice from './BiometricDevice';
 import AttendanceLog from './AttendanceLog';
 import StudentOrientation from './StudentOrientation';
 import StudentSoftwareProgress from './StudentSoftwareProgress';
+import Course from './Course';
 declare const db: {
     sequelize: Sequelize;
     Sequelize: typeof Sequelize;
@@ -56,6 +57,7 @@ declare const db: {
     AttendanceLog: typeof AttendanceLog;
     StudentOrientation: typeof StudentOrientation;
     StudentSoftwareProgress: typeof StudentSoftwareProgress;
+    Course: typeof Course;
 };
 export default db;
 //# sourceMappingURL=index.d.ts.map

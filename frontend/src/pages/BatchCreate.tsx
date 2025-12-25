@@ -6,6 +6,7 @@ import { Layout } from '../components/Layout';
 import { batchAPI, CreateBatchRequest, SuggestedCandidate } from '../api/batch.api';
 import { studentAPI } from '../api/student.api';
 import { facultyAPI } from '../api/faculty.api';
+import { courseAPI } from '../api/course.api';
 import { formatDateInputToDDMMYYYY } from '../utils/dateUtils';
 
 const DAYS_OF_WEEK = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
@@ -22,6 +23,7 @@ export const BatchCreate: React.FC = () => {
   const [daySchedules, setDaySchedules] = useState<Record<string, DaySchedule>>({});
   const [applyToAll, setApplyToAll] = useState(false);
   const [selectedStudents, setSelectedStudents] = useState<number[]>([]);
+  const [exceptionStudentIds, setExceptionStudentIds] = useState<number[]>([]);
   const [selectedFaculty, setSelectedFaculty] = useState<number[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [suggestedCandidates, setSuggestedCandidates] = useState<SuggestedCandidate[]>([]);
@@ -31,6 +33,8 @@ export const BatchCreate: React.FC = () => {
   const [studentSearchQuery, setStudentSearchQuery] = useState('');
   const [startDateDisplay, setStartDateDisplay] = useState('');
   const [endDateDisplay, setEndDateDisplay] = useState('');
+  const [selectedCourseId, setSelectedCourseId] = useState<number | null>(null);
+  const [batchStatus, setBatchStatus] = useState<string>('active');
 
   // Fetch all students
   const { data: studentsData } = useQuery({
@@ -42,6 +46,12 @@ export const BatchCreate: React.FC = () => {
   const { data: facultyData, isLoading: isLoadingFaculty } = useQuery({
     queryKey: ['faculty'],
     queryFn: () => facultyAPI.getAllFaculty(1000), // Get up to 1000 faculty
+  });
+
+  // Fetch all courses
+  const { data: coursesData, isLoading: isLoadingCourses } = useQuery({
+    queryKey: ['courses'],
+    queryFn: () => courseAPI.getAllCourses(),
   });
 
   const createBatchMutation = useMutation({
@@ -100,10 +110,15 @@ export const BatchCreate: React.FC = () => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
     
-    // Get software from selected softwares
+    // Get software from selected softwares - REQUIRED
     const softwareValue = selectedSoftwares.length > 0 
       ? selectedSoftwares.join(', ')
-      : undefined;
+      : '';
+    
+    if (!softwareValue || softwareValue.trim() === '') {
+      alert('Please select at least one software for this batch.');
+      return;
+    }
     
     // Validate faculty selection
     if (selectedFaculty.length === 0) {
@@ -111,21 +126,31 @@ export const BatchCreate: React.FC = () => {
       return;
     }
 
+    // Get status - use state value as fallback if FormData doesn't have it
+    let statusValue = (formData.get('status') as string) || batchStatus;
+    const finalStatus = statusValue && statusValue.trim() ? statusValue.trim() : 'active';
+
     const data: CreateBatchRequest = {
-      title: formData.get('title') as string,
-      software: softwareValue,
-      mode: formData.get('mode') as string,
-      startDate: formData.get('startDate') as string,
-      endDate: formData.get('endDate') as string,
+      title: (formData.get('title') as string)?.trim() || '',
+      software: softwareValue.trim(),
+      mode: (formData.get('mode') as string) || '',
+      startDate: (formData.get('startDate') as string) || '',
+      endDate: (formData.get('endDate') as string) || '',
       maxCapacity: formData.get('maxCapacity') ? parseInt(formData.get('maxCapacity') as string) : undefined,
-      status: formData.get('status') as string || 'active',
+      status: finalStatus,
       schedule: Object.keys(daySchedules).length > 0 ? 
         Object.fromEntries(
           Object.entries(daySchedules).filter(([_, times]) => times.startTime && times.endTime)
         ) : undefined,
       facultyIds: selectedFaculty,
       studentIds: selectedStudents.length > 0 ? selectedStudents : undefined,
+      exceptionStudentIds: exceptionStudentIds.length > 0 ? exceptionStudentIds : undefined,
+      courseId: selectedCourseId || null,
     };
+    
+    // Debug log to verify status is being sent
+    console.log('Creating batch with status:', finalStatus, 'Full data:', data);
+    
     createBatchMutation.mutate(data);
   };
 
@@ -157,6 +182,9 @@ export const BatchCreate: React.FC = () => {
 
     // Create a temporary batch to get suggestions
     try {
+      // Get status from form or use state value, default to 'active'
+      const statusValue = (formData.get('status') as string) || batchStatus || 'active';
+      
       const tempData: CreateBatchRequest = {
         title: 'TEMP_FOR_SUGGESTIONS',
         software,
@@ -164,6 +192,7 @@ export const BatchCreate: React.FC = () => {
         startDate,
         endDate: formData.get('endDate') as string || startDate,
         maxCapacity: 100,
+        status: statusValue,
         facultyIds: tempFacultyIds,
       };
       
@@ -212,10 +241,20 @@ export const BatchCreate: React.FC = () => {
   };
 
   const handleSelectSuggested = (candidate: SuggestedCandidate) => {
-    if (candidate.status === 'available' || candidate.status === 'fees_overdue') {
+    if (candidate.status === 'available' || candidate.status === 'fees_overdue' || candidate.status === 'pending_fees' || candidate.status === 'no_orientation') {
       handleToggleStudent(candidate.studentId);
-    } else if (candidate.status === 'no_orientation') {
-      alert('This student has not accepted orientation yet. Please accept orientation first.');
+    }
+  };
+
+  const handleToggleException = (studentId: number, isException: boolean) => {
+    if (isException) {
+      setExceptionStudentIds(prev => [...prev, studentId]);
+      // Also add to selected students if not already there
+      if (!selectedStudents.includes(studentId)) {
+        setSelectedStudents(prev => [...prev, studentId]);
+      }
+    } else {
+      setExceptionStudentIds(prev => prev.filter(id => id !== studentId));
     }
   };
 
@@ -273,6 +312,35 @@ export const BatchCreate: React.FC = () => {
                     placeholder="e.g., Digital Art Fundamentals - Batch 1"
                     className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent"
                   />
+                </div>
+
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Course (Optional)
+                  </label>
+                  <select
+                    value={selectedCourseId || ''}
+                    onChange={(e) => setSelectedCourseId(e.target.value ? parseInt(e.target.value) : null)}
+                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                  >
+                    <option value="">Select a course (optional)</option>
+                    {isLoadingCourses ? (
+                      <option disabled>Loading courses...</option>
+                    ) : (
+                      coursesData?.data?.map((course) => (
+                        <option key={course.id} value={course.id}>
+                          {course.name}
+                        </option>
+                      ))
+                    )}
+                  </select>
+                  {selectedCourseId && coursesData?.data?.find(c => c.id === selectedCourseId) && (
+                    <p className="mt-1 text-xs text-gray-600">
+                      Software: {Array.isArray(coursesData.data.find(c => c.id === selectedCourseId)?.software) 
+                        ? coursesData.data.find(c => c.id === selectedCourseId)?.software.join(', ')
+                        : 'N/A'}
+                    </p>
+                  )}
                 </div>
 
                 <div className="md:col-span-2">
@@ -448,10 +516,13 @@ export const BatchCreate: React.FC = () => {
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Status
+                    Status <span className="text-red-500">*</span>
                   </label>
                   <select
                     name="status"
+                    required
+                    value={batchStatus}
+                    onChange={(e) => setBatchStatus(e.target.value)}
                     className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent"
                   >
                     <option value="active">Active</option>
@@ -543,6 +614,8 @@ export const BatchCreate: React.FC = () => {
                                 ? 'bg-green-50 border-green-300 hover:bg-green-100' 
                                 : candidate.status === 'fees_overdue'
                                 ? 'bg-yellow-50 border-yellow-300 hover:bg-yellow-100'
+                                : candidate.status === 'pending_fees'
+                                ? 'bg-amber-50 border-amber-300 hover:bg-amber-100'
                                 : candidate.status === 'no_orientation'
                                 ? 'bg-orange-50 border-orange-300 hover:bg-orange-100'
                                 : 'bg-gray-50 border-gray-300 opacity-50'
@@ -550,7 +623,7 @@ export const BatchCreate: React.FC = () => {
                             onClick={() => handleSelectSuggested(candidate)}
                           >
                             <div className="flex items-center justify-between">
-                              <div>
+                              <div className="flex-1">
                                 <span className="font-medium">{candidate.name || `Student #${candidate.studentId}`}</span>
                                 {candidate.email && (
                                   <span className="text-xs text-gray-600 ml-2">({candidate.email})</span>
@@ -562,17 +635,35 @@ export const BatchCreate: React.FC = () => {
                                     ? 'bg-green-200 text-green-800'
                                     : candidate.status === 'fees_overdue'
                                     ? 'bg-yellow-200 text-yellow-800'
+                                    : candidate.status === 'pending_fees'
+                                    ? 'bg-amber-200 text-amber-800'
                                     : candidate.status === 'no_orientation'
                                     ? 'bg-orange-200 text-orange-800'
                                     : 'bg-gray-200 text-gray-800'
                                 }`}>
                                   {candidate.statusMessage || candidate.status}
                                 </span>
+                                {(candidate.status === 'pending_fees' || candidate.status === 'fees_overdue') && (
+                                  <label className="flex items-center gap-1 text-xs cursor-pointer" onClick={(e) => e.stopPropagation()}>
+                                    <input
+                                      type="checkbox"
+                                      checked={exceptionStudentIds.includes(candidate.studentId)}
+                                      onChange={(e) => {
+                                        handleToggleException(candidate.studentId, e.target.checked);
+                                        if (e.target.checked && !selectedStudents.includes(candidate.studentId)) {
+                                          handleToggleStudent(candidate.studentId);
+                                        }
+                                      }}
+                                      className="w-3 h-3 text-orange-600 border-gray-300 rounded focus:ring-orange-500"
+                                    />
+                                    <span className="text-amber-700 font-medium">Add as Exception</span>
+                                  </label>
+                                )}
                                 <input
                                   type="checkbox"
                                   checked={selectedStudents.includes(candidate.studentId)}
                                   onChange={() => handleToggleStudent(candidate.studentId)}
-                                  disabled={candidate.status === 'busy' || candidate.status === 'no_orientation'}
+                                  disabled={candidate.status === 'busy'}
                                   className="w-4 h-4 text-orange-600 border-gray-300 rounded focus:ring-orange-500"
                                   onClick={(e) => e.stopPropagation()}
                                 />

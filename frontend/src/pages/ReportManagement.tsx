@@ -453,35 +453,44 @@ export const ReportManagement: React.FC = () => {
                         </div>
                       </div>
                     </div>
-                    <div className="overflow-x-auto">
-                      <table className="min-w-full divide-y divide-gray-200">
-                        <thead className="bg-gray-50">
-                          <tr>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Student</th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Batch</th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Files</th>
-                          </tr>
-                        </thead>
-                        <tbody className="bg-white divide-y divide-gray-200">
-                          {portfolioStatusData.data.portfolios.map((portfolio) => (
-                            <tr key={portfolio.id} className="hover:bg-gray-50">
-                              <td className="px-6 py-4 whitespace-nowrap">{portfolio.student.name}</td>
-                              <td className="px-6 py-4 whitespace-nowrap">{portfolio.batch.title}</td>
-                              <td className="px-6 py-4 whitespace-nowrap">
-                                <span className={`px-2 py-1 rounded text-xs font-semibold ${
-                                  portfolio.status === 'approved' ? 'bg-green-100 text-green-800' :
-                                  portfolio.status === 'rejected' ? 'bg-red-100 text-red-800' :
-                                  'bg-yellow-100 text-yellow-800'
-                                }`}>
-                                  {portfolio.status}
-                                </span>
-                              </td>
-                              <td className="px-6 py-4 whitespace-nowrap">{Object.keys(portfolio.files || {}).length}</td>
+                    <div className="overflow-x-auto -mx-4 sm:mx-0">
+                      <div className="inline-block min-w-full align-middle sm:px-0">
+                        <table className="min-w-full divide-y divide-gray-200">
+                          <thead className="bg-gray-50">
+                            <tr>
+                              <th className="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Student</th>
+                              <th className="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden md:table-cell">Batch</th>
+                              <th className="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                              <th className="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Files</th>
                             </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                          </thead>
+                          <tbody className="bg-white divide-y divide-gray-200">
+                            {portfolioStatusData.data.portfolios.map((portfolio) => (
+                              <tr key={portfolio.id} className="hover:bg-gray-50">
+                                <td className="px-3 sm:px-6 py-4">
+                                  <div className="text-xs sm:text-sm font-medium text-gray-900">{portfolio.student.name}</div>
+                                  <div className="text-xs text-gray-500 md:hidden mt-1">{portfolio.batch.title}</div>
+                                </td>
+                                <td className="px-3 sm:px-6 py-4 whitespace-nowrap hidden md:table-cell">
+                                  <div className="text-xs sm:text-sm text-gray-900">{portfolio.batch.title}</div>
+                                </td>
+                                <td className="px-3 sm:px-6 py-4 whitespace-nowrap">
+                                  <span className={`px-2 py-1 rounded text-xs font-semibold ${
+                                    portfolio.status === 'approved' ? 'bg-green-100 text-green-800' :
+                                    portfolio.status === 'rejected' ? 'bg-red-100 text-red-800' :
+                                    'bg-yellow-100 text-yellow-800'
+                                  }`}>
+                                    {portfolio.status}
+                                  </span>
+                                </td>
+                                <td className="px-3 sm:px-6 py-4 whitespace-nowrap">
+                                  <div className="text-xs sm:text-sm text-gray-900">{Object.keys(portfolio.files || {}).length}</div>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
                     </div>
                   </div>
                 ) : null}

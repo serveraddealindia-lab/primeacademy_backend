@@ -40,7 +40,10 @@ export declare const completeEnrollment: (req: AuthRequest & {
 export declare const createDummyStudent: (_req: AuthRequest, res: Response) => Promise<void>;
 export declare const createThreeDummyStudents: (_req: AuthRequest, res: Response) => Promise<void>;
 export declare const getAllSoftware: (req: AuthRequest, res: Response) => Promise<void>;
+export declare const getCourseNames: (req: AuthRequest, res: Response) => Promise<void>;
+export declare const unifiedStudentImport: (req: AuthRequest, res: Response) => Promise<void>;
 export declare const bulkEnrollStudents: (req: AuthRequest, res: Response) => Promise<void>;
-export declare const downloadEnrollmentTemplate: (req: AuthRequest, res: Response) => Promise<void>;
+export declare const getStudentAttendance: (req: AuthRequest, res: Response) => Promise<void>;
+export declare const downloadUnifiedTemplate: (req: AuthRequest, res: Response) => Promise<void>;
 export {};
 //# sourceMappingURL=student.controller.d.ts.map

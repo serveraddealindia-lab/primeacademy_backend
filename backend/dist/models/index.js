@@ -33,6 +33,7 @@ const BiometricDevice_1 = __importDefault(require("./BiometricDevice"));
 const AttendanceLog_1 = __importDefault(require("./AttendanceLog"));
 const StudentOrientation_1 = __importDefault(require("./StudentOrientation"));
 const StudentSoftwareProgress_1 = __importDefault(require("./StudentSoftwareProgress"));
+const Course_1 = __importDefault(require("./Course"));
 const db = {
     sequelize: database_1.default,
     Sequelize: sequelize_1.Sequelize,
@@ -63,6 +64,7 @@ const db = {
     AttendanceLog: AttendanceLog_1.default,
     StudentOrientation: StudentOrientation_1.default,
     StudentSoftwareProgress: StudentSoftwareProgress_1.default,
+    Course: Course_1.default,
 };
 // Define associations
 // User associations
@@ -127,6 +129,7 @@ Batch_1.default.belongsToMany(User_1.default, {
     foreignKey: 'batchId',
     otherKey: 'facultyId',
 });
+Batch_1.default.belongsTo(Course_1.default, { foreignKey: 'courseId', as: 'course' });
 BatchFacultyAssignment_1.default.belongsTo(Batch_1.default, { foreignKey: 'batchId', as: 'batch' });
 BatchFacultyAssignment_1.default.belongsTo(User_1.default, { foreignKey: 'facultyId', as: 'faculty' });
 // Enrollment associations
@@ -204,5 +207,7 @@ StudentSoftwareProgress_1.default.belongsTo(User_1.default, { foreignKey: 'stude
 StudentSoftwareProgress_1.default.belongsTo(Batch_1.default, { foreignKey: 'batchId', as: 'batch' });
 User_1.default.hasMany(StudentSoftwareProgress_1.default, { foreignKey: 'studentId', as: 'softwareProgress' });
 Batch_1.default.hasMany(StudentSoftwareProgress_1.default, { foreignKey: 'batchId', as: 'studentSoftwareProgress' });
+// Course associations
+Course_1.default.hasMany(Batch_1.default, { foreignKey: 'courseId', as: 'batches' });
 exports.default = db;
 //# sourceMappingURL=index.js.map

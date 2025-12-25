@@ -141,6 +141,71 @@ export const studentSoftwareProgressAPI = {
     return response.data;
   },
 
+  // Download Excel import template
+  downloadTemplate: async () => {
+    try {
+      const response = await api.get('/student-software-progress/download-template', {
+        responseType: 'blob',
+      });
+
+      // Check if the blob is actually a JSON error response
+      const contentType = response.headers['content-type'] || '';
+      if (contentType.includes('application/json')) {
+        const text = await response.data.text();
+        const errorData = JSON.parse(text);
+        throw new Error(errorData.message || 'Failed to download template');
+      }
+
+      // Verify it's an Excel file
+      if (!contentType.includes('spreadsheetml') && !contentType.includes('excel')) {
+        // Might be an error, try to parse as JSON
+        try {
+          const text = await response.data.text();
+          const errorData = JSON.parse(text);
+          throw new Error(errorData.message || 'Failed to download template');
+        } catch {
+          // Not JSON, proceed with download
+        }
+      }
+
+      // Create download link
+      const url = window.URL.createObjectURL(response.data);
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', 'studentwise_import_template.xlsx');
+      document.body.appendChild(link);
+      link.click();
+      
+      // Clean up after a short delay
+      setTimeout(() => {
+        link.remove();
+        window.URL.revokeObjectURL(url);
+      }, 100);
+    } catch (error: any) {
+      // Handle blob errors
+      if (error.response?.data instanceof Blob) {
+        try {
+          const text = await error.response.data.text();
+          const errorData = JSON.parse(text);
+          throw new Error(errorData.message || errorData.error || 'Failed to download template');
+        } catch (parseError) {
+          throw new Error('Failed to download template. Please check backend logs.');
+        }
+      }
+      
+      // Handle axios errors
+      if (error.response?.data?.message) {
+        throw new Error(error.response.data.message);
+      }
+      
+      if (error.message) {
+        throw error;
+      }
+      
+      throw new Error('Failed to download template. Please try again.');
+    }
+  },
+
   // Export Excel
   exportExcel: async (params?: { studentId?: number; courseName?: string; status?: string }) => {
     const queryParams = new URLSearchParams();

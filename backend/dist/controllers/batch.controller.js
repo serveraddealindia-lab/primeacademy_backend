@@ -20,15 +20,59 @@ const createBatch = async (req, res) => {
             });
             return;
         }
-        const { title, software, mode, startDate, endDate, maxCapacity, schedule, status, facultyIds, studentIds } = req.body;
-        // Validation
-        if (!title || !mode || !startDate || !endDate || !maxCapacity) {
+        const { title, software, mode, startDate, endDate, maxCapacity, schedule, status, facultyIds, studentIds, exceptionStudentIds, courseId } = req.body;
+        // Validation - All fields required
+        if (!title || !title.trim()) {
             res.status(400).json({
                 status: 'error',
-                message: 'Title, mode, startDate, endDate, and maxCapacity are required',
+                message: 'Title is required',
             });
             return;
         }
+        if (!software || !software.trim()) {
+            res.status(400).json({
+                status: 'error',
+                message: 'Software is required',
+            });
+            return;
+        }
+        if (!mode) {
+            res.status(400).json({
+                status: 'error',
+                message: 'Mode is required',
+            });
+            return;
+        }
+        if (!startDate) {
+            res.status(400).json({
+                status: 'error',
+                message: 'Start date is required',
+            });
+            return;
+        }
+        if (!endDate) {
+            res.status(400).json({
+                status: 'error',
+                message: 'End date is required',
+            });
+            return;
+        }
+        if (!maxCapacity) {
+            res.status(400).json({
+                status: 'error',
+                message: 'Max capacity is required',
+            });
+            return;
+        }
+        // Validate status - required
+        if (!status || !status.trim()) {
+            res.status(400).json({
+                status: 'error',
+                message: 'Status is required',
+            });
+            return;
+        }
+        const batchStatus = status.trim();
         // Validate mode
         if (!Object.values(Batch_1.BatchMode).includes(mode)) {
             res.status(400).json({
@@ -137,44 +181,139 @@ const createBatch = async (req, res) => {
                 normalizedStudentIds = uniqueStudentIds;
             }
         }
+        // Validate courseId if provided
+        if (courseId !== undefined && courseId !== null && courseId !== '') {
+            const courseIdNum = Number(courseId);
+            if (isNaN(courseIdNum) || courseIdNum <= 0) {
+                res.status(400).json({
+                    status: 'error',
+                    message: 'Invalid course ID',
+                });
+                return;
+            }
+            // Check if Course model exists
+            if (!models_1.default.Course) {
+                logger_1.logger.error('Course model not found in db object');
+                res.status(500).json({
+                    status: 'error',
+                    message: 'Course model not available',
+                });
+                return;
+            }
+            const course = await models_1.default.Course.findByPk(courseIdNum);
+            if (!course) {
+                res.status(400).json({
+                    status: 'error',
+                    message: `Course with ID ${courseIdNum} not found`,
+                });
+                return;
+            }
+        }
+        // Validate that BatchFacultyAssignment model exists
+        if (!models_1.default.BatchFacultyAssignment) {
+            logger_1.logger.error('BatchFacultyAssignment model not found in db object');
+            res.status(500).json({
+                status: 'error',
+                message: 'BatchFacultyAssignment model not available',
+            });
+            return;
+        }
+        // Validate that Enrollment model exists
+        if (!models_1.default.Enrollment) {
+            logger_1.logger.error('Enrollment model not found in db object');
+            res.status(500).json({
+                status: 'error',
+                message: 'Enrollment model not available',
+            });
+            return;
+        }
         // Create batch with transaction
         const transaction = await models_1.default.sequelize.transaction();
         try {
+            logger_1.logger.info(`Creating batch with data: title=${title}, mode=${mode}, facultyIds=${normalizedFacultyIds.join(',')}, courseId=${courseId || 'null'}`);
             const batch = await models_1.default.Batch.create({
-                title,
-                software: software || null,
+                title: title.trim(),
+                software: software.trim(),
                 mode,
                 startDate: start,
                 endDate: end,
                 maxCapacity,
                 schedule: schedule || null,
-                status: status || null,
+                status: batchStatus,
                 createdByAdminId: req.user.userId,
+                courseId: (courseId !== undefined && courseId !== null && courseId !== '') ? Number(courseId) : null,
             }, { transaction });
+            logger_1.logger.info(`Batch created successfully with ID: ${batch.id}`);
             // Assign faculty if provided
             if (normalizedFacultyIds.length > 0) {
-                const facultyAssignments = normalizedFacultyIds.map((facultyId) => ({
-                    batchId: batch.id,
-                    facultyId,
-                }));
-                const createdAssignments = await models_1.default.BatchFacultyAssignment.bulkCreate(facultyAssignments, { transaction });
-                logger_1.logger.info(`Created ${createdAssignments.length} faculty assignments for batch ${batch.id}: facultyIds=${normalizedFacultyIds.join(', ')}`);
+                try {
+                    const facultyAssignments = normalizedFacultyIds.map((facultyId) => ({
+                        batchId: batch.id,
+                        facultyId,
+                    }));
+                    logger_1.logger.info(`Creating ${facultyAssignments.length} faculty assignments for batch ${batch.id}`);
+                    const createdAssignments = await models_1.default.BatchFacultyAssignment.bulkCreate(facultyAssignments, { transaction });
+                    logger_1.logger.info(`Created ${createdAssignments.length} faculty assignments for batch ${batch.id}: facultyIds=${normalizedFacultyIds.join(', ')}`);
+                }
+                catch (facultyError) {
+                    logger_1.logger.error('Error creating faculty assignments:', facultyError);
+                    logger_1.logger.error('Faculty assignment error details:', {
+                        message: facultyError?.message,
+                        name: facultyError?.name,
+                        code: facultyError?.code,
+                        sqlState: facultyError?.parent?.sqlState,
+                        sqlMessage: facultyError?.parent?.sqlMessage,
+                        stack: facultyError?.stack,
+                    });
+                    throw new Error(`Failed to assign faculty: ${facultyError?.message || 'Unknown error'}`);
+                }
             }
             // Enroll students if provided
             if (normalizedStudentIds.length > 0) {
-                const enrollmentRows = normalizedStudentIds.map((studentId) => ({
-                    studentId,
-                    batchId: batch.id,
-                    enrollmentDate: new Date(),
-                    status: 'active',
-                }));
-                await models_1.default.Enrollment.bulkCreate(enrollmentRows, {
-                    transaction,
-                    ignoreDuplicates: true,
-                });
-                logger_1.logger.info(`Enrolled ${enrollmentRows.length} students into batch ${batch.id}`);
+                try {
+                    // Normalize exception student IDs
+                    let normalizedExceptionStudentIds = [];
+                    if (exceptionStudentIds !== undefined) {
+                        if (!Array.isArray(exceptionStudentIds)) {
+                            normalizedExceptionStudentIds = [];
+                        }
+                        else {
+                            normalizedExceptionStudentIds = exceptionStudentIds
+                                .map((id) => {
+                                const numId = typeof id === 'string' ? parseInt(id, 10) : id;
+                                return isNaN(numId) ? null : numId;
+                            })
+                                .filter((id) => id !== null && id !== undefined);
+                        }
+                    }
+                    const enrollmentRows = normalizedStudentIds.map((studentId) => ({
+                        studentId,
+                        batchId: batch.id,
+                        enrollmentDate: new Date(),
+                        status: normalizedExceptionStudentIds.includes(studentId) ? 'exception' : 'active',
+                    }));
+                    logger_1.logger.info(`Enrolling ${enrollmentRows.length} students into batch ${batch.id} (${normalizedExceptionStudentIds.length} as exceptions)`);
+                    await models_1.default.Enrollment.bulkCreate(enrollmentRows, {
+                        transaction,
+                        ignoreDuplicates: true,
+                    });
+                    logger_1.logger.info(`Enrolled ${enrollmentRows.length} students into batch ${batch.id}`);
+                }
+                catch (enrollmentError) {
+                    logger_1.logger.error('Error enrolling students:', enrollmentError);
+                    logger_1.logger.error('Enrollment error details:', {
+                        message: enrollmentError?.message,
+                        name: enrollmentError?.name,
+                        code: enrollmentError?.code,
+                        sqlState: enrollmentError?.parent?.sqlState,
+                        sqlMessage: enrollmentError?.parent?.sqlMessage,
+                        stack: enrollmentError?.stack,
+                    });
+                    throw new Error(`Failed to enroll students: ${enrollmentError?.message || 'Unknown error'}`);
+                }
             }
             await transaction.commit();
+            logger_1.logger.info(`Transaction committed successfully for batch ${batch.id}`);
             // Fetch assigned faculty for response
             const assignedFaculty = normalizedFacultyIds.length > 0
                 ? await models_1.default.User.findAll({
@@ -182,6 +321,12 @@ const createBatch = async (req, res) => {
                     attributes: ['id', 'name', 'email', 'phone'],
                 })
                 : [];
+            // Fetch course if courseId exists
+            const course = batch.courseId
+                ? await models_1.default.Course.findByPk(batch.courseId, {
+                    attributes: ['id', 'name', 'software'],
+                })
+                : null;
             res.status(201).json({
                 status: 'success',
                 message: 'Batch created successfully',
@@ -197,6 +342,12 @@ const createBatch = async (req, res) => {
                         schedule: batch.schedule,
                         status: batch.status,
                         createdByAdminId: batch.createdByAdminId,
+                        courseId: batch.courseId,
+                        course: course ? {
+                            id: course.id,
+                            name: course.name,
+                            software: course.software,
+                        } : null,
                         createdAt: batch.createdAt,
                         updatedAt: batch.updatedAt,
                     },
@@ -218,14 +369,58 @@ const createBatch = async (req, res) => {
         }
         catch (error) {
             await transaction.rollback();
+            logger_1.logger.error('Create batch transaction error:', error);
+            logger_1.logger.error('Transaction error details:', {
+                message: error instanceof Error ? error.message : String(error),
+                stack: error instanceof Error ? error.stack : undefined,
+                name: error instanceof Error ? error.name : undefined,
+                code: error?.code,
+                sqlState: error?.parent?.sqlState,
+                sqlMessage: error?.parent?.sqlMessage,
+                original: error?.original,
+            });
             throw error;
         }
     }
     catch (error) {
         logger_1.logger.error('Create batch error:', error);
+        logger_1.logger.error('Error stack:', error?.stack);
+        logger_1.logger.error('Error details:', {
+            message: error?.message,
+            name: error?.name,
+            code: error?.code,
+            sqlState: error?.parent?.sqlState,
+            sqlMessage: error?.parent?.sqlMessage,
+            original: error?.original,
+            errors: error?.errors,
+        });
+        // Provide more specific error messages based on error type
+        let errorMessage = 'Internal server error while creating batch';
+        if (error?.name === 'SequelizeForeignKeyConstraintError') {
+            errorMessage = 'Foreign key constraint violation. Please check that all referenced IDs (faculty, students, course) exist and are valid.';
+        }
+        else if (error?.name === 'SequelizeUniqueConstraintError') {
+            errorMessage = 'Unique constraint violation. A batch with similar details may already exist.';
+        }
+        else if (error?.name === 'SequelizeValidationError') {
+            errorMessage = `Validation error: ${error?.message || 'Invalid data provided'}`;
+        }
+        else if (error?.name === 'SequelizeDatabaseError') {
+            errorMessage = `Database error: ${error?.parent?.sqlMessage || error?.message || 'Database operation failed'}`;
+        }
+        else if (error?.message) {
+            errorMessage = error.message;
+        }
         res.status(500).json({
             status: 'error',
-            message: 'Internal server error while creating batch',
+            message: errorMessage,
+            error: process.env.NODE_ENV === 'development' ? error?.message : undefined,
+            details: process.env.NODE_ENV === 'development' ? {
+                name: error?.name,
+                code: error?.code,
+                sqlState: error?.parent?.sqlState,
+                sqlMessage: error?.parent?.sqlMessage,
+            } : undefined,
         });
     }
 };
@@ -745,10 +940,19 @@ const suggestCandidates = async (req, res) => {
                     }
                 })
                     .filter((payment) => payment.studentId === studentId);
+                // Check for pending payments (including EMIs and next batch fees)
+                const pendingPayments = payments
+                    .filter((payment) => payment.studentId === studentId);
                 const hasOverdueFees = overduePayments.length > 0;
+                const hasPendingFees = pendingPayments.length > 0;
                 const totalOverdueAmount = overduePayments.reduce((sum, payment) => {
                     const amount = Number(payment.amount) || 0;
                     return sum + (isNaN(amount) ? 0 : amount);
+                }, 0);
+                const totalPendingAmount = pendingPayments.reduce((sum, payment) => {
+                    const amount = Number(payment.amount) || 0;
+                    const paid = Number(payment.paidAmount) || 0;
+                    return sum + (isNaN(amount) ? 0 : (amount - paid));
                 }, 0);
                 // Check for conflicting enrollments (overlapping batch dates)
                 const conflictingEnrollments = existingEnrollments.filter((enrollment) => {
@@ -797,6 +1001,11 @@ const suggestCandidates = async (req, res) => {
                     status = 'fees_overdue';
                     statusMessage = `Fees overdue (₹${totalOverdueAmount.toFixed(2)})`;
                 }
+                else if (hasPendingFees) {
+                    // Mark as pending fees (needs exception)
+                    status = 'pending_fees';
+                    statusMessage = `Pending fees/EMI (₹${totalPendingAmount.toFixed(2)})`;
+                }
                 else if (isBusy) {
                     status = 'busy';
                     const conflictDetails = [];
@@ -820,7 +1029,9 @@ const suggestCandidates = async (req, res) => {
                     status,
                     statusMessage,
                     hasOverdueFees,
+                    hasPendingFees,
                     totalOverdueAmount: hasOverdueFees ? totalOverdueAmount : 0,
+                    totalPendingAmount: hasPendingFees ? totalPendingAmount : 0,
                     conflictingBatches: conflictingEnrollments
                         .map((enrollment) => enrollment.batch)
                         .filter((enrollmentBatch) => !!enrollmentBatch)
@@ -842,18 +1053,21 @@ const suggestCandidates = async (req, res) => {
                     status: 'no_orientation',
                     statusMessage: 'Error processing student data',
                     hasOverdueFees: false,
+                    hasPendingFees: false,
                     totalOverdueAmount: 0,
+                    totalPendingAmount: 0,
                     conflictingBatches: [],
                     conflictingSessions: [],
                 };
             }
         }).filter((candidate) => candidate !== null && candidate !== undefined);
-        // Sort candidates: available first, then no_orientation, then busy, then fees_overdue
+        // Sort candidates: available first, then no_orientation, then busy, then pending_fees, then fees_overdue
         const statusOrder = {
             available: 1,
             no_orientation: 2,
             busy: 3,
-            fees_overdue: 4
+            pending_fees: 4,
+            fees_overdue: 5
         };
         candidates.sort((a, b) => {
             return (statusOrder[a.status] || 99) - (statusOrder[b.status] || 99);
@@ -876,6 +1090,7 @@ const suggestCandidates = async (req, res) => {
                     available: candidates.filter((c) => c.status === 'available').length,
                     noOrientation: candidates.filter((c) => c.status === 'no_orientation').length,
                     busy: candidates.filter((c) => c.status === 'busy').length,
+                    pendingFees: candidates.filter((c) => c.status === 'pending_fees').length,
                     feesOverdue: candidates.filter((c) => c.status === 'fees_overdue').length,
                 },
             },
@@ -978,46 +1193,60 @@ const getAllBatches = async (req, res) => {
             }
             where.id = { [sequelize_1.Op.in]: assignedBatchIds };
         }
+        // Build includes array
+        const includes = [
+            {
+                model: models_1.default.User,
+                as: 'admin',
+                attributes: ['id', 'name', 'email'],
+            },
+            {
+                model: models_1.default.Enrollment,
+                as: 'enrollments',
+                include: [
+                    {
+                        model: models_1.default.User,
+                        as: 'student',
+                        attributes: ['id', 'name', 'email', 'phone'],
+                    },
+                ],
+            },
+            {
+                model: models_1.default.Session,
+                as: 'sessions',
+                include: [
+                    {
+                        model: models_1.default.User,
+                        as: 'faculty',
+                        attributes: ['id', 'name', 'email'],
+                    },
+                ],
+                attributes: ['id', 'facultyId', 'date', 'status'],
+            },
+            {
+                model: models_1.default.User,
+                as: 'assignedFaculty',
+                attributes: ['id', 'name', 'email'],
+                through: { attributes: [] },
+                required: false,
+            },
+        ];
+        // Add Course include only if model exists
+        if (models_1.default.Course) {
+            includes.push({
+                model: models_1.default.Course,
+                as: 'course',
+                attributes: ['id', 'name', 'software'],
+                required: false,
+            });
+        }
+        else {
+            logger_1.logger.warn('Course model not found in db object, skipping course include');
+        }
         // Get all batches with related data
         const batches = await models_1.default.Batch.findAll({
             where: Object.keys(where).length > 0 ? where : undefined,
-            include: [
-                {
-                    model: models_1.default.User,
-                    as: 'admin',
-                    attributes: ['id', 'name', 'email'],
-                },
-                {
-                    model: models_1.default.Enrollment,
-                    as: 'enrollments',
-                    include: [
-                        {
-                            model: models_1.default.User,
-                            as: 'student',
-                            attributes: ['id', 'name', 'email', 'phone'],
-                        },
-                    ],
-                },
-                {
-                    model: models_1.default.Session,
-                    as: 'sessions',
-                    include: [
-                        {
-                            model: models_1.default.User,
-                            as: 'faculty',
-                            attributes: ['id', 'name', 'email'],
-                        },
-                    ],
-                    attributes: ['id', 'facultyId', 'date', 'status'],
-                },
-                {
-                    model: models_1.default.User,
-                    as: 'assignedFaculty',
-                    attributes: ['id', 'name', 'email'],
-                    through: { attributes: [] },
-                    required: false,
-                },
-            ],
+            include: includes,
             order: [['createdAt', 'DESC']],
         });
         // Transform the data to show faculty information from sessions
@@ -1051,6 +1280,12 @@ const getAllBatches = async (req, res) => {
                 currentEnrollment: batch.enrollments?.length || 0,
                 schedule: batch.schedule,
                 status: batch.status,
+                courseId: batch.courseId,
+                course: batch.course ? {
+                    id: batch.course.id,
+                    name: batch.course.name,
+                    software: batch.course.software,
+                } : null,
                 createdBy: batch.admin
                     ? {
                         id: batch.admin.id,
@@ -1079,9 +1314,18 @@ const getAllBatches = async (req, res) => {
     }
     catch (error) {
         logger_1.logger.error('Get all batches error:', error);
+        logger_1.logger.error('Error stack:', error?.stack);
+        logger_1.logger.error('Error details:', {
+            message: error?.message,
+            name: error?.name,
+            code: error?.code,
+            sqlState: error?.parent?.sqlState,
+            sqlMessage: error?.parent?.sqlMessage,
+        });
         res.status(500).json({
             status: 'error',
             message: 'Internal server error while fetching batches',
+            error: process.env.NODE_ENV === 'development' ? error?.message : undefined,
         });
     }
 };
@@ -1097,44 +1341,55 @@ const getBatchById = async (req, res) => {
             });
             return;
         }
+        // Build includes array
+        const includes = [
+            {
+                model: models_1.default.User,
+                as: 'admin',
+                attributes: ['id', 'name', 'email'],
+            },
+            {
+                model: models_1.default.Enrollment,
+                as: 'enrollments',
+                include: [
+                    {
+                        model: models_1.default.User,
+                        as: 'student',
+                        attributes: ['id', 'name', 'email', 'phone'],
+                    },
+                ],
+            },
+            {
+                model: models_1.default.Session,
+                as: 'sessions',
+                include: [
+                    {
+                        model: models_1.default.User,
+                        as: 'faculty',
+                        attributes: ['id', 'name', 'email'],
+                    },
+                ],
+                attributes: ['id', 'facultyId', 'date', 'status'],
+            },
+            {
+                model: models_1.default.User,
+                as: 'assignedFaculty',
+                attributes: ['id', 'name', 'email'],
+                through: { attributes: [] },
+                required: false,
+            },
+        ];
+        // Add Course include only if model exists
+        if (models_1.default.Course) {
+            includes.push({
+                model: models_1.default.Course,
+                as: 'course',
+                attributes: ['id', 'name', 'software'],
+                required: false,
+            });
+        }
         const batch = await models_1.default.Batch.findByPk(batchId, {
-            include: [
-                {
-                    model: models_1.default.User,
-                    as: 'admin',
-                    attributes: ['id', 'name', 'email'],
-                },
-                {
-                    model: models_1.default.Enrollment,
-                    as: 'enrollments',
-                    include: [
-                        {
-                            model: models_1.default.User,
-                            as: 'student',
-                            attributes: ['id', 'name', 'email', 'phone'],
-                        },
-                    ],
-                },
-                {
-                    model: models_1.default.Session,
-                    as: 'sessions',
-                    include: [
-                        {
-                            model: models_1.default.User,
-                            as: 'faculty',
-                            attributes: ['id', 'name', 'email'],
-                        },
-                    ],
-                    attributes: ['id', 'facultyId', 'date', 'status'],
-                },
-                {
-                    model: models_1.default.User,
-                    as: 'assignedFaculty',
-                    attributes: ['id', 'name', 'email'],
-                    through: { attributes: [] },
-                    required: false,
-                },
-            ],
+            include: includes,
         });
         if (!batch) {
             res.status(404).json({
@@ -1144,6 +1399,17 @@ const getBatchById = async (req, res) => {
             return;
         }
         // Transform the data
+        // Parse schedule if it's a string (shouldn't happen with JSON type, but handle it anyway)
+        let parsedSchedule = batch.schedule;
+        if (typeof batch.schedule === 'string') {
+            try {
+                parsedSchedule = JSON.parse(batch.schedule);
+            }
+            catch (e) {
+                logger_1.logger.warn('Failed to parse schedule JSON:', e);
+                parsedSchedule = null;
+            }
+        }
         const batchData = {
             id: batch.id,
             title: batch.title,
@@ -1153,8 +1419,14 @@ const getBatchById = async (req, res) => {
             endDate: batch.endDate,
             maxCapacity: batch.maxCapacity,
             currentEnrollment: batch.enrollments?.length || 0,
-            schedule: batch.schedule,
+            schedule: parsedSchedule,
             status: batch.status,
+            courseId: batch.courseId,
+            course: batch.course ? {
+                id: batch.course.id,
+                name: batch.course.name,
+                software: batch.course.software,
+            } : null,
             createdBy: batch.admin
                 ? {
                     id: batch.admin.id,
@@ -1202,9 +1474,18 @@ const getBatchById = async (req, res) => {
     }
     catch (error) {
         logger_1.logger.error('Get batch by ID error:', error);
+        logger_1.logger.error('Error stack:', error?.stack);
+        logger_1.logger.error('Error details:', {
+            message: error?.message,
+            name: error?.name,
+            code: error?.code,
+            sqlState: error?.parent?.sqlState,
+            sqlMessage: error?.parent?.sqlMessage,
+        });
         res.status(500).json({
             status: 'error',
             message: 'Internal server error while fetching batch',
+            error: process.env.NODE_ENV === 'development' ? error?.message : undefined,
         });
     }
 };
@@ -1243,7 +1524,29 @@ const updateBatch = async (req, res) => {
             });
             return;
         }
-        const { title, software, mode, startDate, endDate, maxCapacity, schedule, status, facultyIds, studentIds, } = req.body;
+        const { title, software, mode, startDate, endDate, maxCapacity, schedule, status, facultyIds, studentIds, exceptionStudentIds, } = req.body;
+        // Validation - All fields required for update
+        if (title !== undefined && (!title || !title.trim())) {
+            res.status(400).json({
+                status: 'error',
+                message: 'Title is required and cannot be empty',
+            });
+            return;
+        }
+        if (software !== undefined && (!software || !software.trim())) {
+            res.status(400).json({
+                status: 'error',
+                message: 'Software is required and cannot be empty',
+            });
+            return;
+        }
+        if (status !== undefined && (!status || !status.trim())) {
+            res.status(400).json({
+                status: 'error',
+                message: 'Status is required and cannot be empty',
+            });
+            return;
+        }
         // Validate mode if provided
         if (mode && !Object.values(Batch_1.BatchMode).includes(mode)) {
             res.status(400).json({
@@ -1361,14 +1664,14 @@ const updateBatch = async (req, res) => {
         const transaction = await models_1.default.sequelize.transaction();
         try {
             await batch.update({
-                title: title !== undefined ? title : batch.title,
-                software: software !== undefined ? software : batch.software,
+                title: title !== undefined ? title.trim() : batch.title,
+                software: software !== undefined ? software.trim() : batch.software,
                 mode: mode !== undefined ? mode : batch.mode,
                 startDate: startDate ? new Date(startDate) : batch.startDate,
                 endDate: endDate ? new Date(endDate) : batch.endDate,
                 maxCapacity: maxCapacity !== undefined ? maxCapacity : batch.maxCapacity,
                 schedule: schedule !== undefined ? schedule : batch.schedule,
-                status: status !== undefined ? status : batch.status,
+                status: status !== undefined ? status.trim() : batch.status,
             }, { transaction });
             // Update faculty assignments if provided
             if (normalizedFacultyIds !== null) {
@@ -1407,18 +1710,54 @@ const updateBatch = async (req, res) => {
                         transaction,
                     });
                 }
+                // Normalize exception student IDs
+                let normalizedExceptionStudentIds = [];
+                if (exceptionStudentIds !== undefined) {
+                    if (!Array.isArray(exceptionStudentIds)) {
+                        normalizedExceptionStudentIds = [];
+                    }
+                    else {
+                        normalizedExceptionStudentIds = exceptionStudentIds
+                            .map((id) => Number(id))
+                            .filter((id) => !Number.isNaN(id) && id > 0);
+                    }
+                }
                 const toAdd = finalIds.filter((id) => !existingIds.includes(id));
                 if (toAdd.length > 0) {
                     const enrollmentRows = toAdd.map((studentId) => ({
                         studentId,
                         batchId: batch.id,
                         enrollmentDate: new Date(),
-                        status: 'active',
+                        status: normalizedExceptionStudentIds.includes(studentId) ? 'exception' : 'active',
                     }));
                     await models_1.default.Enrollment.bulkCreate(enrollmentRows, {
                         transaction,
                         ignoreDuplicates: true,
                     });
+                    logger_1.logger.info(`Enrolled ${enrollmentRows.length} students into batch ${batch.id} (${normalizedExceptionStudentIds.length} as exceptions)`);
+                }
+                // Update status for existing enrollments if exceptionStudentIds is provided
+                if (exceptionStudentIds !== undefined) {
+                    const toUpdateException = finalIds.filter((id) => existingIds.includes(id) && normalizedExceptionStudentIds.includes(id));
+                    const toUpdateActive = finalIds.filter((id) => existingIds.includes(id) && !normalizedExceptionStudentIds.includes(id));
+                    if (toUpdateException.length > 0) {
+                        await models_1.default.Enrollment.update({ status: 'exception' }, {
+                            where: {
+                                batchId: batch.id,
+                                studentId: { [sequelize_1.Op.in]: toUpdateException },
+                            },
+                            transaction,
+                        });
+                    }
+                    if (toUpdateActive.length > 0) {
+                        await models_1.default.Enrollment.update({ status: 'active' }, {
+                            where: {
+                                batchId: batch.id,
+                                studentId: { [sequelize_1.Op.in]: toUpdateActive },
+                            },
+                            transaction,
+                        });
+                    }
                 }
             }
             await transaction.commit();

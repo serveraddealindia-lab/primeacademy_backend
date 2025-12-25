@@ -193,17 +193,22 @@ export const StudentEnrollment: React.FC = () => {
         const courseSoftware = selectedCourse.software as string[];
         // Set available software to only course software
         setAvailableSoftwares(courseSoftware);
-        // Auto-select all course software
+        // Auto-select all course software (read-only, comes from course)
         setSelectedSoftwares(courseSoftware);
+        // Clear any manually added "Other" software when course is selected
+        setShowOtherSoftwareInput(false);
+        setOtherSoftware('');
       } else {
         // If no course software found, reset to all software
         setAvailableSoftwares(ALL_SOFTWARES);
         setSelectedSoftwares([]);
       }
     } else if (field === 'courseName' && !value) {
-      // Reset to all software when course is cleared
+      // Reset to all software when course is cleared - allow manual selection
       setAvailableSoftwares(ALL_SOFTWARES);
       setSelectedSoftwares([]);
+      setShowOtherSoftwareInput(false);
+      setOtherSoftware('');
     }
     
     // Clear validation error for this field
@@ -236,9 +241,11 @@ export const StudentEnrollment: React.FC = () => {
       const uploadResponse = await uploadAPI.uploadFile(file);
       if (uploadResponse.data && uploadResponse.data.files && uploadResponse.data.files.length > 0) {
         const uploadedFile = uploadResponse.data.files[0];
+        // Clean the URL before saving to remove any duplicate domain issues
+        const cleanedUrl = getImageUrl(uploadedFile.url) || uploadedFile.url;
         setPhoto({
           name: uploadedFile.originalName,
-          url: uploadedFile.url,
+          url: cleanedUrl,
           size: uploadedFile.size,
         });
         alert('Photo uploaded successfully!');
@@ -272,9 +279,11 @@ export const StudentEnrollment: React.FC = () => {
       const uploadResponse = await uploadAPI.uploadFile(file);
       if (uploadResponse.data && uploadResponse.data.files && uploadResponse.data.files.length > 0) {
         const uploadedFile = uploadResponse.data.files[0];
+        // Clean the URL before saving to remove any duplicate domain issues
+        const cleanedUrl = getImageUrl(uploadedFile.url) || uploadedFile.url;
         setPanCard({
           name: uploadedFile.originalName,
-          url: uploadedFile.url,
+          url: cleanedUrl,
           size: uploadedFile.size,
         });
         alert('PAN Card uploaded successfully!');
@@ -308,9 +317,11 @@ export const StudentEnrollment: React.FC = () => {
       const uploadResponse = await uploadAPI.uploadFile(file);
       if (uploadResponse.data && uploadResponse.data.files && uploadResponse.data.files.length > 0) {
         const uploadedFile = uploadResponse.data.files[0];
+        // Clean the URL before saving to remove any duplicate domain issues
+        const cleanedUrl = getImageUrl(uploadedFile.url) || uploadedFile.url;
         setAadharCard({
           name: uploadedFile.originalName,
-          url: uploadedFile.url,
+          url: cleanedUrl,
           size: uploadedFile.size,
         });
         alert('Aadhar Card uploaded successfully!');
@@ -346,11 +357,15 @@ export const StudentEnrollment: React.FC = () => {
     try {
       const uploadResponse = await uploadAPI.uploadMultipleFiles(fileArray);
       if (uploadResponse.data && uploadResponse.data.files) {
-        const newDocuments = uploadResponse.data.files.map((file) => ({
-          name: file.originalName,
-          url: file.url,
-          size: file.size,
-        }));
+        const newDocuments = uploadResponse.data.files.map((file) => {
+          // Clean the URL before saving to remove any duplicate domain issues
+          const cleanedUrl = getImageUrl(file.url) || file.url;
+          return {
+            name: file.originalName,
+            url: cleanedUrl,
+            size: file.size,
+          };
+        });
         setOtherDocuments(prev => [...prev, ...newDocuments]);
         alert(`${newDocuments.length} document(s) uploaded successfully!`);
       } else {
@@ -1341,10 +1356,16 @@ const { data: employeesData } = useQuery({
                       {validationErrors.softwaresIncluded && (
                         <p className="mb-2 text-sm text-red-600">{validationErrors.softwaresIncluded}</p>
                       )}
-                      {!formData.courseName && (
+                      {formData.courseName ? (
+                        <div className="mb-2 p-2 bg-blue-50 border border-blue-200 rounded-md">
+                          <p className="text-xs text-blue-800">
+                            ✓ Software automatically loaded from selected course. You can manually select software if course is not selected.
+                          </p>
+                        </div>
+                      ) : (
                         <div className="mb-2 p-2 bg-yellow-50 border border-yellow-200 rounded-md">
                           <p className="text-xs text-yellow-800">
-                            ⚠️ Please select a course first to see available software
+                            ℹ️ No course selected. You can manually select software from the list below.
                           </p>
                         </div>
                       )}
@@ -1355,50 +1376,51 @@ const { data: employeesData } = useQuery({
                           </p>
                         </div>
                       )}
-                      <div className="border border-gray-300 rounded-md p-4 max-h-48 overflow-y-auto">
+                      <div className={`border border-gray-300 rounded-md p-4 max-h-48 overflow-y-auto ${formData.courseName ? 'bg-gray-50' : ''}`}>
                         <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                           {availableSoftwares.map((software) => (
                             <label 
                               key={software} 
-                              className="flex items-center space-x-2 cursor-pointer hover:bg-gray-50 p-2 rounded"
+                              className={`flex items-center space-x-2 p-2 rounded ${formData.courseName ? 'cursor-not-allowed opacity-75' : 'cursor-pointer hover:bg-gray-50'}`}
                             >
                               <input
                                 type="checkbox"
                                 name="softwaresIncluded"
                                 value={software}
-                                checked={software === 'Other' ? showOtherSoftwareInput : selectedSoftwares.includes(software)}
+                                checked={selectedSoftwares.includes(software)}
                                 onChange={(e) => {
-                                  if (software === 'Other') {
-                                    setShowOtherSoftwareInput(e.target.checked);
-                                  } else {
+                                  if (!formData.courseName) {
                                     handleSoftwareChange(software, e.target.checked);
                                   }
                                 }}
-                                className="w-4 h-4 text-orange-600 border-gray-300 rounded focus:ring-orange-500"
+                                disabled={!!formData.courseName}
+                                className="w-4 h-4 text-orange-600 border-gray-300 rounded focus:ring-orange-500 disabled:opacity-50 disabled:cursor-not-allowed"
                               />
-                              <span className="text-sm text-gray-700">{software}</span>
+                              <span className={`text-sm ${formData.courseName ? 'text-gray-500' : 'text-gray-700'}`}>{software}</span>
                             </label>
                           ))}
-                          {/* Always show "Other" option */}
-                          <label 
-                            key="Other" 
-                            className="flex items-center space-x-2 cursor-pointer hover:bg-gray-50 p-2 rounded"
-                          >
-                            <input
-                              type="checkbox"
-                              name="softwaresIncluded"
-                              value="Other"
-                              checked={showOtherSoftwareInput}
-                              onChange={(e) => {
-                                setShowOtherSoftwareInput(e.target.checked);
-                              }}
-                              className="w-4 h-4 text-orange-600 border-gray-300 rounded focus:ring-orange-500"
-                            />
-                            <span className="text-sm text-gray-700">Other</span>
-                          </label>
+                          {/* Show "Other" option only when course is NOT selected */}
+                          {!formData.courseName && (
+                            <label 
+                              key="Other" 
+                              className="flex items-center space-x-2 cursor-pointer hover:bg-gray-50 p-2 rounded"
+                            >
+                              <input
+                                type="checkbox"
+                                name="softwaresIncluded"
+                                value="Other"
+                                checked={showOtherSoftwareInput}
+                                onChange={(e) => {
+                                  setShowOtherSoftwareInput(e.target.checked);
+                                }}
+                                className="w-4 h-4 text-orange-600 border-gray-300 rounded focus:ring-orange-500"
+                              />
+                              <span className="text-sm text-gray-700">Other</span>
+                            </label>
+                          )}
                         </div>
                       </div>
-                      {showOtherSoftwareInput && (
+                      {showOtherSoftwareInput && !formData.courseName && (
                         <div className="mt-3">
                           <label className="block text-sm font-medium text-gray-700 mb-1">
                             Specify Other Software
@@ -1422,7 +1444,11 @@ const { data: employeesData } = useQuery({
                           />
                         </div>
                       )}
-                      <p className="mt-2 text-xs text-gray-500">Select all applicable software</p>
+                      <p className="mt-2 text-xs text-gray-500">
+                        {formData.courseName 
+                          ? 'Software is automatically included from the selected course' 
+                          : 'Select all applicable software'}
+                      </p>
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">

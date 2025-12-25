@@ -176,9 +176,11 @@ export const FacultyManagement: React.FC = () => {
       if (uploadResponse.data && uploadResponse.data.files && uploadResponse.data.files.length > 0) {
         const imageUrl = uploadResponse.data.files[0].url;
         console.log('Uploaded image URL:', imageUrl);
-        // Update preview with the uploaded URL
-        setImagePreview(imageUrl);
-        // Update user with new image URL
+        // Get cleaned full URL for preview
+        const fullImageUrl = getImageUrl(imageUrl) || imageUrl;
+        // Update preview with the cleaned full URL
+        setImagePreview(fullImageUrl);
+        // Update user with relative URL (backend will serve it)
         updateUserImageMutation.mutate({
           userId: selectedFaculty.id,
           avatarUrl: imageUrl,
@@ -483,10 +485,14 @@ export const FacultyManagement: React.FC = () => {
               <div className="flex justify-center mb-4">
                 {imagePreview ? (
                   <img
-                    src={imagePreview}
+                    src={imagePreview.startsWith('data:') ? imagePreview : (getImageUrl(imagePreview) || imagePreview)}
                     alt="Preview"
                     className="h-32 w-32 rounded-full object-cover border-4 border-orange-500"
                     key={imagePreview}
+                    crossOrigin="anonymous"
+                    onError={(e) => {
+                      (e.target as HTMLImageElement).src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTI4IiBoZWlnaHQ9IjEyOCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZmY5NTAwIi8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtZmFtaWx5PSJBcmlhbCwgc2Fucy1zZXJpZiIgZm9udC1zaXplPSI0OCIgZmlsbD0iI2ZmZiIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZHk9Ii4zZW0iPnt7c2VsZWN0ZWRGYWN1bHR5Lm5hbWUuY2hhckF0KDApfX08L3RleHQ+PC9zdmc+';
+                    }}
                   />
                 ) : selectedFaculty?.avatarUrl ? (
                   <img
