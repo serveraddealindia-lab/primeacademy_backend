@@ -13,6 +13,13 @@ router.get(
   userController.getAllUsers
 );
 
+// GET /api/users/modules/list - Get list of available modules (must be before /:id routes)
+router.get(
+  '/modules/list',
+  verifyTokenMiddleware,
+  userController.getModulesList
+);
+
 // PUT /api/users/:id/student-profile - Update student profile (must be before /:id)
 router.put(
   '/:id/student-profile',
@@ -42,6 +49,14 @@ router.post(
   userController.loginAsUser
 );
 
+// POST /api/users/:id/reset-password → Reset user password (admin/superadmin only) - Must be before /:id route
+router.post(
+  '/:id/reset-password',
+  verifyTokenMiddleware,
+  checkRole(UserRole.ADMIN, UserRole.SUPERADMIN),
+  userController.resetUserPassword
+);
+
 // GET /api/users/:id - Get user by ID
 router.get(
   '/:id',
@@ -62,13 +77,6 @@ router.delete(
   verifyTokenMiddleware,
   checkRole(UserRole.ADMIN, UserRole.SUPERADMIN),
   userController.deleteUser
-);
-
-// GET /api/users/modules/list - Get list of available modules
-router.get(
-  '/modules/list',
-  verifyTokenMiddleware,
-  userController.getModulesList
 );
 
 export default router;

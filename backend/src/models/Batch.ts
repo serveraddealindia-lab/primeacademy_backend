@@ -22,11 +22,12 @@ export interface BatchAttributes {
   schedule: any | null;
   createdByAdminId: number | null;
   status: string | null;
+  courseId: number | null;
   createdAt?: Date;
   updatedAt?: Date;
 }
 
-export interface BatchCreationAttributes extends Optional<BatchAttributes, 'id' | 'software' | 'schedule' | 'createdByAdminId' | 'status' | 'createdAt' | 'updatedAt'> {}
+export interface BatchCreationAttributes extends Optional<BatchAttributes, 'id' | 'software' | 'schedule' | 'createdByAdminId' | 'status' | 'courseId' | 'createdAt' | 'updatedAt'> {}
 
 class Batch extends Model<BatchAttributes, BatchCreationAttributes> implements BatchAttributes {
   public id!: number;
@@ -39,6 +40,7 @@ class Batch extends Model<BatchAttributes, BatchCreationAttributes> implements B
   public schedule!: any | null;
   public createdByAdminId!: number | null;
   public status!: string | null;
+  public courseId!: number | null;
   public readonly createdAt!: Date;
   public readonly updatedAt!: Date;
 }
@@ -89,6 +91,14 @@ Batch.init(
     status: {
       type: DataTypes.STRING,
       allowNull: true,
+    },
+    courseId: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      references: {
+        model: 'courses',
+        key: 'id',
+      },
     },
   },
   {

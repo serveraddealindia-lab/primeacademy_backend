@@ -49,9 +49,20 @@ export const getAllPortfolios = async (
     const { studentId, batchId, status } = req.query;
 
     const where: any = {};
-    if (studentId) where.studentId = parseInt(studentId as string, 10);
-    if (batchId) where.batchId = parseInt(batchId as string, 10);
-    if (status) where.status = status;
+    
+    // If student, only show their own portfolios (ignore query param studentId for security)
+    if (req.user.role === UserRole.STUDENT) {
+      where.studentId = req.user.userId;
+      // Allow students to see all their portfolios (pending, approved, rejected)
+      // Status filter can be applied via query parameter if needed
+      if (status) where.status = status;
+      if (batchId) where.batchId = parseInt(batchId as string, 10);
+    } else {
+      // For admins/faculty, allow query params
+      if (studentId) where.studentId = parseInt(studentId as string, 10);
+      if (batchId) where.batchId = parseInt(batchId as string, 10);
+      if (status) where.status = status;
+    }
 
     // If faculty, only show portfolios for batches they're assigned to
     if (req.user.role === UserRole.FACULTY) {
@@ -71,6 +82,13 @@ export const getAllPortfolios = async (
       }
       where.batchId = assignedBatchIds;
     }
+
+    // Log query details for debugging
+    logger.info('Fetching portfolios with where clause:', {
+      where,
+      userRole: req.user.role,
+      userId: req.user.userId,
+    });
 
     const portfolios = await db.Portfolio.findAll({
       where,
@@ -94,10 +112,40 @@ export const getAllPortfolios = async (
       order: [['createdAt', 'DESC']],
     });
 
+    logger.info(`Found ${portfolios.length} portfolios for user ${req.user.userId} (${req.user.role})`);
+    
+    // Log first portfolio details for debugging
+    if (portfolios.length > 0) {
+      const firstPortfolio = portfolios[0];
+      logger.info('Sample portfolio:', {
+        id: firstPortfolio.id,
+        studentId: firstPortfolio.studentId,
+        status: firstPortfolio.status,
+        hasFiles: !!firstPortfolio.files,
+        filesType: typeof firstPortfolio.files,
+      });
+    }
+
+    // Ensure files are properly serialized (Sequelize JSON fields might need parsing)
+    const serializedPortfolios = portfolios.map((portfolio: any) => {
+      const portfolioData = portfolio.toJSON();
+      // If files is a string, try to parse it
+      if (portfolioData.files && typeof portfolioData.files === 'string') {
+        try {
+          portfolioData.files = JSON.parse(portfolioData.files);
+        } catch (e) {
+          logger.warn(`Failed to parse portfolio files for portfolio ${portfolioData.id}:`, e);
+        }
+      }
+      return portfolioData;
+    });
+
+    logger.info(`Returning ${serializedPortfolios.length} serialized portfolios`);
+
     res.status(200).json({
       status: 'success',
       data: {
-        portfolios,
+        portfolios: serializedPortfolios,
       },
     });
   } catch (error) {

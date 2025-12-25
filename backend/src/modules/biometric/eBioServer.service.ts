@@ -1,15 +1,13 @@
 import axios from 'axios';
 import { Op } from 'sequelize';
 import db from '../../models';
-import BiometricDevice from '../../models/BiometricDevice';
-import AttendanceLog from '../../models/AttendanceLog';
-import EmployeePunch from '../../models/EmployeePunch';
+import BiometricDevice, { DeviceType, DeviceStatus } from '../../models/BiometricDevice';
+import AttendanceLog, { PunchType } from '../../models/AttendanceLog';
 import { UserRole } from '../../models/User';
 import { logger } from '../../utils/logger';
-import EmployeeProfile from '../../models/EmployeeProfile';
 
 // eBioServer specific constants
-const EBIO_SERVER_DEVICE_TYPE = 'eBioServer';
+const EBIO_SERVER_DEVICE_TYPE = DeviceType.EBIO_SERVER;
 const EBIO_SERVER_API_VERSION = '1.0';
 
 /**
@@ -27,6 +25,7 @@ interface EBioServerWebhookPayload {
   thumb_data?: string;
   ip_address?: string;
   raw_payload?: any;
+  [key: string]: unknown; // Index signature for Record<string, unknown>
 }
 
 /**
@@ -64,7 +63,7 @@ export const registerEBioServerDevice = async (
       port,
       apiUrl: `http://${ipAddress}:${port}`,
       authKey: authKey || null,
-      status: 'inactive',
+      status: DeviceStatus.INACTIVE,
     });
 
     logger.info(`Registered eBioServer device: ${deviceName} (${ipAddress}:${port})`);
@@ -110,14 +109,14 @@ export const handleEBioServerWebhook = async (payload: EBioServerWebhookPayload)
         port: null,
         apiUrl: payload.ip_address ? `http://${payload.ip_address}` : null,
         authKey: null,
-        status: 'active',
+        status: DeviceStatus.ACTIVE,
       });
       logger.info(`Created new eBioServer device: ${device.deviceName}`);
     }
 
     // Activate device if inactive
-    if (device.status !== 'active') {
-      device.status = 'active';
+    if (device.status !== DeviceStatus.ACTIVE) {
+      device.status = DeviceStatus.ACTIVE;
       await device.save();
     }
 
@@ -195,22 +194,23 @@ export const handleEBioServerWebhook = async (payload: EBioServerWebhookPayload)
 
     if (!employee) {
       logger.warn(`Employee not found for eBioServer log: ${payload.emp_code} - ${payload.emp_name}`);
-      // We'll still save the log but without employee association
+      // Return null if employee is required - AttendanceLog requires employeeId
+      return null;
     }
 
     // Parse punch time
     const punchTime = new Date(payload.datetime);
     
-    // Determine punch type
-    const punchType = payload.inout_mode.toLowerCase() === 'in' ? 'in' : 'out';
+    // Determine punch type - use PunchType enum
+    const punchType = payload.inout_mode.toLowerCase() === 'in' ? PunchType.IN : PunchType.OUT;
 
     // Create attendance log
     const attendanceLog = await db.AttendanceLog.create({
-      employeeId: employee?.id || null,
+      employeeId: employee.id,
       deviceId: device.id,
       punchTime,
       punchType,
-      rawPayload: payload,
+      rawPayload: payload as Record<string, unknown>,
     });
 
     // If we have an employee, update EmployeePunch record

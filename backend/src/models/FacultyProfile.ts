@@ -5,20 +5,24 @@ import User from './User';
 export interface FacultyProfileAttributes {
   id: number;
   userId: number;
+  dateOfBirth: Date | null;
   expertise: Record<string, unknown> | null;
   availability: Record<string, unknown> | null;
+  documents: Record<string, any> | null;
   createdAt?: Date;
   updatedAt?: Date;
 }
 
 export interface FacultyProfileCreationAttributes
-  extends Optional<FacultyProfileAttributes, 'id' | 'expertise' | 'availability' | 'createdAt' | 'updatedAt'> {}
+  extends Optional<FacultyProfileAttributes, 'id' | 'dateOfBirth' | 'expertise' | 'availability' | 'documents' | 'createdAt' | 'updatedAt'> {}
 
 class FacultyProfile extends Model<FacultyProfileAttributes, FacultyProfileCreationAttributes> implements FacultyProfileAttributes {
   public id!: number;
   public userId!: number;
+  public dateOfBirth!: Date | null;
   public expertise!: Record<string, unknown> | null;
   public availability!: Record<string, unknown> | null;
+  public documents!: Record<string, any> | null;
   public readonly createdAt!: Date;
   public readonly updatedAt!: Date;
 
@@ -45,11 +49,19 @@ FacultyProfile.init(
         key: 'id',
       },
     },
+    dateOfBirth: {
+      type: DataTypes.DATEONLY,
+      allowNull: true,
+    },
     expertise: {
       type: DataTypes.JSON,
       allowNull: true,
     },
     availability: {
+      type: DataTypes.JSON,
+      allowNull: true,
+    },
+    documents: {
       type: DataTypes.JSON,
       allowNull: true,
     },

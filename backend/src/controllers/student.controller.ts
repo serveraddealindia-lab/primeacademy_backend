@@ -9,7 +9,6 @@ import { UserRole } from '../models/User';
 import { PaymentStatus } from '../models/PaymentTransaction';
 import db from '../models';
 import { logger } from '../utils/logger';
-import { generateSerialNumber } from '../utils/serialNumber';
 
 /**
  * Parse date from Excel - handles Excel serial dates, various string formats, and Date objects
@@ -496,6 +495,21 @@ export const completeEnrollment = async (
     // Email is now required, so use the provided email
     const finalEmail = email.trim();
 
+    // Extract photo URL from enrollmentDocuments (first image file)
+    let photoUrl: string | undefined = undefined;
+    if (enrollmentDocuments && Array.isArray(enrollmentDocuments) && enrollmentDocuments.length > 0) {
+      // Find first image file (not PDF)
+      const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp'];
+      const photoDoc = enrollmentDocuments.find(doc => {
+        if (!doc || typeof doc !== 'string') return false;
+        const lowerDoc = doc.toLowerCase();
+        return imageExtensions.some(ext => lowerDoc.includes(ext));
+      });
+      if (photoDoc) {
+        photoUrl = photoDoc;
+      }
+    }
+
     // Create user
     const user = await db.User.create(
       {
@@ -505,6 +519,7 @@ export const completeEnrollment = async (
         role: UserRole.STUDENT,
         passwordHash,
         isActive: true,
+        avatarUrl: photoUrl, // Set avatarUrl from photo
       },
       { transaction }
     );
@@ -527,6 +542,7 @@ export const completeEnrollment = async (
         userId: user.id,
         dob: dateOfAdmission ? new Date(dateOfAdmission) : null,
         address: localAddress || permanentAddress || null,
+        photoUrl: photoUrl, // Set photoUrl from extracted photo
         softwareList: softwaresIncluded && softwaresIncluded.trim() 
           ? softwaresIncluded.split(',').map((s: string) => s.trim()).filter((s: string) => s.length > 0) 
           : null,
@@ -576,22 +592,8 @@ export const completeEnrollment = async (
         enrollmentMetadata,
       };
 
-      // Auto-generate serialNo if not provided
-      if (!profileData.serialNo) {
-        try {
-          const autoSerialNo = await generateSerialNumber();
-          if (autoSerialNo) {
-            profileData.serialNo = autoSerialNo;
-            logger.info(`Auto-generated serialNo ${autoSerialNo} for new student userId=${user.id}`);
-          }
-        } catch (serialNoError: any) {
-          // If serialNo generation fails (e.g., column doesn't exist), just skip it
-          logger.warn(`Could not auto-generate serialNo for userId=${user.id}:`, serialNoError?.message);
-        }
-      }
-
       const studentProfile = await db.StudentProfile.create(profileData, { transaction });
-      logger.info(`Created student profile: userId=${user.id}, profileId=${studentProfile.id}, status=${studentProfile.status}, serialNo=${studentProfile.serialNo || 'N/A'}`);
+      logger.info(`Created student profile: userId=${user.id}, profileId=${studentProfile.id}, status=${studentProfile.status}`);
     } else {
       logger.warn(`StudentProfile model not found - profile not created for userId=${user.id}`);
     }
@@ -1401,6 +1403,7 @@ export const unifiedStudentImport = async (req: AuthRequest, res: Response): Pro
         if (db.StudentProfile) {
           let studentProfile = await db.StudentProfile.findOne({
             where: { userId: student.id },
+            attributes: { exclude: ['serialNo'] }, // Exclude serialNo column
             transaction
           });
 
@@ -1994,20 +1997,7 @@ export const bulkEnrollStudents = async (req: AuthRequest, res: Response): Promi
             pendingBatches: pendingBatches && pendingBatches.length > 0 ? pendingBatches : null,
           };
 
-          // Auto-generate serialNo if not provided
-          if (!profileData.serialNo) {
-            try {
-              const autoSerialNo = await generateSerialNumber();
-              if (autoSerialNo) {
-                profileData.serialNo = autoSerialNo;
-              }
-            } catch (serialNoError: any) {
-              // If serialNo generation fails, just skip it (no error)
-              logger.warn(`Row ${rowNumber}: Could not auto-generate serialNo:`, serialNoError?.message);
-            }
-          }
-
-          logger.info(`Row ${rowNumber}: Creating student profile with dob: ${parsedDob ? parsedDob.toISOString().split('T')[0] : 'null'}, emergencyContact: ${enrollmentMetadata.emergencyContact ? JSON.stringify(enrollmentMetadata.emergencyContact) : 'null'}, serialNo: ${profileData.serialNo || 'N/A'}`);
+          logger.info(`Row ${rowNumber}: Creating student profile with dob: ${parsedDob ? parsedDob.toISOString().split('T')[0] : 'null'}, emergencyContact: ${enrollmentMetadata.emergencyContact ? JSON.stringify(enrollmentMetadata.emergencyContact) : 'null'}`);
 
           await db.StudentProfile.create(profileData, { transaction });
         }

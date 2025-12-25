@@ -6,10 +6,11 @@ import { UserRole } from '../models/User';
 const router = Router();
 
 // GET /portfolios - Get all portfolios (with filters)
+// Students can access to view their own portfolios (filtered in controller)
 router.get(
   '/portfolios',
   verifyTokenMiddleware,
-  checkRole(UserRole.ADMIN, UserRole.SUPERADMIN, UserRole.FACULTY),
+  checkRole(UserRole.ADMIN, UserRole.SUPERADMIN, UserRole.FACULTY, UserRole.STUDENT),
   portfolioController.getAllPortfolios
 );
 

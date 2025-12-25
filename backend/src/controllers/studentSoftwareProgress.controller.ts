@@ -501,7 +501,8 @@ export const importExcel = async (req: AuthRequest, res: Response): Promise<void
               const studentProfile = await db.StudentProfile.findOne({
                 where: {
                   userId: existingUserWithPhone?.id
-                }
+                },
+                attributes: { exclude: ['serialNo'] }, // Exclude serialNo column
               });
               
               if (studentProfile && studentProfile.documents) {
@@ -556,14 +557,82 @@ export const importExcel = async (req: AuthRequest, res: Response): Promise<void
           }
         }
 
-        // Get enrollment date
-        const enrollmentDate = parseExcelDate(getValue(row, ['enrollmentDate', '__EMPTY', 'Enrollment Date']));
+        // Get enrollment date - support multiple column names
+        const enrollmentDate = parseExcelDate(getValue(row, [
+          'DATE', 
+          'enrollmentDate', 
+          '__EMPTY', 
+          'Enrollment Date',
+          'Date'
+        ]));
 
-        // Get course info
-        const courseName = getValue(row, ['courseName', '__EMPTY_6', 'Course Name']);
-        const courseType = getValue(row, ['courseType', '__EMPTY_3', 'Course Type']);
-        const studentStatus = getValue(row, ['studentStatus', '__EMPTY_4', 'Student Status']);
-        const batchTiming = getValue(row, ['batchTiming', '__EMPTY_5', 'Batch Timing']);
+        // Get course info - support multiple column names
+        const courseName = getValue(row, [
+          'COMMON',
+          'courseName', 
+          '__EMPTY_6', 
+          'Course Name',
+          'Common'
+        ]);
+        const courseType = getValue(row, [
+          'TYPE',
+          'COURSE',
+          'courseType', 
+          '__EMPTY_3', 
+          'Course Type',
+          'Type',
+          'Course'
+        ]);
+        const studentStatus = getValue(row, [
+          'STATUS',
+          'studentStatus', 
+          '__EMPTY_4', 
+          'Student Status',
+          'Status'
+        ]);
+        const batchTiming = getValue(row, [
+          'TIME',
+          'batchTiming', 
+          '__EMPTY_5', 
+          'Batch Timing',
+          'Time',
+          '1st Software BATCH TIMING',
+          '2nd Software BATCH TIMING',
+          'Future Batch BATCH TIME'
+        ]);
+        
+        // Get 1st Software details
+        const firstSoftwareStartDate = parseExcelDate(getValue(row, ['1st Software START DATE', '1st Software Start Date']));
+        const firstSoftwareEndDate = parseExcelDate(getValue(row, ['1st Software END DATE', '1st Software End Date']));
+        const firstSoftwareFaculty = getValue(row, ['1st Software FACULTY', '1st Software Faculty']);
+        const firstSoftwareStatus = getValue(row, ['1st Software CURRENT', '1st Software Current']);
+        
+        // Get 2nd Software details
+        const secondSoftwareStartDate = parseExcelDate(getValue(row, ['2nd Software START DATE', '2nd Software Start Date']));
+        const secondSoftwareEndDate = parseExcelDate(getValue(row, ['2nd Software END DATE', '2nd Software End Date']));
+        const secondSoftwareFaculty = getValue(row, ['2nd Software FACULTY', '2nd Software Faculty']);
+        const secondSoftwareStatus = getValue(row, ['2nd Software CURRENT', '2nd Software Current']);
+        
+        // Get Future Batch details
+        // Future batch fields - stored in metadata for future use
+        const futureBatchStartDate = parseExcelDate(getValue(row, ['Future Batch START DATE', 'Future Batch Start Date']));
+        const futureBatchEndDate = parseExcelDate(getValue(row, ['Future Batch END DATE', 'Future Batch End Date']));
+        const futureBatchTime = getValue(row, ['Future Batch BATCH TIME', 'Future Batch Batch Time']);
+        const futureBatchSchedule = getValue(row, ['Future Batch MWF/TTS', 'Future Batch Schedule', 'MWF/TTS']);
+        const futureBatchFaculty = getValue(row, ['Future Batch FACULTY', 'Future Batch Faculty']);
+        
+        // Store future batch info in metadata (currently not used but preserved for future features)
+        const futureBatchMetadata = {
+          startDate: futureBatchStartDate,
+          endDate: futureBatchEndDate,
+          time: futureBatchTime,
+          schedule: futureBatchSchedule,
+          faculty: futureBatchFaculty,
+        };
+        
+        // Get software names early for matching
+        const firstSoftwareName = getValue(row, ['1st Software', '__EMPTY_12', 'First Software']);
+        const secondSoftwareName = getValue(row, ['2nd Software', 'Second Software']);
 
         // Process software status columns (numeric codes)
         const softwareColumns = ['6', '7', '8', '10', '11', '12', '13', '14', '15', '16', '23', '24', '32', '33', '48', '72', '89', '92'];
@@ -578,6 +647,25 @@ export const importExcel = async (req: AuthRequest, res: Response): Promise<void
               where: { studentId: student.id, softwareName },
             });
 
+            // Determine batch dates and faculty from software sections if available
+            let batchStartDate = null;
+            let batchEndDate = null;
+            let facultyName = null;
+            
+            // Check if this software matches 1st or 2nd software
+            if (firstSoftwareName && softwareName.toLowerCase().includes(String(firstSoftwareName).toLowerCase().substring(0, 5))) {
+              batchStartDate = firstSoftwareStartDate;
+              batchEndDate = firstSoftwareEndDate;
+              facultyName = firstSoftwareFaculty;
+            } else if (secondSoftwareName && softwareName.toLowerCase().includes(String(secondSoftwareName).toLowerCase().substring(0, 5))) {
+              batchStartDate = secondSoftwareStartDate;
+              batchEndDate = secondSoftwareEndDate;
+              facultyName = secondSoftwareFaculty;
+            }
+            
+            // Get schedule if available
+            const schedule = futureBatchSchedule || getValue(row, ['schedule', 'Schedule', 'MWF/TTS']);
+
             if (existing) {
               // Update existing
               await existing.update({
@@ -588,6 +676,10 @@ export const importExcel = async (req: AuthRequest, res: Response): Promise<void
                 studentStatus,
                 batchTiming,
                 softwareCode: code,
+                batchStartDate: batchStartDate || existing.batchStartDate,
+                batchEndDate: batchEndDate || existing.batchEndDate,
+                facultyName: facultyName || existing.facultyName,
+                schedule: schedule || existing.schedule,
               });
             } else {
               // Create new
@@ -601,28 +693,80 @@ export const importExcel = async (req: AuthRequest, res: Response): Promise<void
                 courseType,
                 studentStatus,
                 batchTiming,
+                batchStartDate,
+                batchEndDate,
+                facultyName,
+                schedule,
               });
             }
           }
         }
 
         // Process software name columns (1st Software, 2nd Software, etc.)
-        const firstSoftwareName = getValue(row, ['1st Software', '__EMPTY_12', 'First Software']);
         if (firstSoftwareName) {
           const existing = await db.StudentSoftwareProgress.findOne({
             where: { studentId: student.id, softwareName: String(firstSoftwareName).trim() },
           });
 
+          // Use future batch metadata if available
+          const metadata = Object.keys(futureBatchMetadata).some(key => futureBatchMetadata[key as keyof typeof futureBatchMetadata] !== null && futureBatchMetadata[key as keyof typeof futureBatchMetadata] !== undefined)
+            ? { futureBatch: futureBatchMetadata }
+            : undefined;
+
           if (!existing) {
             await db.StudentSoftwareProgress.create({
               studentId: student.id,
               softwareName: String(firstSoftwareName).trim(),
-              status: 'XX',
+              status: firstSoftwareStatus || 'XX',
               enrollmentDate,
               courseName,
               courseType,
               studentStatus,
-              batchTiming,
+              batchTiming: firstSoftwareStartDate ? getValue(row, ['1st Software BATCH TIMING']) : batchTiming,
+              batchStartDate: firstSoftwareStartDate,
+              batchEndDate: firstSoftwareEndDate,
+              facultyName: firstSoftwareFaculty,
+              metadata,
+            });
+          } else {
+            // Update existing with 1st software details
+            await existing.update({
+              batchStartDate: firstSoftwareStartDate || existing.batchStartDate,
+              batchEndDate: firstSoftwareEndDate || existing.batchEndDate,
+              facultyName: firstSoftwareFaculty || existing.facultyName,
+              status: firstSoftwareStatus || existing.status,
+              metadata: metadata || existing.metadata,
+            });
+          }
+        }
+        
+        // Process 2nd Software
+        if (secondSoftwareName) {
+          const existing = await db.StudentSoftwareProgress.findOne({
+            where: { studentId: student.id, softwareName: String(secondSoftwareName).trim() },
+          });
+
+          if (!existing) {
+            await db.StudentSoftwareProgress.create({
+              studentId: student.id,
+              softwareName: String(secondSoftwareName).trim(),
+              status: secondSoftwareStatus || 'XX',
+              enrollmentDate,
+              courseName,
+              courseType,
+              studentStatus,
+              batchTiming: secondSoftwareStartDate ? getValue(row, ['2nd Software BATCH TIMING']) : batchTiming,
+              batchStartDate: secondSoftwareStartDate,
+              batchEndDate: secondSoftwareEndDate,
+              facultyName: secondSoftwareFaculty,
+            });
+          } else {
+            // Update existing with 2nd software details
+            await existing.update({
+              batchStartDate: secondSoftwareStartDate || existing.batchStartDate,
+              batchEndDate: secondSoftwareEndDate || existing.batchEndDate,
+              facultyName: secondSoftwareFaculty || existing.facultyName,
+              status: secondSoftwareStatus || existing.status,
             });
           }
         }
@@ -646,6 +790,194 @@ export const importExcel = async (req: AuthRequest, res: Response): Promise<void
   } catch (error: any) {
     logger.error('Error importing Excel:', error);
     res.status(500).json({ status: 'error', message: 'Internal server error' });
+  }
+};
+
+// GET /api/student-software-progress/download-template - Download Excel import template
+export const downloadTemplate = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    if (!req.user) {
+      res.status(401).json({ status: 'error', message: 'Authentication required' });
+      return;
+    }
+
+    if (req.user.role !== UserRole.SUPERADMIN && req.user.role !== UserRole.ADMIN) {
+      res.status(403).json({ status: 'error', message: 'Only admins can download template' });
+      return;
+    }
+
+    logger.info('Creating studentwise Excel import template...');
+
+    // Create sample data with all required fields for studentwise import
+    // Matching the structure from the Excel template image
+    const sampleData = [
+      {
+        // General Student Information
+        DATE: '2024-01-15', // Enrollment Date
+        NAME: 'John Doe',
+        NUMBER: '9876543210', // Required: Phone number
+        TYPE: 'Regular', // Course Type
+        STATUS: 'Active', // Student Status
+        TIME: '7 to 9', // Batch Timing
+        COMMON: 'Graphic Design', // Course Name
+        COURSE: 'Regular', // Course Type (alternative)
+        PLUS: '', // Additional field
+        
+        // 1st Software Section
+        '1st Software START DATE': '2024-01-20',
+        '1st Software END DATE': '2024-03-20',
+        '1st Software BATCH TIMING': '7 to 9',
+        '1st Software FACULTY': 'Dr. Smith',
+        '1st Software CURRENT': 'IP', // Status: XX, IP, NO, or Finished
+        
+        // 2nd Software Section
+        '2nd Software START DATE': '2024-03-25',
+        '2nd Software END DATE': '2024-05-25',
+        '2nd Software BATCH TIMING': '8 to 12',
+        '2nd Software FACULTY': 'Dr. Johnson',
+        '2nd Software CURRENT': 'XX',
+        
+        // Future Batch Section
+        'Future Batch START DATE': '2024-06-01',
+        'Future Batch END DATE': '2024-08-01',
+        'Future Batch BATCH TIME': '9 to 11',
+        'Future Batch MWF/TTS': 'MWF', // Schedule: MWF or TTS
+        'Future Batch FACULTY': 'Dr. Williams',
+        'Future Batch RENT SOFT': '',
+        
+        // Software Status Columns (numeric codes) - Use XX, IP, NO, or Finished
+        // These map to software codes in SOFTWARE_CODE_MAP
+        '6': 'IP',   // Photoshop
+        '7': 'XX',   // Illustrator
+        '8': 'Finished', // InDesign
+        '10': 'NO',  // CorelDraw
+        '11': 'XX',  // Figma
+        '12': 'XX',  // After Effects
+        '13': 'XX',  // Premiere Pro
+        '14': 'XX',  // Audition
+        '15': 'XX',  // Blender
+        '16': 'XX',  // 3ds Max
+        '23': 'XX',  // Cinema 4D
+        '24': 'XX',  // Maya
+        '32': 'XX',  // SketchUp
+        '33': 'XX',  // AutoCAD
+        '48': 'XX',  // Revit
+        '72': 'XX',  // Unity
+        '89': 'XX',  // Unreal Engine
+        '92': 'XX',  // DaVinci Resolve
+        
+        // Additional software name column (for custom software)
+        '1st Software': 'Photoshop',
+        '2nd Software': 'Illustrator',
+      },
+      {
+        // Second example row
+        DATE: '2024-02-01',
+        NAME: 'Jane Smith',
+        NUMBER: '9876543211',
+        TYPE: 'A Plus',
+        STATUS: 'Active',
+        TIME: '8 to 12',
+        COMMON: 'Video Editing',
+        COURSE: 'A Plus',
+        PLUS: '',
+        '1st Software START DATE': '2024-02-05',
+        '1st Software END DATE': '2024-04-05',
+        '1st Software BATCH TIMING': '8 to 12',
+        '1st Software FACULTY': 'Dr. Brown',
+        '1st Software CURRENT': 'IP',
+        '2nd Software START DATE': '',
+        '2nd Software END DATE': '',
+        '2nd Software BATCH TIMING': '',
+        '2nd Software FACULTY': '',
+        '2nd Software CURRENT': '',
+        'Future Batch START DATE': '2024-04-10',
+        'Future Batch END DATE': '2024-06-10',
+        'Future Batch BATCH TIME': '9 to 11',
+        'Future Batch MWF/TTS': 'TTS',
+        'Future Batch FACULTY': 'Dr. Davis',
+        'Future Batch RENT SOFT': '',
+        '6': 'Finished',
+        '7': 'Finished',
+        '12': 'IP',
+        '13': 'IP',
+        '1st Software': 'After Effects',
+        '2nd Software': 'Premiere Pro',
+      },
+    ];
+
+    // Create workbook
+    const workbook = XLSX.utils.book_new();
+    const worksheet = XLSX.utils.json_to_sheet(sampleData);
+    
+    // Set column widths for better readability
+    // Column order: DATE, NAME, NUMBER, TYPE, STATUS, TIME, COMMON, COURSE, PLUS,
+    // 1st Software (5 cols), 2nd Software (5 cols), Future Batch (6 cols),
+    // Software codes (18 cols), 1st Software name, 2nd Software name
+    const colWidths = [
+      { wch: 12 }, // DATE
+      { wch: 20 }, // NAME
+      { wch: 15 }, // NUMBER
+      { wch: 12 }, // TYPE
+      { wch: 12 }, // STATUS
+      { wch: 12 }, // TIME
+      { wch: 20 }, // COMMON
+      { wch: 12 }, // COURSE
+      { wch: 10 }, // PLUS
+      // 1st Software section (5 columns)
+      { wch: 18 }, // 1st Software START DATE
+      { wch: 18 }, // 1st Software END DATE
+      { wch: 18 }, // 1st Software BATCH TIMING
+      { wch: 18 }, // 1st Software FACULTY
+      { wch: 15 }, // 1st Software CURRENT
+      // 2nd Software section (5 columns)
+      { wch: 18 }, // 2nd Software START DATE
+      { wch: 18 }, // 2nd Software END DATE
+      { wch: 18 }, // 2nd Software BATCH TIMING
+      { wch: 18 }, // 2nd Software FACULTY
+      { wch: 15 }, // 2nd Software CURRENT
+      // Future Batch section (6 columns)
+      { wch: 18 }, // Future Batch START DATE
+      { wch: 18 }, // Future Batch END DATE
+      { wch: 18 }, // Future Batch BATCH TIME
+      { wch: 12 }, // Future Batch MWF/TTS
+      { wch: 18 }, // Future Batch FACULTY
+      { wch: 15 }, // Future Batch RENT SOFT
+      // Software code columns (18 columns)
+      { wch: 8 }, { wch: 8 }, { wch: 8 }, { wch: 8 }, { wch: 8 }, { wch: 8 },
+      { wch: 8 }, { wch: 8 }, { wch: 8 }, { wch: 8 }, { wch: 8 }, { wch: 8 },
+      { wch: 8 }, { wch: 8 }, { wch: 8 }, { wch: 8 }, { wch: 8 }, { wch: 8 },
+      // Software name columns
+      { wch: 20 }, // 1st Software
+      { wch: 20 }, // 2nd Software
+    ];
+    worksheet['!cols'] = colWidths;
+    
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Student Software Progress');
+
+    // Generate buffer
+    const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+
+    logger.info(`Template generated, size: ${buffer.length} bytes`);
+
+    // Set headers
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', 'attachment; filename=studentwise_import_template.xlsx');
+    res.setHeader('Content-Length', buffer.length.toString());
+
+    // Send file
+    res.send(buffer);
+    logger.info('Template sent successfully');
+  } catch (error: any) {
+    logger.error('Download template error:', error);
+    if (!res.headersSent) {
+      res.setHeader('Content-Type', 'application/json');
+      res.status(500).json({
+        status: 'error',
+        message: 'Internal server error while generating template',
+        error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+      });
+    }
   }
 };
 

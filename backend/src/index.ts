@@ -35,6 +35,7 @@ import studentAttendanceRoutes from './routes/studentAttendance.routes';
 import enrollmentRoutes from './routes/enrollment.routes';
 import studentRoutes from './routes/student.routes';
 import certificateRoutes from './routes/certificate.routes';
+import courseRoutes from './routes/course.routes';
 import biometricRoutes from './routes/biometric.routes';
 import studentSoftwareProgressRoutes from './routes/studentSoftwareProgress.routes';
 import { notFoundHandler, errorHandler } from './middleware/error.middleware';
@@ -43,7 +44,7 @@ import { logger } from './utils/logger';
 dotenv.config();
 
 const app = express();
-const PORT = process.env.PORT || 3001;
+const PORT = parseInt(process.env.PORT || '3001', 10);
 
 // Middleware
 app.use(helmet());
@@ -51,7 +52,10 @@ app.use(helmet());
 const corsOptions = {
   origin: process.env.FRONTEND_URL?.split(',').map((origin) => origin.trim()) || [
     'http://localhost:5173',
+    'https://localhost:5173',
     'http://crm.prashantthakar.com',
+    'https://crm.prashantthakar.com',
+    'https://api.prashantthakar.com',
   ],
   credentials: true,
   optionsSuccessStatus: 200,
@@ -268,6 +272,7 @@ app.use('/receipts', (req, res, next) => {
 }));
 
 // Also serve receipts through /api/receipts/ for frontend compatibility
+// Custom handler to properly decode filenames with special characters
 app.use('/api/receipts', (req, res, next) => {
   const origin = req.headers.origin;
   const allowedOrigins = process.env.FRONTEND_URL?.split(',').map((o) => o.trim()) || [
@@ -290,6 +295,22 @@ app.use('/api/receipts', (req, res, next) => {
     return;
   }
   
+  // For GET requests, handle filename decoding
+  if (req.method === 'GET' && req.path) {
+    // Decode the filename from the URL path
+    const decodedPath = decodeURIComponent(req.path);
+    const filepath = path.join(receiptsStaticPath, decodedPath);
+    
+    // Check if file exists
+    if (fs.existsSync(filepath) && fs.statSync(filepath).isFile()) {
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Cache-Control', 'public, max-age=31536000');
+      res.sendFile(filepath);
+      return;
+    }
+  }
+  
+  // Fall back to static middleware for other cases
   next();
 }, express.static(receiptsStaticPath, {
   setHeaders: (res, _filePath) => {
@@ -434,9 +455,6 @@ app.use('/api/sessions', sessionRoutes);
 // app.use('/api/reports', reportRoutes);
 app.use('/api', portfolioRoutes);
 app.use('/api/payments', paymentRoutes);
-if (process.env.NODE_ENV === 'development') {
-  logger.info('Payment routes registered: GET /api/payments, GET /api/payments/:id, POST /api/payments, PUT /api/payments/:id');
-}
 // app.use('/api/approvals', approvalRoutes);
 app.use('/api/upload', uploadRoutes);
 if (process.env.NODE_ENV === 'development') {
@@ -458,13 +476,23 @@ app.use('/api/enrollments', enrollmentRoutes);
 app.use('/api/students', studentRoutes);
 // Certificate API routes (must be after static file serving)
 app.use('/api/certificates', certificateRoutes);
+app.use('/api/courses', courseRoutes);
 app.use('/api/biometric', biometricRoutes);
 app.use('/api/student-software-progress', studentSoftwareProgressRoutes);
 
-// Debug: Log registered student routes (development only)
-// if (process.env.NODE_ENV === 'development') {
-//   logger.info('Registered student routes: POST /api/students/bulk-enroll, GET /api/students/template');
-// }
+// Log registered routes for debugging
+logger.info('=== Registered API Routes ===');
+logger.info('Student routes:');
+logger.info('  POST /api/students/unified-import');
+logger.info('  GET /api/students/template');
+logger.info('  POST /api/students/bulk-enroll');
+logger.info('  POST /api/students/enroll');
+logger.info('Payment routes:');
+logger.info('  POST /api/payments/bulk-upload');
+logger.info('  POST /api/payments/:paymentId/generate-receipt');
+logger.info('  GET /api/payments');
+logger.info('  POST /api/payments');
+logger.info('============================');
 
 // Error handling middleware (must be last)
 app.use(notFoundHandler);
@@ -475,8 +503,17 @@ const startServer = async () => {
   try {
     // Test database connection
     await sequelize.authenticate();
-    await runPendingMigrations();
     logger.info('Database connection established successfully.');
+
+    // Run migrations - but don't crash if they fail
+    try {
+      await runPendingMigrations();
+    } catch (migrationError: unknown) {
+      // Log the error but continue server startup
+      const errorMessage = migrationError instanceof Error ? migrationError.message : String(migrationError);
+      logger.error('Migration failed, but continuing server startup:', errorMessage);
+      logger.warn('Server will start without applying migrations. Please check and fix migrations manually.');
+    }
 
     // Sync database (use { force: true } only in development to drop and recreate tables)
     // In production, use migrations instead
@@ -485,14 +522,37 @@ const startServer = async () => {
       logger.info('Database models synchronized.');
     }
 
-    // Start server
-    app.listen(PORT, () => {
-      logger.info(`Server is running on port ${PORT}`);
-      logger.info(`Environment: ${process.env.NODE_ENV || 'development'}`);
-    });
+    // Start server - listen on 0.0.0.0 for production (allows external connections via nginx)
+    if (process.env.NODE_ENV === 'production') {
+      app.listen(PORT, '0.0.0.0', () => {
+        logger.info(`Server is running on 0.0.0.0:${PORT}`);
+        logger.info(`Environment: ${process.env.NODE_ENV || 'development'}`);
+      });
+    } else {
+      app.listen(PORT, () => {
+        logger.info(`Server is running on port ${PORT}`);
+        logger.info(`Environment: ${process.env.NODE_ENV || 'development'}`);
+      });
+    }
   } catch (error) {
     logger.error('Unable to start server:', error);
-    process.exit(1);
+    // Only exit if it's a critical error (database connection failure)
+    const errorMessage = String(error);
+    if (errorMessage.includes('ECONNREFUSED') || errorMessage.includes('authentication')) {
+      logger.error('Critical database connection error. Server cannot start without database.');
+      process.exit(1);
+    } else {
+      logger.warn('Non-critical error. Server will attempt to start anyway.');
+      // Try to start server even with non-critical errors
+      try {
+        app.listen(PORT, '0.0.0.0', () => {
+          logger.warn(`Server started with warnings. Some features may not work correctly.`);
+        });
+      } catch (listenError) {
+        logger.error('Failed to start server:', listenError);
+        process.exit(1);
+      }
+    }
   }
 };
 
@@ -510,4 +570,3 @@ process.on('SIGINT', async () => {
   await sequelize.close();
   process.exit(0);
 });
-

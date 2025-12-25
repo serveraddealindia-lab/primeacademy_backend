@@ -26,6 +26,14 @@ const upload = multer({
   },
 });
 
+// GET /api/student-software-progress/download-template - Download Excel import template (MUST be before /:id route)
+router.get(
+  '/download-template',
+  verifyTokenMiddleware,
+  checkRole(UserRole.ADMIN, UserRole.SUPERADMIN),
+  studentSoftwareProgressController.downloadTemplate
+);
+
 // GET /api/student-software-progress/export-excel - Export to Excel (MUST be before /:id route)
 router.get(
   '/export-excel',
