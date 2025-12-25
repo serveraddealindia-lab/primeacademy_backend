@@ -409,10 +409,38 @@ export const FacultyManagement: React.FC = () => {
                           <div className="text-sm text-gray-500">{facultyMember.phone || '-'}</div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="text-sm text-gray-500">{facultyMember.facultyProfile?.expertise || '-'}</div>
+                          <div className="text-sm text-gray-500">
+                            {(() => {
+                              const expertise = facultyMember.facultyProfile?.expertise;
+                              if (!expertise) return '-';
+                              if (typeof expertise === 'string') return expertise;
+                              if (typeof expertise === 'object' && expertise !== null) {
+                                const expObj = expertise as any;
+                                const expValue = expObj.description || expObj.expertise || expObj.text;
+                                return typeof expValue === 'string' 
+                                  ? expValue 
+                                  : (expValue ? JSON.stringify(expValue) : JSON.stringify(expertise));
+                              }
+                              return String(expertise);
+                            })()}
+                          </div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="text-sm text-gray-500">{facultyMember.facultyProfile?.availability || '-'}</div>
+                          <div className="text-sm text-gray-500">
+                            {(() => {
+                              const availability = facultyMember.facultyProfile?.availability;
+                              if (!availability) return '-';
+                              if (typeof availability === 'string') return availability;
+                              if (typeof availability === 'object' && availability !== null) {
+                                const availObj = availability as any;
+                                const scheduleValue = availObj.schedule || availObj.availability || availObj.text;
+                                return typeof scheduleValue === 'string' 
+                                  ? scheduleValue 
+                                  : (scheduleValue ? JSON.stringify(scheduleValue) : JSON.stringify(availability));
+                              }
+                              return String(availability);
+                            })()}
+                          </div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
                           <span className={`px-2 py-1 rounded text-xs font-semibold ${
