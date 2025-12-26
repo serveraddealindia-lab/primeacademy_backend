@@ -104,7 +104,7 @@ interface CompleteEnrollmentBody {
   courseName?: string;
   batchId?: number;
   softwaresIncluded?: string;
-  totalDeal?: number;
+  totalDeal: number; // Required - student registration not possible without deal amount
   bookingAmount?: number;
   balanceAmount?: number;
   emiPlan?: boolean;
@@ -302,11 +302,17 @@ export const completeEnrollment = async (
     }
     
     // Handle number fields - they might come as strings or numbers
-    const totalDealNum = totalDeal !== null && totalDeal !== undefined 
-      ? (typeof totalDeal === 'string' ? parseFloat(String(totalDeal).replace(/[^\d.-]/g, '')) : Number(totalDeal))
-      : 0;
-    if (totalDeal === null || totalDeal === undefined || isNaN(totalDealNum) || totalDealNum <= 0) {
-      validationErrors.push('Total Deal Amount is required and must be greater than 0');
+    // Total Deal Amount is COMPULSORY - student registration not possible without it
+    let totalDealNum = 0;
+    if (totalDeal === null || totalDeal === undefined) {
+      validationErrors.push('Total Deal Amount is required. Student registration cannot proceed without a deal amount.');
+    } else {
+      totalDealNum = typeof totalDeal === 'string' 
+        ? parseFloat(String(totalDeal).replace(/[^\d.-]/g, '')) 
+        : Number(totalDeal);
+      if (isNaN(totalDealNum) || totalDealNum <= 0) {
+        validationErrors.push('Total Deal Amount must be greater than 0');
+      }
     }
     
     const bookingAmountNum = bookingAmount !== null && bookingAmount !== undefined
