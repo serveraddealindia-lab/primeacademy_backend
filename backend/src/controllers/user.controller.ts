@@ -248,6 +248,7 @@ export const getUserById = async (
           model: db.StudentProfile,
           as: 'studentProfile',
           required: false,
+          attributes: { exclude: ['serialNo'] }, // Exclude serialNo column (may not exist in DB)
         });
       }
     } catch (e: any) {
