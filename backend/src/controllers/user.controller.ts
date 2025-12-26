@@ -150,14 +150,23 @@ export const getAllUsers = async (
       if (userJson.facultyProfile) {
         const profile = userJson.facultyProfile;
         
-        // Parse documents if it's a string
-        if (profile.documents && typeof profile.documents === 'string') {
-          try {
-            profile.documents = JSON.parse(profile.documents);
-          } catch (e) {
-            logger.warn(`Failed to parse documents JSON for faculty ${userJson.id}:`, e);
-            profile.documents = null;
+        // Parse documents if it's a string - CRITICAL for production
+        if (profile.documents) {
+          if (typeof profile.documents === 'string') {
+            try {
+              const parsed = JSON.parse(profile.documents);
+              profile.documents = parsed;
+            } catch (e) {
+              logger.warn(`Failed to parse documents JSON for faculty ${userJson.id}:`, e);
+              // Set to empty object instead of null
+              profile.documents = {};
+            }
+          } else if (typeof profile.documents === 'object' && profile.documents !== null) {
+            // Already an object, ensure it's properly structured
           }
+        } else {
+          // Documents is null/undefined - set to empty object for frontend
+          profile.documents = {};
         }
         
         // Parse expertise if it's a string
