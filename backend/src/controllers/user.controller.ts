@@ -278,26 +278,10 @@ export const getUserById = async (
       logger.warn('EmployeeProfile model not available for include:', e?.message);
     }
 
-    // Include enrollments for students
-    try {
-      if (db.Enrollment && typeof db.Enrollment !== 'undefined') {
-        includeOptions.push({
-          model: db.Enrollment,
-          as: 'enrollments',
-          required: false,
-          include: [
-            {
-              model: db.Batch,
-              as: 'batch',
-              attributes: ['id', 'title', 'software', 'mode', 'status', 'schedule'],
-              required: false,
-            },
-          ],
-        });
-      }
-    } catch (e: any) {
-      logger.warn('Enrollment model not available for include:', e?.message);
-    }
+    // Include enrollments for students only (not for faculty/employees)
+    // Note: We'll fetch enrollments separately in fallback to avoid complex JOIN issues
+    // Only include if we know the user is a student (but we don't know yet, so skip for now)
+    // Enrollments will be fetched separately in the fallback if needed
 
     const queryOptions: any = {
       attributes: { exclude: ['passwordHash'] },
@@ -319,7 +303,19 @@ export const getUserById = async (
         message: queryError?.message,
         sql: queryError?.sql,
         original: queryError?.original,
+        name: queryError?.name,
+        stack: queryError?.stack,
       });
+      
+      // Log the actual SQL error if available
+      if (queryError?.original) {
+        logger.error('Original database error:', {
+          code: queryError.original.code,
+          errno: queryError.original.errno,
+          sqlState: queryError.original.sqlState,
+          sqlMessage: queryError.original.sqlMessage,
+        });
+      }
       
       // Try without includes if query fails
       try {
