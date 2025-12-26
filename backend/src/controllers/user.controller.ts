@@ -144,10 +144,49 @@ export const getAllUsers = async (
 
     logger.info(`Get all users: Found ${count} users with role=${role}, isActive=${isActive}`);
 
+    // Parse JSON fields for faculty profiles (MySQL JSON columns sometimes return as strings)
+    const parsedUsers = users.map((user: any) => {
+      const userJson = user.toJSON ? user.toJSON() : user;
+      if (userJson.facultyProfile) {
+        const profile = userJson.facultyProfile;
+        
+        // Parse documents if it's a string
+        if (profile.documents && typeof profile.documents === 'string') {
+          try {
+            profile.documents = JSON.parse(profile.documents);
+          } catch (e) {
+            logger.warn(`Failed to parse documents JSON for faculty ${userJson.id}:`, e);
+            profile.documents = null;
+          }
+        }
+        
+        // Parse expertise if it's a string
+        if (profile.expertise && typeof profile.expertise === 'string') {
+          try {
+            profile.expertise = JSON.parse(profile.expertise);
+          } catch (e) {
+            logger.warn(`Failed to parse expertise JSON for faculty ${userJson.id}:`, e);
+          }
+        }
+        
+        // Parse availability if it's a string
+        if (profile.availability && typeof profile.availability === 'string') {
+          try {
+            profile.availability = JSON.parse(profile.availability);
+          } catch (e) {
+            logger.warn(`Failed to parse availability JSON for faculty ${userJson.id}:`, e);
+          }
+        }
+        
+        userJson.facultyProfile = profile;
+      }
+      return userJson;
+    });
+
     res.status(200).json({
       status: 'success',
       data: {
-        users,
+        users: parsedUsers,
         pagination: {
           total: count,
           page: pageNum,
@@ -323,7 +362,38 @@ export const getUserById = async (
             try {
               const facultyProfile = await db.FacultyProfile.findOne({ where: { userId: user.id } });
               if (facultyProfile) {
-                (user as any).facultyProfile = facultyProfile;
+                // Parse JSON fields if they are strings (MySQL JSON columns sometimes return as strings)
+                const profileJson = facultyProfile.toJSON ? facultyProfile.toJSON() : facultyProfile;
+                
+                // Parse documents if it's a string
+                if (profileJson.documents && typeof profileJson.documents === 'string') {
+                  try {
+                    profileJson.documents = JSON.parse(profileJson.documents);
+                  } catch (e) {
+                    logger.warn(`Failed to parse documents JSON for faculty ${user.id}:`, e);
+                    profileJson.documents = null;
+                  }
+                }
+                
+                // Parse expertise if it's a string
+                if (profileJson.expertise && typeof profileJson.expertise === 'string') {
+                  try {
+                    profileJson.expertise = JSON.parse(profileJson.expertise);
+                  } catch (e) {
+                    logger.warn(`Failed to parse expertise JSON for faculty ${user.id}:`, e);
+                  }
+                }
+                
+                // Parse availability if it's a string
+                if (profileJson.availability && typeof profileJson.availability === 'string') {
+                  try {
+                    profileJson.availability = JSON.parse(profileJson.availability);
+                  } catch (e) {
+                    logger.warn(`Failed to parse availability JSON for faculty ${user.id}:`, e);
+                  }
+                }
+                
+                (user as any).facultyProfile = profileJson;
               }
             } catch (profileError: any) {
               logger.warn('Failed to fetch faculty profile separately:', profileError?.message);
@@ -367,10 +437,46 @@ export const getUserById = async (
       return;
     }
 
+    // Parse JSON fields for faculty profile if it exists (MySQL JSON columns sometimes return as strings)
+    const userJson = user.toJSON ? user.toJSON() : user;
+    if (userJson.facultyProfile) {
+      const profile = userJson.facultyProfile;
+      
+      // Parse documents if it's a string
+      if (profile.documents && typeof profile.documents === 'string') {
+        try {
+          profile.documents = JSON.parse(profile.documents);
+        } catch (e) {
+          logger.warn(`Failed to parse documents JSON for faculty ${userJson.id}:`, e);
+          profile.documents = null;
+        }
+      }
+      
+      // Parse expertise if it's a string
+      if (profile.expertise && typeof profile.expertise === 'string') {
+        try {
+          profile.expertise = JSON.parse(profile.expertise);
+        } catch (e) {
+          logger.warn(`Failed to parse expertise JSON for faculty ${userJson.id}:`, e);
+        }
+      }
+      
+      // Parse availability if it's a string
+      if (profile.availability && typeof profile.availability === 'string') {
+        try {
+          profile.availability = JSON.parse(profile.availability);
+        } catch (e) {
+          logger.warn(`Failed to parse availability JSON for faculty ${userJson.id}:`, e);
+        }
+      }
+      
+      userJson.facultyProfile = profile;
+    }
+
     res.status(200).json({
       status: 'success',
       data: {
-        user,
+        user: userJson,
       },
     });
   } catch (error: any) {
