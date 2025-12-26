@@ -56,6 +56,7 @@ const corsOptions = {
     'http://crm.prashantthakar.com',
     'https://crm.prashantthakar.com',
     'https://api.prashantthakar.com',
+    'null', // Allow file:// origin for local testing
   ],
   credentials: true,
   optionsSuccessStatus: 200,
@@ -66,14 +67,20 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // Serve uploaded files statically
-// Calculate uploads path - from dist/src, go up TWO levels to backend root, then to uploads
-// This matches where upload.controller.ts saves files: __dirname/../../uploads
-let uploadsStaticPath = path.resolve(__dirname, '../../uploads');
-// Also try process.cwd() as base (more reliable)
-const cwdUploadsPath = path.join(process.cwd(), 'uploads');
-if (fs.existsSync(cwdUploadsPath) && !fs.existsSync(uploadsStaticPath)) {
-  uploadsStaticPath = cwdUploadsPath;
-  logger.info(`Using uploads path from process.cwd(): ${uploadsStaticPath}`);
+// Use process.cwd() as base which should be the backend directory
+// This matches where upload.controller.ts saves files: backend/uploads
+const backendRoot = process.cwd();
+let uploadsStaticPath = process.env.UPLOAD_ROOT
+  ? path.resolve(process.env.UPLOAD_ROOT)
+  : path.join(backendRoot, 'uploads');
+
+// Fallback: try __dirname if process.cwd() doesn't have uploads
+if (!fs.existsSync(uploadsStaticPath)) {
+  const fallbackPath = path.resolve(__dirname, '../../uploads');
+  if (fs.existsSync(fallbackPath)) {
+    uploadsStaticPath = fallbackPath;
+    logger.info(`Using fallback uploads path from __dirname: ${uploadsStaticPath}`);
+  }
 }
 
 if (!fs.existsSync(uploadsStaticPath)) {
@@ -81,27 +88,20 @@ if (!fs.existsSync(uploadsStaticPath)) {
   logger.info(`Created uploads directory: ${uploadsStaticPath}`);
 }
 logger.info(`Serving uploads from: ${uploadsStaticPath}`);
+logger.info(`Backend root (process.cwd()): ${backendRoot}`);
 logger.info(`__dirname: ${__dirname}`);
-logger.info(`process.cwd(): ${process.cwd()}`);
 
 // Serve uploads with proper headers - MUST be before API routes to avoid auth middleware
 app.use('/uploads', (req, res, next) => {
-  // Set CORS headers for all upload requests
+  // Set CORS headers for all upload requests - allow all origins for file serving
   const origin = req.headers.origin;
-  const allowedOrigins = process.env.FRONTEND_URL?.split(',').map((o) => o.trim()) || [
-    'http://localhost:5173',
-    'http://crm.prashantthakar.com',
-  ];
   
-  if (origin && allowedOrigins.includes(origin)) {
-    res.setHeader('Access-Control-Allow-Origin', origin);
-  } else {
-    res.setHeader('Access-Control-Allow-Origin', '*');
-  }
-  
-  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  // Always allow CORS for static files (needed for file:// and localhost)
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS, HEAD');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Range');
+  res.setHeader('Access-Control-Expose-Headers', 'Content-Length, Content-Range, Content-Type');
+  res.setHeader('Access-Control-Allow-Credentials', 'false'); // Must be false when origin is *
   
   if (req.method === 'OPTIONS') {
     res.sendStatus(200);
@@ -120,9 +120,13 @@ app.use('/uploads', (req, res, next) => {
       res.setHeader('Content-Type', 'image/webp');
     } else if (filePath.endsWith('.gif')) {
       res.setHeader('Content-Type', 'image/gif');
+    } else if (filePath.endsWith('.pdf')) {
+      res.setHeader('Content-Type', 'application/pdf');
     }
-    // Cache control
-    res.setHeader('Cache-Control', 'public, max-age=31536000'); // Cache for 1 year
+    // Cache control - allow caching but with revalidation
+    res.setHeader('Cache-Control', 'public, max-age=3600, must-revalidate'); // Cache for 1 hour, then revalidate
+    // Add CORS headers explicitly here too
+    res.setHeader('Access-Control-Allow-Origin', '*');
   },
   index: false,
   dotfiles: 'ignore',
@@ -130,10 +134,16 @@ app.use('/uploads', (req, res, next) => {
 
 // Test endpoint to verify static file serving (no auth required)
 app.get('/uploads/test', (_req, res) => {
+  const fs = require('fs');
+  const generalDir = path.join(uploadsStaticPath, 'general');
+  const generalExists = fs.existsSync(generalDir);
+  
   res.json({
     status: 'success',
     message: 'Static file serving is working',
     uploadsPath: uploadsStaticPath,
+    generalDir: generalDir,
+    generalExists: generalExists,
     note: 'Images should be accessible at /uploads/general/[filename]',
   });
 });

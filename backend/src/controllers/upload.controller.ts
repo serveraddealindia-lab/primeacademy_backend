@@ -7,8 +7,12 @@ import { AuthRequest } from '../middleware/auth.middleware';
 import { logger } from '../utils/logger';
 
 // __dirname is available in CommonJS
-
-const uploadsRoot = path.join(__dirname, '../../uploads');
+// In production, __dirname is in dist/src/controllers, so we need to go up to backend root
+// Use process.cwd() as base which should be the backend directory
+const backendRoot = process.cwd();
+const uploadsRoot = process.env.UPLOAD_ROOT
+  ? path.resolve(process.env.UPLOAD_ROOT)
+  : path.join(backendRoot, 'uploads');
 const generalUploadDir = process.env.UPLOAD_DIR
   ? path.resolve(process.env.UPLOAD_DIR)
   : path.join(uploadsRoot, 'general');
@@ -93,19 +97,57 @@ export const uploadFiles = async (
       return;
     }
 
+    // Log path information for debugging
+    logger.info('=== UPLOAD DEBUG INFO ===');
+    logger.info(`process.cwd(): ${process.cwd()}`);
+    logger.info(`backendRoot: ${backendRoot}`);
+    logger.info(`uploadsRoot: ${uploadsRoot}`);
+    logger.info(`generalUploadDir: ${generalUploadDir}`);
+    logger.info(`generalUploadDir exists: ${existsSync(generalUploadDir)}`);
+    logger.info('========================');
+
     const uploadedFiles = files.map((file: Express.Multer.File) => {
       // Calculate relative path from uploads root
-      const relativePath = path.relative(uploadsRoot, file.path);
+      // Normalize paths to handle Windows/Unix differences
+      const normalizedFilepath = path.normalize(file.path);
+      const normalizedUploadsRoot = path.normalize(uploadsRoot);
+      
+      // Get relative path
+      let relativePath = path.relative(normalizedUploadsRoot, normalizedFilepath);
+      
+      // If relative path calculation fails (different drives on Windows), try alternative
+      if (relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
+        // Try to extract path after 'uploads' directory
+        const uploadsIndex = normalizedFilepath.toLowerCase().indexOf('uploads');
+        if (uploadsIndex !== -1) {
+          relativePath = normalizedFilepath.substring(uploadsIndex + 'uploads'.length);
+          // Remove leading path separator
+          relativePath = relativePath.replace(/^[\\/]+/, '');
+        } else {
+          // Fallback: assume it's in general subdirectory
+          relativePath = path.join('general', path.basename(normalizedFilepath));
+        }
+      }
+      
       // Convert to URL-friendly path (forward slashes)
       const urlPath = relativePath.replace(/\\/g, '/');
       // Use relative URL that will work with the static middleware
       const url = `/uploads/${urlPath}`;
       
+      // Verify file actually exists after save
+      const fileExists = existsSync(file.path);
+      
       logger.info(`File uploaded: ${file.originalname}`);
       logger.info(`File saved to: ${file.path}`);
+      logger.info(`File exists after save: ${fileExists}`);
+      logger.info(`Uploads root: ${uploadsRoot}`);
       logger.info(`Relative path: ${relativePath}`);
       logger.info(`URL path: ${urlPath}`);
       logger.info(`Final URL: ${url}`);
+      
+      if (!fileExists) {
+        logger.error(`WARNING: File was supposed to be saved to ${file.path} but it doesn't exist!`);
+      }
       
       return {
         originalName: file.originalname,
@@ -114,6 +156,7 @@ export const uploadFiles = async (
         mimetype: file.mimetype,
         url: url,
         path: file.path, // For debugging
+        fileExists: fileExists, // Add this for debugging
       };
     });
 
