@@ -362,14 +362,27 @@ export const getUserById = async (
                 // Parse JSON fields if they are strings (MySQL JSON columns sometimes return as strings)
                 const profileJson = facultyProfile.toJSON ? facultyProfile.toJSON() : facultyProfile;
                 
-                // Parse documents if it's a string
-                if (profileJson.documents && typeof profileJson.documents === 'string') {
-                  try {
-                    profileJson.documents = JSON.parse(profileJson.documents);
-                  } catch (e) {
-                    logger.warn(`Failed to parse documents JSON for faculty ${user.id}:`, e);
-                    profileJson.documents = null;
+                // Parse documents if it's a string - CRITICAL for production
+                if (profileJson.documents) {
+                  if (typeof profileJson.documents === 'string') {
+                    try {
+                      const parsed = JSON.parse(profileJson.documents);
+                      profileJson.documents = parsed;
+                      logger.info(`Successfully parsed documents JSON for faculty ${user.id}`);
+                    } catch (e) {
+                      logger.warn(`Failed to parse documents JSON for faculty ${user.id}:`, e);
+                      logger.warn(`Documents string value (first 200 chars): ${profileJson.documents.substring(0, 200)}`);
+                      // Try to set to empty object instead of null to avoid frontend issues
+                      profileJson.documents = {};
+                    }
+                  } else if (typeof profileJson.documents === 'object' && profileJson.documents !== null) {
+                    // Already an object, but ensure it's properly structured
+                    logger.info(`Documents is already an object for faculty ${user.id}`);
                   }
+                } else {
+                  // Documents is null/undefined - set to empty object for frontend
+                  logger.info(`Documents is null/undefined for faculty ${user.id}, setting to empty object`);
+                  profileJson.documents = {};
                 }
                 
                 // Parse expertise if it's a string
@@ -439,14 +452,27 @@ export const getUserById = async (
     if (userJson.facultyProfile) {
       const profile = userJson.facultyProfile;
       
-      // Parse documents if it's a string
-      if (profile.documents && typeof profile.documents === 'string') {
-        try {
-          profile.documents = JSON.parse(profile.documents);
-        } catch (e) {
-          logger.warn(`Failed to parse documents JSON for faculty ${userJson.id}:`, e);
-          profile.documents = null;
+      // Parse documents if it's a string - CRITICAL for production
+      if (profile.documents) {
+        if (typeof profile.documents === 'string') {
+          try {
+            const parsed = JSON.parse(profile.documents);
+            profile.documents = parsed;
+            logger.info(`Successfully parsed documents JSON for faculty ${userJson.id}`);
+          } catch (e) {
+            logger.warn(`Failed to parse documents JSON for faculty ${userJson.id}:`, e);
+            logger.warn(`Documents string value (first 200 chars): ${profile.documents.substring(0, 200)}`);
+            // Try to set to empty object instead of null to avoid frontend issues
+            profile.documents = {};
+          }
+        } else if (typeof profile.documents === 'object' && profile.documents !== null) {
+          // Already an object, ensure it's properly structured
+          logger.info(`Documents is already an object for faculty ${userJson.id}`);
         }
+      } else {
+        // Documents is null/undefined - set to empty object for frontend
+        logger.info(`Documents is null/undefined for faculty ${userJson.id}, setting to empty object`);
+        profile.documents = {};
       }
       
       // Parse expertise if it's a string
