@@ -1,6 +1,6 @@
 import { SequelizeStorage, Umzug } from 'umzug';
-import path from 'path';
-import fs from 'fs';
+import * as path from 'path';
+import * as fs from 'fs';
 import sequelize from '../config/database';
 import { logger } from './logger';
 

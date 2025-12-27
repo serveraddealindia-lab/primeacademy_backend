@@ -1639,6 +1639,7 @@ const bulkUploadPayments = async (req, res) => {
                             // Get or create student profile
                             let studentProfile = await models_1.default.StudentProfile.findOne({
                                 where: { userId: student.id },
+                                attributes: { exclude: ['serialNo'] }, // Exclude serialNo column
                             });
                             if (studentProfile) {
                                 // Update existing profile with new software list

@@ -1,4 +1,4 @@
-import express from 'express';
+import * as express from 'express';
 import * as studentAttendanceController from '../controllers/studentAttendance.controller';
 import { verifyTokenMiddleware } from '../middleware/auth.middleware';
 import { attendanceUpload } from '../middleware/upload.middleware';

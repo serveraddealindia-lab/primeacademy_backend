@@ -1,7 +1,7 @@
 import { Response } from 'express';
 import puppeteer from 'puppeteer';
-import path from 'path';
-import fs from 'fs';
+import * as path from 'path';
+import * as fs from 'fs';
 import { AuthRequest } from '../middleware/auth.middleware';
 import { UserRole } from '../models/User';
 import db from '../models';

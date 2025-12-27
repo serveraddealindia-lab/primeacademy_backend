@@ -1,4 +1,5 @@
-import jwt, { Secret, SignOptions } from 'jsonwebtoken';
+import * as jwt from 'jsonwebtoken';
+import { Secret, SignOptions } from 'jsonwebtoken';
 import { UserRole } from '../models/User';
 
 const JWT_SECRET = (process.env.JWT_SECRET ?? 'your-secret-key-change-in-production') as Secret;

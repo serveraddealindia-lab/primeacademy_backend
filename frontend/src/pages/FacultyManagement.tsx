@@ -164,15 +164,38 @@ export const FacultyManagement: React.FC = () => {
       // Invalidate and refetch faculty list
       queryClient.invalidateQueries({ queryKey: ['faculty'] });
       queryClient.invalidateQueries({ queryKey: ['users'] });
+      queryClient.invalidateQueries({ queryKey: ['faculty-profile', selectedFaculty?.id] });
+      
       // Update the selected faculty's avatarUrl immediately
       if (selectedFaculty) {
-        setSelectedFaculty({ ...selectedFaculty, avatarUrl: variables.avatarUrl });
+        const updatedFaculty = { ...selectedFaculty, avatarUrl: variables.avatarUrl };
+        setSelectedFaculty(updatedFaculty);
+        
+        // Update preview with cache-busted URL to force reload
+        // Don't overwrite if imagePreview is already set (from FileReader data URL)
+        // Only update if it's not a data URL
+        if (!imagePreview || !imagePreview.startsWith('data:')) {
+          const fullImageUrl = getImageUrl(variables.avatarUrl) || variables.avatarUrl;
+          const cacheBustedUrl = fullImageUrl + (fullImageUrl.includes('?') ? '&' : '?') + `t=${Date.now()}`;
+          console.log('Faculty Management - Mutation success, updating preview:', { 
+            avatarUrl: variables.avatarUrl, 
+            fullImageUrl, 
+            cacheBustedUrl 
+          });
+          setImagePreview(cacheBustedUrl);
+        }
       }
+      
       setUploadingImage(false);
-      setIsImageModalOpen(false);
-      setSelectedFaculty(null);
-      setImagePreview(null);
       alert('Image updated successfully!');
+      
+      // Don't close modal immediately - let user see the updated image
+      // Close after a short delay
+      setTimeout(() => {
+        setIsImageModalOpen(false);
+        setSelectedFaculty(null);
+        setImagePreview(null);
+      }, 2000); // Increased delay to 2 seconds
     },
     onError: (error: any) => {
       alert(error.response?.data?.message || 'Failed to update image');
@@ -206,11 +229,29 @@ export const FacultyManagement: React.FC = () => {
       console.log('Upload response:', uploadResponse);
       if (uploadResponse.data && uploadResponse.data.files && uploadResponse.data.files.length > 0) {
         const imageUrl = uploadResponse.data.files[0].url;
-        console.log('Uploaded image URL:', imageUrl);
-        // Get cleaned full URL for preview
+        console.log('Faculty Management - Upload response:', { 
+          uploadResponse, 
+          imageUrl,
+          file: uploadResponse.data.files[0]
+        });
+        
+        // Get cleaned full URL for preview with cache-busting
         const fullImageUrl = getImageUrl(imageUrl) || imageUrl;
-        // Update preview with the cleaned full URL
-        setImagePreview(fullImageUrl);
+        const cacheBustedUrl = fullImageUrl + (fullImageUrl.includes('?') ? '&' : '?') + `t=${Date.now()}`;
+        console.log('Faculty Management - URL processing:', { 
+          original: imageUrl, 
+          fullImageUrl, 
+          cacheBustedUrl 
+        });
+        
+        // Keep the FileReader data URL for immediate preview, but also prepare the server URL
+        // The FileReader preview will show immediately, then we'll switch to server URL after upload completes
+        const serverPreviewUrl = cacheBustedUrl;
+        
+        // Update preview with the server URL (this will replace the FileReader data URL)
+        setImagePreview(serverPreviewUrl);
+        console.log('Faculty Management - Set imagePreview to:', serverPreviewUrl);
+        
         // Update user with relative URL (backend will serve it)
         updateUserImageMutation.mutate({
           userId: selectedFaculty.id,
@@ -383,12 +424,13 @@ export const FacultyManagement: React.FC = () => {
                           <div className="flex items-center">
                             {facultyMember.avatarUrl ? (
                               <img
-                                src={getImageUrl(facultyMember.avatarUrl) || ''}
+                                src={(getImageUrl(facultyMember.avatarUrl) || facultyMember.avatarUrl) + (facultyMember.avatarUrl.includes('?') ? '&' : '?') + `t=${Date.now()}`}
                                 alt={facultyMember.name}
                                 className="h-12 w-12 rounded-full object-cover border-2 border-gray-200"
                                 crossOrigin="anonymous"
-                                key={facultyMember.avatarUrl}
+                                key={`faculty-${facultyMember.id}-${facultyMember.avatarUrl}`}
                                 onError={(e) => {
+                                  console.error('Faculty photo failed to load:', facultyMember.avatarUrl);
                                   (e.target as HTMLImageElement).src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDgiIGhlaWdodD0iNDgiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHJlY3Qgd2lkdGg9IjEwMCUiIGhlaWdodD0iMTAwJSIgZmlsbD0iI2ZmOTUwMCIvPjx0ZXh0IHg9IjUwJSIgeT0iNTAlIiBmb250LWZhbWlseT0iQXJpYWwsIHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMjAiIGZpbGw9IiNmZmYiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGR5PSIuM2VtIj57e2ZhY3VsdHlNZW1iZXIubmFtZS5jaGFyQXQoMCl9fTwvdGV4dD48L3N2Zz4=';
                                 }}
                               />
@@ -543,27 +585,48 @@ export const FacultyManagement: React.FC = () => {
               </p>
               <div className="flex justify-center mb-4">
                 {imagePreview ? (
-                  <img
-                    src={imagePreview.startsWith('data:') ? imagePreview : (getImageUrl(imagePreview) || imagePreview)}
-                    alt="Preview"
-                    className="h-32 w-32 rounded-full object-cover border-4 border-orange-500"
-                    key={imagePreview}
-                    crossOrigin="anonymous"
-                    onError={(e) => {
-                      (e.target as HTMLImageElement).src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTI4IiBoZWlnaHQ9IjEyOCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZmY5NTAwIi8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtZmFtaWx5PSJBcmlhbCwgc2Fucy1zZXJpZiIgZm9udC1zaXplPSI0OCIgZmlsbD0iI2ZmZiIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZHk9Ii4zZW0iPnt7c2VsZWN0ZWRGYWN1bHR5Lm5hbWUuY2hhckF0KDApfX08L3RleHQ+PC9zdmc+';
-                    }}
-                  />
+                  (() => {
+                    // Handle both data URLs and regular URLs
+                    let previewSrc = imagePreview;
+                    if (!previewSrc.startsWith('data:')) {
+                      // It's a regular URL - process it through getImageUrl
+                      const processedUrl = getImageUrl(previewSrc) || previewSrc;
+                      previewSrc = processedUrl + (processedUrl.includes('?') ? '&' : '?') + `t=${Date.now()}`;
+                      console.log('Faculty Management - Image preview URL:', { original: imagePreview, processed: processedUrl, final: previewSrc });
+                    }
+                    return (
+                      <img
+                        src={previewSrc}
+                        alt="Preview"
+                        className="h-32 w-32 rounded-full object-cover border-4 border-orange-500"
+                        key={`preview-${imagePreview}-${Date.now()}`}
+                        crossOrigin="anonymous"
+                        onError={(e) => {
+                          console.error('Image preview failed to load:', { previewSrc, imagePreview });
+                          (e.target as HTMLImageElement).src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTI4IiBoZWlnaHQ9IjEyOCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZmY5NTAwIi8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtZmFtaWx5PSJBcmlhbCwgc2Fucy1zZXJpZiIgZm9udC1zaXplPSI0OCIgZmlsbD0iI2ZmZiIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZHk9Ii4zZW0iPnt7c2VsZWN0ZWRGYWN1bHR5Lm5hbWUuY2hhckF0KDApfX08L3RleHQ+PC9zdmc+';
+                        }}
+                      />
+                    );
+                  })()
                 ) : selectedFaculty?.avatarUrl ? (
-                  <img
-                    src={getImageUrl(selectedFaculty.avatarUrl) || ''}
-                    alt="Current"
-                    className="h-32 w-32 rounded-full object-cover border-4 border-orange-500"
-                    crossOrigin="anonymous"
-                    key={selectedFaculty.avatarUrl}
-                    onError={(e) => {
-                      (e.target as HTMLImageElement).src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTI4IiBoZWlnaHQ9IjEyOCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZmY5NTAwIi8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtZmFtaWx5PSJBcmlhbCwgc2Fucy1zZXJpZiIgZm9udC1zaXplPSI0OCIgZmlsbD0iI2ZmZiIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZHk9Ii4zZW0iPnt7c2VsZWN0ZWRGYWN1bHR5Lm5hbWUuY2hhckF0KDApfX08L3RleHQ+PC9zdmc+';
-                    }}
-                  />
+                  (() => {
+                    const currentUrl = getImageUrl(selectedFaculty.avatarUrl) || selectedFaculty.avatarUrl;
+                    const finalUrl = currentUrl + (currentUrl.includes('?') ? '&' : '?') + `t=${Date.now()}`;
+                    console.log('Faculty Management - Current photo URL:', { original: selectedFaculty.avatarUrl, final: finalUrl });
+                    return (
+                      <img
+                        src={finalUrl}
+                        alt="Current"
+                        className="h-32 w-32 rounded-full object-cover border-4 border-orange-500"
+                        crossOrigin="anonymous"
+                        key={`current-${selectedFaculty.avatarUrl}-${Date.now()}`}
+                        onError={(e) => {
+                          console.error('Current faculty photo failed to load:', { original: selectedFaculty.avatarUrl, final: finalUrl });
+                          (e.target as HTMLImageElement).src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTI4IiBoZWlnaHQ9IjEyOCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZmY5NTAwIi8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtZmFtaWx5PSJBcmlhbCwgc2Fucy1zZXJpZiIgZm9udC1zaXplPSI0OCIgZmlsbD0iI2ZmZiIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZHk9Ii4zZW0iPnt7c2VsZWN0ZWRGYWN1bHR5Lm5hbWUuY2hhckF0KDApfX08L3RleHQ+PC9zdmc+';
+                        }}
+                      />
+                    );
+                  })()
                 ) : (
                   <div className="h-32 w-32 rounded-full bg-gray-200 flex items-center justify-center">
                     <span className="text-gray-400">No image</span>

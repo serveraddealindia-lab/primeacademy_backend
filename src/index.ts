@@ -87,7 +87,7 @@ logger.info(`process.cwd(): ${process.cwd()}`);
 // Serve uploads with proper headers - MUST be before API routes to avoid auth middleware
 app.use('/uploads', (req, res, next) => {
   // Set CORS headers for all upload requests
-  const origin = req.headers.origin;
+  const origin = req.headers.origin as string | undefined;
   const allowedOrigins = process.env.FRONTEND_URL?.split(',').map((o) => o.trim()) || [
     'http://localhost:5173',
     'http://crm.prashantthakar.com',
@@ -194,7 +194,7 @@ app.get('/orientations/test', (_req, res) => {
 });
 
 app.use('/orientations', (req, res, next) => {
-  const origin = req.headers.origin;
+  const origin = req.headers.origin as string | undefined;
   const allowedOrigins = process.env.FRONTEND_URL?.split(',').map((o) => o.trim()) || [
     'http://localhost:5173',
     'http://crm.prashantthakar.com',
@@ -240,7 +240,7 @@ if (!fs.existsSync(receiptsStaticPath)) {
 logger.info(`Serving receipts from: ${receiptsStaticPath}`);
 
 app.use('/receipts', (req, res, next) => {
-  const origin = req.headers.origin;
+  const origin = req.headers.origin as string | undefined;
   const allowedOrigins = process.env.FRONTEND_URL?.split(',').map((o) => o.trim()) || [
     'http://localhost:5173',
     'http://crm.prashantthakar.com',
@@ -274,7 +274,7 @@ app.use('/receipts', (req, res, next) => {
 // Also serve receipts through /api/receipts/ for frontend compatibility
 // Custom handler to properly decode filenames with special characters
 app.use('/api/receipts', (req, res, next) => {
-  const origin = req.headers.origin;
+  const origin = req.headers.origin as string | undefined;
   const allowedOrigins = process.env.FRONTEND_URL?.split(',').map((o) => o.trim()) || [
     'http://localhost:5173',
     'http://crm.prashantthakar.com',

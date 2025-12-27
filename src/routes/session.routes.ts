@@ -1,4 +1,4 @@
-import express from 'express';
+import * as express from 'express';
 import * as sessionController from '../controllers/session.controller';
 import { verifyTokenMiddleware, checkRole } from '../middleware/auth.middleware';
 import { UserRole } from '../models/User';

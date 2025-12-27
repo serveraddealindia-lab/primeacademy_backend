@@ -38,12 +38,10 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.resetUserPassword = exports.getModulesList = exports.loginAsUser = exports.updateEmployeeProfile = exports.updateFacultyProfile = exports.updateStudentProfile = exports.deleteUser = exports.updateUser = exports.getUserById = exports.getAllUsers = void 0;
 const bcrypt_1 = __importDefault(require("bcrypt"));
-const sequelize_1 = require("sequelize");
 const models_1 = __importDefault(require("../models"));
 const User_1 = require("../models/User");
 const logger_1 = require("../utils/logger");
 const jwt_1 = require("../utils/jwt");
-const serialNumber_1 = require("../utils/serialNumber");
 // GET /api/users - Get all users with optional filters
 const getAllUsers = async (req, res) => {
     try {
@@ -89,7 +87,7 @@ const getAllUsers = async (req, res) => {
                         model: models_1.default.StudentProfile,
                         as: 'studentProfile',
                         required: false,
-                        // Include all student profile fields
+                        attributes: { exclude: ['serialNo'] }, // Exclude serialNo column
                     });
                 }
             }
@@ -167,10 +165,58 @@ const getAllUsers = async (req, res) => {
             }
         }
         logger_1.logger.info(`Get all users: Found ${count} users with role=${role}, isActive=${isActive}`);
+        // Parse JSON fields for faculty profiles (MySQL JSON columns sometimes return as strings)
+        const parsedUsers = users.map((user) => {
+            const userJson = user.toJSON ? user.toJSON() : user;
+            if (userJson.facultyProfile) {
+                const profile = userJson.facultyProfile;
+                // Parse documents if it's a string - CRITICAL for production
+                if (profile.documents) {
+                    if (typeof profile.documents === 'string') {
+                        try {
+                            const parsed = JSON.parse(profile.documents);
+                            profile.documents = parsed;
+                        }
+                        catch (e) {
+                            logger_1.logger.warn(`Failed to parse documents JSON for faculty ${userJson.id}:`, e);
+                            // Set to empty object instead of null
+                            profile.documents = {};
+                        }
+                    }
+                    else if (typeof profile.documents === 'object' && profile.documents !== null) {
+                        // Already an object, ensure it's properly structured
+                    }
+                }
+                else {
+                    // Documents is null/undefined - set to empty object for frontend
+                    profile.documents = {};
+                }
+                // Parse expertise if it's a string
+                if (profile.expertise && typeof profile.expertise === 'string') {
+                    try {
+                        profile.expertise = JSON.parse(profile.expertise);
+                    }
+                    catch (e) {
+                        logger_1.logger.warn(`Failed to parse expertise JSON for faculty ${userJson.id}:`, e);
+                    }
+                }
+                // Parse availability if it's a string
+                if (profile.availability && typeof profile.availability === 'string') {
+                    try {
+                        profile.availability = JSON.parse(profile.availability);
+                    }
+                    catch (e) {
+                        logger_1.logger.warn(`Failed to parse availability JSON for faculty ${userJson.id}:`, e);
+                    }
+                }
+                userJson.facultyProfile = profile;
+            }
+            return userJson;
+        });
         res.status(200).json({
             status: 'success',
             data: {
-                users,
+                users: parsedUsers,
                 pagination: {
                     total: count,
                     page: pageNum,
@@ -226,6 +272,7 @@ const getUserById = async (req, res) => {
                     model: models_1.default.StudentProfile,
                     as: 'studentProfile',
                     required: false,
+                    attributes: { exclude: ['serialNo'] }, // Exclude serialNo column (may not exist in DB)
                 });
             }
         }
@@ -256,27 +303,10 @@ const getUserById = async (req, res) => {
         catch (e) {
             logger_1.logger.warn('EmployeeProfile model not available for include:', e?.message);
         }
-        // Include enrollments for students
-        try {
-            if (models_1.default.Enrollment && typeof models_1.default.Enrollment !== 'undefined') {
-                includeOptions.push({
-                    model: models_1.default.Enrollment,
-                    as: 'enrollments',
-                    required: false,
-                    include: [
-                        {
-                            model: models_1.default.Batch,
-                            as: 'batch',
-                            attributes: ['id', 'title', 'software', 'mode', 'status', 'schedule'],
-                            required: false,
-                        },
-                    ],
-                });
-            }
-        }
-        catch (e) {
-            logger_1.logger.warn('Enrollment model not available for include:', e?.message);
-        }
+        // Include enrollments for students only (not for faculty/employees)
+        // Note: We'll fetch enrollments separately in fallback to avoid complex JOIN issues
+        // Only include if we know the user is a student (but we don't know yet, so skip for now)
+        // Enrollments will be fetched separately in the fallback if needed
         const queryOptions = {
             attributes: { exclude: ['passwordHash'] },
         };
@@ -295,7 +325,18 @@ const getUserById = async (req, res) => {
                 message: queryError?.message,
                 sql: queryError?.sql,
                 original: queryError?.original,
+                name: queryError?.name,
+                stack: queryError?.stack,
             });
+            // Log the actual SQL error if available
+            if (queryError?.original) {
+                logger_1.logger.error('Original database error:', {
+                    code: queryError.original.code,
+                    errno: queryError.original.errno,
+                    sqlState: queryError.original.sqlState,
+                    sqlMessage: queryError.original.sqlMessage,
+                });
+            }
             // Try without includes if query fails
             try {
                 logger_1.logger.warn('Retrying getUserById without includes due to query error');
@@ -319,7 +360,10 @@ const getUserById = async (req, res) => {
                     // Fetch student profile
                     if (user.role === 'student' && models_1.default.StudentProfile) {
                         try {
-                            const studentProfile = await models_1.default.StudentProfile.findOne({ where: { userId: user.id } });
+                            const studentProfile = await models_1.default.StudentProfile.findOne({
+                                where: { userId: user.id },
+                                attributes: { exclude: ['serialNo'] } // Exclude serialNo column
+                            });
                             if (studentProfile) {
                                 user.studentProfile = studentProfile;
                             }
@@ -333,7 +377,52 @@ const getUserById = async (req, res) => {
                         try {
                             const facultyProfile = await models_1.default.FacultyProfile.findOne({ where: { userId: user.id } });
                             if (facultyProfile) {
-                                user.facultyProfile = facultyProfile;
+                                // Parse JSON fields if they are strings (MySQL JSON columns sometimes return as strings)
+                                const profileJson = facultyProfile.toJSON ? facultyProfile.toJSON() : facultyProfile;
+                                // Parse documents if it's a string - CRITICAL for production
+                                if (profileJson.documents) {
+                                    if (typeof profileJson.documents === 'string') {
+                                        try {
+                                            const parsed = JSON.parse(profileJson.documents);
+                                            profileJson.documents = parsed;
+                                            logger_1.logger.info(`Successfully parsed documents JSON for faculty ${user.id}`);
+                                        }
+                                        catch (e) {
+                                            logger_1.logger.warn(`Failed to parse documents JSON for faculty ${user.id}:`, e);
+                                            logger_1.logger.warn(`Documents string value (first 200 chars): ${profileJson.documents.substring(0, 200)}`);
+                                            // Try to set to empty object instead of null to avoid frontend issues
+                                            profileJson.documents = {};
+                                        }
+                                    }
+                                    else if (typeof profileJson.documents === 'object' && profileJson.documents !== null) {
+                                        // Already an object, but ensure it's properly structured
+                                        logger_1.logger.info(`Documents is already an object for faculty ${user.id}`);
+                                    }
+                                }
+                                else {
+                                    // Documents is null/undefined - set to empty object for frontend
+                                    logger_1.logger.info(`Documents is null/undefined for faculty ${user.id}, setting to empty object`);
+                                    profileJson.documents = {};
+                                }
+                                // Parse expertise if it's a string
+                                if (profileJson.expertise && typeof profileJson.expertise === 'string') {
+                                    try {
+                                        profileJson.expertise = JSON.parse(profileJson.expertise);
+                                    }
+                                    catch (e) {
+                                        logger_1.logger.warn(`Failed to parse expertise JSON for faculty ${user.id}:`, e);
+                                    }
+                                }
+                                // Parse availability if it's a string
+                                if (profileJson.availability && typeof profileJson.availability === 'string') {
+                                    try {
+                                        profileJson.availability = JSON.parse(profileJson.availability);
+                                    }
+                                    catch (e) {
+                                        logger_1.logger.warn(`Failed to parse availability JSON for faculty ${user.id}:`, e);
+                                    }
+                                }
+                                user.facultyProfile = profileJson;
                             }
                         }
                         catch (profileError) {
@@ -377,10 +466,59 @@ const getUserById = async (req, res) => {
             });
             return;
         }
+        // Parse JSON fields for faculty profile if it exists (MySQL JSON columns sometimes return as strings)
+        const userJson = user.toJSON ? user.toJSON() : user;
+        if (userJson.facultyProfile) {
+            const profile = userJson.facultyProfile;
+            // Parse documents if it's a string - CRITICAL for production
+            if (profile.documents) {
+                if (typeof profile.documents === 'string') {
+                    try {
+                        const parsed = JSON.parse(profile.documents);
+                        profile.documents = parsed;
+                        logger_1.logger.info(`Successfully parsed documents JSON for faculty ${userJson.id}`);
+                    }
+                    catch (e) {
+                        logger_1.logger.warn(`Failed to parse documents JSON for faculty ${userJson.id}:`, e);
+                        logger_1.logger.warn(`Documents string value (first 200 chars): ${profile.documents.substring(0, 200)}`);
+                        // Try to set to empty object instead of null to avoid frontend issues
+                        profile.documents = {};
+                    }
+                }
+                else if (typeof profile.documents === 'object' && profile.documents !== null) {
+                    // Already an object, ensure it's properly structured
+                    logger_1.logger.info(`Documents is already an object for faculty ${userJson.id}`);
+                }
+            }
+            else {
+                // Documents is null/undefined - set to empty object for frontend
+                logger_1.logger.info(`Documents is null/undefined for faculty ${userJson.id}, setting to empty object`);
+                profile.documents = {};
+            }
+            // Parse expertise if it's a string
+            if (profile.expertise && typeof profile.expertise === 'string') {
+                try {
+                    profile.expertise = JSON.parse(profile.expertise);
+                }
+                catch (e) {
+                    logger_1.logger.warn(`Failed to parse expertise JSON for faculty ${userJson.id}:`, e);
+                }
+            }
+            // Parse availability if it's a string
+            if (profile.availability && typeof profile.availability === 'string') {
+                try {
+                    profile.availability = JSON.parse(profile.availability);
+                }
+                catch (e) {
+                    logger_1.logger.warn(`Failed to parse availability JSON for faculty ${userJson.id}:`, e);
+                }
+            }
+            userJson.facultyProfile = profile;
+        }
         res.status(200).json({
             status: 'success',
             data: {
-                user,
+                user: userJson,
             },
         });
     }
@@ -461,7 +599,12 @@ const updateUser = async (req, res) => {
         const includeOptions = [];
         try {
             if (models_1.default.StudentProfile) {
-                includeOptions.push({ model: models_1.default.StudentProfile, as: 'studentProfile', required: false });
+                includeOptions.push({
+                    model: models_1.default.StudentProfile,
+                    as: 'studentProfile',
+                    required: false,
+                    attributes: { exclude: ['serialNo'] } // Exclude serialNo column
+                });
             }
         }
         catch (e) {
@@ -638,90 +781,13 @@ const updateStudentProfile = async (req, res) => {
             return;
         }
         // Get or create student profile
-        let studentProfile = await models_1.default.StudentProfile.findOne({ where: { userId } });
+        let studentProfile = await models_1.default.StudentProfile.findOne({
+            where: { userId },
+            attributes: { exclude: ['serialNo'] } // Exclude serialNo column
+        });
         if (!studentProfile) {
             const profileData = { userId };
-            // Auto-generate serialNo for new profile
-            try {
-                const autoSerialNo = await (0, serialNumber_1.generateSerialNumber)();
-                if (autoSerialNo) {
-                    profileData.serialNo = autoSerialNo;
-                    logger_1.logger.info(`Auto-generated serialNo ${autoSerialNo} for new student profile userId=${userId}`);
-                }
-            }
-            catch (serialNoError) {
-                // If serialNo generation fails, just skip it (no error)
-                logger_1.logger.warn(`Could not auto-generate serialNo for userId=${userId}:`, serialNoError?.message);
-            }
             studentProfile = await models_1.default.StudentProfile.create(profileData);
-        }
-        // Track if serialNo update should be skipped
-        let skipSerialNo = false;
-        // Auto-generate serialNo if it doesn't exist and wasn't provided
-        try {
-            const needsSerialNo = !studentProfile.serialNo && req.body.serialNo === undefined;
-            if (needsSerialNo) {
-                const autoSerialNo = await (0, serialNumber_1.generateSerialNumber)();
-                if (autoSerialNo) {
-                    studentProfile.serialNo = autoSerialNo;
-                    logger_1.logger.info(`Auto-generated serialNo ${autoSerialNo} for userId=${userId}`);
-                }
-            }
-        }
-        catch (autoGenError) {
-            // If auto-generation fails (e.g., column doesn't exist), just skip it
-            if (autoGenError?.name === 'SequelizeDatabaseError' ||
-                autoGenError?.parent?.code === 'ER_BAD_FIELD_ERROR' ||
-                autoGenError?.message?.includes('Unknown column') ||
-                autoGenError?.message?.includes('serialNo')) {
-                logger_1.logger.warn(`serialNo column may not exist, skipping auto-generation for userId=${userId}`);
-                skipSerialNo = true;
-            }
-            else {
-                // Log but don't fail - serialNo is optional
-                logger_1.logger.warn(`Error auto-generating serialNo for userId=${userId}:`, autoGenError?.message);
-            }
-        }
-        // Update profile fields - handle manual serialNo update if provided
-        if (req.body.serialNo !== undefined) {
-            try {
-                // Check for uniqueness if serialNo is being set
-                if (req.body.serialNo && req.body.serialNo.trim()) {
-                    const existingProfile = await models_1.default.StudentProfile.findOne({
-                        where: {
-                            serialNo: req.body.serialNo.trim(),
-                            userId: { [sequelize_1.Op.ne]: userId }, // Exclude current user
-                        },
-                    });
-                    if (existingProfile) {
-                        res.status(400).json({
-                            status: 'error',
-                            message: 'Serial number already exists',
-                        });
-                        return;
-                    }
-                    studentProfile.serialNo = req.body.serialNo.trim();
-                }
-                else {
-                    // If explicitly set to empty/null, allow it
-                    studentProfile.serialNo = null;
-                }
-            }
-            catch (serialNoError) {
-                // If serialNo column doesn't exist in database, log warning and skip
-                // This allows the update to continue with other fields
-                if (serialNoError?.name === 'SequelizeDatabaseError' ||
-                    serialNoError?.parent?.code === 'ER_BAD_FIELD_ERROR' ||
-                    serialNoError?.message?.includes('Unknown column') ||
-                    serialNoError?.message?.includes('serialNo')) {
-                    logger_1.logger.warn(`serialNo column may not exist in database, skipping serialNo update for userId=${userId}:`, serialNoError?.message);
-                    skipSerialNo = true;
-                }
-                else {
-                    // Re-throw if it's a different error (like validation)
-                    throw serialNoError;
-                }
-            }
         }
         if (req.body.dob !== undefined) {
             if (req.body.dob) {
@@ -792,36 +858,8 @@ const updateStudentProfile = async (req, res) => {
             studentProfile.status = req.body.status;
         if (req.body.documents !== undefined)
             studentProfile.documents = req.body.documents;
-        // Save the profile, excluding serialNo if it had an error
-        try {
-            if (skipSerialNo) {
-                // Get list of changed fields excluding serialNo
-                const changedFields = Object.keys(studentProfile.changed() || {}).filter(field => field !== 'serialNo');
-                if (changedFields.length > 0) {
-                    await studentProfile.save({ fields: changedFields });
-                }
-                else {
-                    // No fields to update, just fetch the user
-                    logger_1.logger.info(`No fields to update for student profile userId=${userId} (serialNo skipped)`);
-                }
-            }
-            else {
-                await studentProfile.save();
-            }
-        }
-        catch (saveError) {
-            // If save fails due to serialNo, try again without it
-            if (saveError?.message?.includes('serialNo') || saveError?.parent?.message?.includes('serialNo')) {
-                logger_1.logger.warn(`Save failed due to serialNo, retrying without serialNo for userId=${userId}`);
-                const changedFields = Object.keys(studentProfile.changed() || {}).filter(field => field !== 'serialNo');
-                if (changedFields.length > 0) {
-                    await studentProfile.save({ fields: changedFields });
-                }
-            }
-            else {
-                throw saveError;
-            }
-        }
+        // Save the profile
+        await studentProfile.save();
         // Fetch updated user with profile
         const updatedUser = await models_1.default.User.findByPk(userId, {
             attributes: { exclude: ['passwordHash'] },
@@ -830,6 +868,7 @@ const updateStudentProfile = async (req, res) => {
                     model: models_1.default.StudentProfile,
                     as: 'studentProfile',
                     required: false,
+                    attributes: { exclude: ['serialNo'] }, // Exclude serialNo column
                 },
             ] : undefined,
         });
@@ -849,7 +888,6 @@ const updateStudentProfile = async (req, res) => {
             stack: error?.stack,
             userId: req.params.id,
             body: req.body ? {
-                hasSerialNo: !!req.body.serialNo,
                 hasDob: !!req.body.dob,
                 hasAddress: !!req.body.address,
                 hasPhotoUrl: !!req.body.photoUrl,
