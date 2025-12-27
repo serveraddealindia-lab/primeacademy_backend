@@ -14,7 +14,7 @@ interface CompleteEnrollmentBody {
     courseName?: string;
     batchId?: number;
     softwaresIncluded?: string;
-    totalDeal?: number;
+    totalDeal: number;
     bookingAmount?: number;
     balanceAmount?: number;
     emiPlan?: boolean;

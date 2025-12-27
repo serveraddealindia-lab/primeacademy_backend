@@ -38,12 +38,10 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.resetUserPassword = exports.getModulesList = exports.loginAsUser = exports.updateEmployeeProfile = exports.updateFacultyProfile = exports.updateStudentProfile = exports.deleteUser = exports.updateUser = exports.getUserById = exports.getAllUsers = void 0;
 const bcrypt_1 = __importDefault(require("bcrypt"));
-const sequelize_1 = require("sequelize");
 const models_1 = __importDefault(require("../models"));
 const User_1 = require("../models/User");
 const logger_1 = require("../utils/logger");
 const jwt_1 = require("../utils/jwt");
-const serialNumber_1 = require("../utils/serialNumber");
 // GET /api/users - Get all users with optional filters
 const getAllUsers = async (req, res) => {
     try {
@@ -89,7 +87,7 @@ const getAllUsers = async (req, res) => {
                         model: models_1.default.StudentProfile,
                         as: 'studentProfile',
                         required: false,
-                        // Include all student profile fields
+                        attributes: { exclude: ['serialNo'] }, // Exclude serialNo column
                     });
                 }
             }
@@ -309,7 +307,18 @@ const getUserById = async (req, res) => {
                         try {
                             const employeeProfile = await models_1.default.EmployeeProfile.findOne({ where: { userId: user.id } });
                             if (employeeProfile) {
-                                user.employeeProfile = employeeProfile;
+                                const profileJson = employeeProfile.toJSON ? employeeProfile.toJSON() : employeeProfile;
+                                // Parse documents if it's a string (MySQL JSON fields sometimes come as strings)
+                                if (profileJson.documents && typeof profileJson.documents === 'string') {
+                                    try {
+                                        profileJson.documents = JSON.parse(profileJson.documents);
+                                    }
+                                    catch (e) {
+                                        logger_1.logger.warn(`Failed to parse documents JSON for employee ${user.id}:`, e);
+                                        profileJson.documents = null;
+                                    }
+                                }
+                                user.employeeProfile = profileJson;
                             }
                         }
                         catch (profileError) {
@@ -319,7 +328,10 @@ const getUserById = async (req, res) => {
                     // Fetch student profile
                     if (user.role === 'student' && models_1.default.StudentProfile) {
                         try {
-                            const studentProfile = await models_1.default.StudentProfile.findOne({ where: { userId: user.id } });
+                            const studentProfile = await models_1.default.StudentProfile.findOne({
+                                where: { userId: user.id },
+                                attributes: { exclude: ['serialNo'] } // Exclude serialNo column
+                            });
                             if (studentProfile) {
                                 user.studentProfile = studentProfile;
                             }
@@ -333,7 +345,38 @@ const getUserById = async (req, res) => {
                         try {
                             const facultyProfile = await models_1.default.FacultyProfile.findOne({ where: { userId: user.id } });
                             if (facultyProfile) {
-                                user.facultyProfile = facultyProfile;
+                                const profileJson = facultyProfile.toJSON ? facultyProfile.toJSON() : facultyProfile;
+                                // Parse documents if it's a string (MySQL JSON fields sometimes come as strings)
+                                if (profileJson.documents && typeof profileJson.documents === 'string') {
+                                    try {
+                                        profileJson.documents = JSON.parse(profileJson.documents);
+                                    }
+                                    catch (e) {
+                                        logger_1.logger.warn(`Failed to parse documents JSON for faculty ${user.id}:`, e);
+                                        profileJson.documents = null;
+                                    }
+                                }
+                                // Parse expertise if it's a string
+                                if (profileJson.expertise && typeof profileJson.expertise === 'string') {
+                                    try {
+                                        profileJson.expertise = JSON.parse(profileJson.expertise);
+                                    }
+                                    catch (e) {
+                                        logger_1.logger.warn(`Failed to parse expertise JSON for faculty ${user.id}:`, e);
+                                        // Keep as string if parsing fails
+                                    }
+                                }
+                                // Parse availability if it's a string
+                                if (profileJson.availability && typeof profileJson.availability === 'string') {
+                                    try {
+                                        profileJson.availability = JSON.parse(profileJson.availability);
+                                    }
+                                    catch (e) {
+                                        logger_1.logger.warn(`Failed to parse availability JSON for faculty ${user.id}:`, e);
+                                        // Keep as string if parsing fails
+                                    }
+                                }
+                                user.facultyProfile = profileJson;
                             }
                         }
                         catch (profileError) {
@@ -377,10 +420,62 @@ const getUserById = async (req, res) => {
             });
             return;
         }
+        // Parse JSON fields for profiles if included
+        const userJson = user.toJSON ? user.toJSON() : user;
+        // Parse faculty profile JSON fields
+        if (userJson.facultyProfile) {
+            const profile = userJson.facultyProfile;
+            // Parse documents if it's a string (MySQL JSON fields sometimes come as strings)
+            if (profile.documents && typeof profile.documents === 'string') {
+                try {
+                    profile.documents = JSON.parse(profile.documents);
+                }
+                catch (e) {
+                    logger_1.logger.warn(`Failed to parse documents JSON for faculty ${userJson.id}:`, e);
+                    profile.documents = null;
+                }
+            }
+            // Parse expertise if it's a string
+            if (profile.expertise && typeof profile.expertise === 'string') {
+                try {
+                    profile.expertise = JSON.parse(profile.expertise);
+                }
+                catch (e) {
+                    logger_1.logger.warn(`Failed to parse expertise JSON for faculty ${userJson.id}:`, e);
+                    // Keep as string if parsing fails
+                }
+            }
+            // Parse availability if it's a string
+            if (profile.availability && typeof profile.availability === 'string') {
+                try {
+                    profile.availability = JSON.parse(profile.availability);
+                }
+                catch (e) {
+                    logger_1.logger.warn(`Failed to parse availability JSON for faculty ${userJson.id}:`, e);
+                    // Keep as string if parsing fails
+                }
+            }
+            userJson.facultyProfile = profile;
+        }
+        // Parse employee profile JSON fields
+        if (userJson.employeeProfile) {
+            const profile = userJson.employeeProfile;
+            // Parse documents if it's a string (MySQL JSON fields sometimes come as strings)
+            if (profile.documents && typeof profile.documents === 'string') {
+                try {
+                    profile.documents = JSON.parse(profile.documents);
+                }
+                catch (e) {
+                    logger_1.logger.warn(`Failed to parse documents JSON for employee ${userJson.id}:`, e);
+                    profile.documents = null;
+                }
+            }
+            userJson.employeeProfile = profile;
+        }
         res.status(200).json({
             status: 'success',
             data: {
-                user,
+                user: userJson,
             },
         });
     }
@@ -461,7 +556,12 @@ const updateUser = async (req, res) => {
         const includeOptions = [];
         try {
             if (models_1.default.StudentProfile) {
-                includeOptions.push({ model: models_1.default.StudentProfile, as: 'studentProfile', required: false });
+                includeOptions.push({
+                    model: models_1.default.StudentProfile,
+                    as: 'studentProfile',
+                    required: false,
+                    attributes: { exclude: ['serialNo'] } // Exclude serialNo column
+                });
             }
         }
         catch (e) {
@@ -638,90 +738,13 @@ const updateStudentProfile = async (req, res) => {
             return;
         }
         // Get or create student profile
-        let studentProfile = await models_1.default.StudentProfile.findOne({ where: { userId } });
+        let studentProfile = await models_1.default.StudentProfile.findOne({
+            where: { userId },
+            attributes: { exclude: ['serialNo'] } // Exclude serialNo column
+        });
         if (!studentProfile) {
             const profileData = { userId };
-            // Auto-generate serialNo for new profile
-            try {
-                const autoSerialNo = await (0, serialNumber_1.generateSerialNumber)();
-                if (autoSerialNo) {
-                    profileData.serialNo = autoSerialNo;
-                    logger_1.logger.info(`Auto-generated serialNo ${autoSerialNo} for new student profile userId=${userId}`);
-                }
-            }
-            catch (serialNoError) {
-                // If serialNo generation fails, just skip it (no error)
-                logger_1.logger.warn(`Could not auto-generate serialNo for userId=${userId}:`, serialNoError?.message);
-            }
             studentProfile = await models_1.default.StudentProfile.create(profileData);
-        }
-        // Track if serialNo update should be skipped
-        let skipSerialNo = false;
-        // Auto-generate serialNo if it doesn't exist and wasn't provided
-        try {
-            const needsSerialNo = !studentProfile.serialNo && req.body.serialNo === undefined;
-            if (needsSerialNo) {
-                const autoSerialNo = await (0, serialNumber_1.generateSerialNumber)();
-                if (autoSerialNo) {
-                    studentProfile.serialNo = autoSerialNo;
-                    logger_1.logger.info(`Auto-generated serialNo ${autoSerialNo} for userId=${userId}`);
-                }
-            }
-        }
-        catch (autoGenError) {
-            // If auto-generation fails (e.g., column doesn't exist), just skip it
-            if (autoGenError?.name === 'SequelizeDatabaseError' ||
-                autoGenError?.parent?.code === 'ER_BAD_FIELD_ERROR' ||
-                autoGenError?.message?.includes('Unknown column') ||
-                autoGenError?.message?.includes('serialNo')) {
-                logger_1.logger.warn(`serialNo column may not exist, skipping auto-generation for userId=${userId}`);
-                skipSerialNo = true;
-            }
-            else {
-                // Log but don't fail - serialNo is optional
-                logger_1.logger.warn(`Error auto-generating serialNo for userId=${userId}:`, autoGenError?.message);
-            }
-        }
-        // Update profile fields - handle manual serialNo update if provided
-        if (req.body.serialNo !== undefined) {
-            try {
-                // Check for uniqueness if serialNo is being set
-                if (req.body.serialNo && req.body.serialNo.trim()) {
-                    const existingProfile = await models_1.default.StudentProfile.findOne({
-                        where: {
-                            serialNo: req.body.serialNo.trim(),
-                            userId: { [sequelize_1.Op.ne]: userId }, // Exclude current user
-                        },
-                    });
-                    if (existingProfile) {
-                        res.status(400).json({
-                            status: 'error',
-                            message: 'Serial number already exists',
-                        });
-                        return;
-                    }
-                    studentProfile.serialNo = req.body.serialNo.trim();
-                }
-                else {
-                    // If explicitly set to empty/null, allow it
-                    studentProfile.serialNo = null;
-                }
-            }
-            catch (serialNoError) {
-                // If serialNo column doesn't exist in database, log warning and skip
-                // This allows the update to continue with other fields
-                if (serialNoError?.name === 'SequelizeDatabaseError' ||
-                    serialNoError?.parent?.code === 'ER_BAD_FIELD_ERROR' ||
-                    serialNoError?.message?.includes('Unknown column') ||
-                    serialNoError?.message?.includes('serialNo')) {
-                    logger_1.logger.warn(`serialNo column may not exist in database, skipping serialNo update for userId=${userId}:`, serialNoError?.message);
-                    skipSerialNo = true;
-                }
-                else {
-                    // Re-throw if it's a different error (like validation)
-                    throw serialNoError;
-                }
-            }
         }
         if (req.body.dob !== undefined) {
             if (req.body.dob) {
@@ -792,36 +815,8 @@ const updateStudentProfile = async (req, res) => {
             studentProfile.status = req.body.status;
         if (req.body.documents !== undefined)
             studentProfile.documents = req.body.documents;
-        // Save the profile, excluding serialNo if it had an error
-        try {
-            if (skipSerialNo) {
-                // Get list of changed fields excluding serialNo
-                const changedFields = Object.keys(studentProfile.changed() || {}).filter(field => field !== 'serialNo');
-                if (changedFields.length > 0) {
-                    await studentProfile.save({ fields: changedFields });
-                }
-                else {
-                    // No fields to update, just fetch the user
-                    logger_1.logger.info(`No fields to update for student profile userId=${userId} (serialNo skipped)`);
-                }
-            }
-            else {
-                await studentProfile.save();
-            }
-        }
-        catch (saveError) {
-            // If save fails due to serialNo, try again without it
-            if (saveError?.message?.includes('serialNo') || saveError?.parent?.message?.includes('serialNo')) {
-                logger_1.logger.warn(`Save failed due to serialNo, retrying without serialNo for userId=${userId}`);
-                const changedFields = Object.keys(studentProfile.changed() || {}).filter(field => field !== 'serialNo');
-                if (changedFields.length > 0) {
-                    await studentProfile.save({ fields: changedFields });
-                }
-            }
-            else {
-                throw saveError;
-            }
-        }
+        // Save the profile
+        await studentProfile.save();
         // Fetch updated user with profile
         const updatedUser = await models_1.default.User.findByPk(userId, {
             attributes: { exclude: ['passwordHash'] },
@@ -830,6 +825,7 @@ const updateStudentProfile = async (req, res) => {
                     model: models_1.default.StudentProfile,
                     as: 'studentProfile',
                     required: false,
+                    attributes: { exclude: ['serialNo'] }, // Exclude serialNo column
                 },
             ] : undefined,
         });
@@ -849,7 +845,6 @@ const updateStudentProfile = async (req, res) => {
             stack: error?.stack,
             userId: req.params.id,
             body: req.body ? {
-                hasSerialNo: !!req.body.serialNo,
                 hasDob: !!req.body.dob,
                 hasAddress: !!req.body.address,
                 hasPhotoUrl: !!req.body.photoUrl,
@@ -1332,7 +1327,48 @@ const updateFacultyProfile = async (req, res) => {
             const errorMessage = (saveError?.parent?.sqlMessage || saveError?.message || '').toLowerCase();
             const isDateOfBirthError = (errorMessage.includes("dateofbirth") || errorMessage.includes("date_of_birth")) &&
                 errorMessage.includes("unknown column");
-            if (isDateOfBirthError && facultyProfile.dateOfBirth !== undefined) {
+            // Check if error is due to missing documents column
+            const isDocumentsError = (errorMessage.includes("documents") || errorMessage.includes("`documents`")) &&
+                errorMessage.includes("unknown column");
+            if (isDocumentsError && facultyProfile.documents !== undefined) {
+                logger_1.logger.warn('documents column does not exist in database. Removing from update and retrying...');
+                // Get all changed fields except documents
+                const changedFields = facultyProfile.changed() || [];
+                const fieldsToSave = changedFields.filter((field) => field !== 'documents');
+                // Remove documents from the model instance
+                delete facultyProfile.documents;
+                // Also remove it from changed fields tracking
+                if (facultyProfile.changed('documents')) {
+                    facultyProfile.setDataValue('documents', undefined);
+                }
+                try {
+                    // Retry save without documents - use fields option to only save changed fields (excluding documents)
+                    const defaultFields = ['expertise', 'availability', 'dateOfBirth', 'updatedAt'];
+                    const fieldsToUpdate = fieldsToSave.length > 0 ? fieldsToSave : defaultFields;
+                    const savedProfile = await facultyProfile.save({ fields: fieldsToUpdate });
+                    logger_1.logger.info('Faculty profile saved successfully after removing documents:', {
+                        userId,
+                        profileId: savedProfile.id,
+                        updatedAt: savedProfile.updatedAt,
+                    });
+                    logger_1.logger.warn('Please run migration: 20251222000000-add-documents-to-faculty-profiles to add the documents column');
+                    // Continue with the rest of the function - don't return or throw
+                }
+                catch (retryError) {
+                    logger_1.logger.error('Error saving faculty profile after retry:', retryError);
+                    // If retry also fails, handle it as a regular database error
+                    if (retryError?.name === 'SequelizeDatabaseError') {
+                        res.status(400).json({
+                            status: 'error',
+                            message: `Database error: ${retryError?.parent?.sqlMessage || retryError.message}. Please run migration: 20251222000000-add-documents-to-faculty-profiles`,
+                            error: process.env.NODE_ENV === 'development' ? retryError.message : undefined,
+                        });
+                        return;
+                    }
+                    throw retryError;
+                }
+            }
+            else if (isDateOfBirthError && facultyProfile.dateOfBirth !== undefined) {
                 logger_1.logger.warn('dateOfBirth column does not exist in database. Removing from update and retrying...');
                 // Get all changed fields except dateOfBirth
                 const changedFields = facultyProfile.changed() || [];
@@ -1631,6 +1667,8 @@ const updateEmployeeProfile = async (req, res) => {
             employeeProfile.branch = req.body.branch;
         if (req.body.panNumber !== undefined)
             employeeProfile.panNumber = req.body.panNumber;
+        if (req.body.address !== undefined)
+            employeeProfile.address = req.body.address;
         if (req.body.city !== undefined)
             employeeProfile.city = req.body.city;
         if (req.body.state !== undefined)

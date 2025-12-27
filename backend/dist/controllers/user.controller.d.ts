@@ -36,7 +36,6 @@ export declare const updateStudentProfile: (req: AuthRequest & {
         id: string;
     };
     body: {
-        serialNo?: string;
         dob?: string;
         address?: string;
         photoUrl?: string;
@@ -79,6 +78,7 @@ export declare const updateEmployeeProfile: (req: AuthRequest & {
         ifscCode?: string;
         branch?: string;
         panNumber?: string;
+        address?: string;
         city?: string;
         state?: string;
         postalCode?: string;

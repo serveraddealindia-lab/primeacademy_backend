@@ -46,7 +46,6 @@ const User_1 = require("../models/User");
 const PaymentTransaction_1 = require("../models/PaymentTransaction");
 const models_1 = __importDefault(require("../models"));
 const logger_1 = require("../utils/logger");
-const serialNumber_1 = require("../utils/serialNumber");
 /**
  * Parse date from Excel - handles Excel serial dates, various string formats, and Date objects
  * @param dateValue - Date value from Excel (can be number, string, or Date)
@@ -263,11 +262,17 @@ const completeEnrollment = async (req, res) => {
             validationErrors.push('At least one software must be selected');
         }
         // Handle number fields - they might come as strings or numbers
-        const totalDealNum = totalDeal !== null && totalDeal !== undefined
-            ? (typeof totalDeal === 'string' ? parseFloat(String(totalDeal).replace(/[^\d.-]/g, '')) : Number(totalDeal))
-            : 0;
-        if (totalDeal === null || totalDeal === undefined || isNaN(totalDealNum) || totalDealNum <= 0) {
-            validationErrors.push('Total Deal Amount is required and must be greater than 0');
+        // Total Deal Amount is COMPULSORY - student registration not possible without it
+        if (totalDeal === null || totalDeal === undefined) {
+            validationErrors.push('Total Deal Amount is required. Student registration cannot proceed without a deal amount.');
+        }
+        else {
+            const totalDealNum = typeof totalDeal === 'string'
+                ? parseFloat(String(totalDeal).replace(/[^\d.-]/g, ''))
+                : Number(totalDeal);
+            if (isNaN(totalDealNum) || totalDealNum <= 0) {
+                validationErrors.push('Total Deal Amount must be greater than 0');
+            }
         }
         const bookingAmountNum = bookingAmount !== null && bookingAmount !== undefined
             ? (typeof bookingAmount === 'string' ? parseFloat(String(bookingAmount).replace(/[^\d.-]/g, '')) : Number(bookingAmount))
@@ -434,6 +439,21 @@ const completeEnrollment = async (req, res) => {
         const passwordHash = await bcrypt_1.default.hash(defaultPassword, saltRounds);
         // Email is now required, so use the provided email
         const finalEmail = email.trim();
+        // Extract photo URL from enrollmentDocuments (first image file)
+        let photoUrl = undefined;
+        if (enrollmentDocuments && Array.isArray(enrollmentDocuments) && enrollmentDocuments.length > 0) {
+            // Find first image file (not PDF)
+            const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp'];
+            const photoDoc = enrollmentDocuments.find(doc => {
+                if (!doc || typeof doc !== 'string')
+                    return false;
+                const lowerDoc = doc.toLowerCase();
+                return imageExtensions.some(ext => lowerDoc.includes(ext));
+            });
+            if (photoDoc) {
+                photoUrl = photoDoc;
+            }
+        }
         // Create user
         const user = await models_1.default.User.create({
             name: trimmedStudentName,
@@ -442,6 +462,7 @@ const completeEnrollment = async (req, res) => {
             role: User_1.UserRole.STUDENT,
             passwordHash,
             isActive: true,
+            avatarUrl: photoUrl, // Set avatarUrl from photo
         }, { transaction });
         logger_1.logger.info(`Created student user: id=${user.id}, name=${user.name}, email=${user.email}, role=${user.role}, isActive=${user.isActive}`);
         // Create student profile if StudentProfile model exists
@@ -461,6 +482,7 @@ const completeEnrollment = async (req, res) => {
                 userId: user.id,
                 dob: dateOfAdmission ? new Date(dateOfAdmission) : null,
                 address: localAddress || permanentAddress || null,
+                photoUrl: photoUrl, // Set photoUrl from extracted photo
                 softwareList: softwaresIncluded && softwaresIncluded.trim()
                     ? softwaresIncluded.split(',').map((s) => s.trim()).filter((s) => s.length > 0)
                     : null,
@@ -525,22 +547,8 @@ const completeEnrollment = async (req, res) => {
             profileData.documents = {
                 enrollmentMetadata,
             };
-            // Auto-generate serialNo if not provided
-            if (!profileData.serialNo) {
-                try {
-                    const autoSerialNo = await (0, serialNumber_1.generateSerialNumber)();
-                    if (autoSerialNo) {
-                        profileData.serialNo = autoSerialNo;
-                        logger_1.logger.info(`Auto-generated serialNo ${autoSerialNo} for new student userId=${user.id}`);
-                    }
-                }
-                catch (serialNoError) {
-                    // If serialNo generation fails (e.g., column doesn't exist), just skip it
-                    logger_1.logger.warn(`Could not auto-generate serialNo for userId=${user.id}:`, serialNoError?.message);
-                }
-            }
             const studentProfile = await models_1.default.StudentProfile.create(profileData, { transaction });
-            logger_1.logger.info(`Created student profile: userId=${user.id}, profileId=${studentProfile.id}, status=${studentProfile.status}, serialNo=${studentProfile.serialNo || 'N/A'}`);
+            logger_1.logger.info(`Created student profile: userId=${user.id}, profileId=${studentProfile.id}, status=${studentProfile.status}`);
         }
         else {
             logger_1.logger.warn(`StudentProfile model not found - profile not created for userId=${user.id}`);
@@ -1281,6 +1289,7 @@ const unifiedStudentImport = async (req, res) => {
                 if (models_1.default.StudentProfile) {
                     let studentProfile = await models_1.default.StudentProfile.findOne({
                         where: { userId: student.id },
+                        attributes: { exclude: ['serialNo'] }, // Exclude serialNo column
                         transaction
                     });
                     const profileData = {
@@ -1834,20 +1843,7 @@ const bulkEnrollStudents = async (req, res) => {
                         currentBatches: currentBatches && currentBatches.length > 0 ? currentBatches : null,
                         pendingBatches: pendingBatches && pendingBatches.length > 0 ? pendingBatches : null,
                     };
-                    // Auto-generate serialNo if not provided
-                    if (!profileData.serialNo) {
-                        try {
-                            const autoSerialNo = await (0, serialNumber_1.generateSerialNumber)();
-                            if (autoSerialNo) {
-                                profileData.serialNo = autoSerialNo;
-                            }
-                        }
-                        catch (serialNoError) {
-                            // If serialNo generation fails, just skip it (no error)
-                            logger_1.logger.warn(`Row ${rowNumber}: Could not auto-generate serialNo:`, serialNoError?.message);
-                        }
-                    }
-                    logger_1.logger.info(`Row ${rowNumber}: Creating student profile with dob: ${parsedDob ? parsedDob.toISOString().split('T')[0] : 'null'}, emergencyContact: ${enrollmentMetadata.emergencyContact ? JSON.stringify(enrollmentMetadata.emergencyContact) : 'null'}, serialNo: ${profileData.serialNo || 'N/A'}`);
+                    logger_1.logger.info(`Row ${rowNumber}: Creating student profile with dob: ${parsedDob ? parsedDob.toISOString().split('T')[0] : 'null'}, emergencyContact: ${enrollmentMetadata.emergencyContact ? JSON.stringify(enrollmentMetadata.emergencyContact) : 'null'}`);
                     await models_1.default.StudentProfile.create(profileData, { transaction });
                 }
                 await transaction.commit();
