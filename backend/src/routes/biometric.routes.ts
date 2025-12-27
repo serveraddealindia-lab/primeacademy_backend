@@ -76,7 +76,7 @@ router.post(
   '/eBioServer/device/:id/sync-templates',
   verifyTokenMiddleware,
   checkRole(UserRole.ADMIN, UserRole.SUPERADMIN),
-  eBioServerController.syncTemplates
+  eBioServerController.syncTemplates as any
 );
 
 // POST /api/biometric/eBioServer/device/:id/push-employees - Push employees to device (Admin/SuperAdmin only)
@@ -84,7 +84,7 @@ router.post(
   '/eBioServer/device/:id/push-employees',
   verifyTokenMiddleware,
   checkRole(UserRole.ADMIN, UserRole.SUPERADMIN),
-  eBioServerController.pushEmployees
+  eBioServerController.pushEmployees as any
 );
 
 // GET /api/biometric/eBioServer/device/:id/employees - Fetch employees from device (Admin/SuperAdmin only)
@@ -92,7 +92,7 @@ router.get(
   '/eBioServer/device/:id/employees',
   verifyTokenMiddleware,
   checkRole(UserRole.ADMIN, UserRole.SUPERADMIN),
-  eBioServerController.getEmployees
+  eBioServerController.getEmployees as any
 );
 
 export default router;

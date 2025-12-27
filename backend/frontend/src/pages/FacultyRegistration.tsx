@@ -448,11 +448,12 @@ export const FacultyRegistration: React.FC = () => {
     const currentFormData = new FormData(e.currentTarget);
     const combinedFormData = new FormData();
     
-    // Add all data from state
+    // Add all data from state - include dateOfBirth even if empty string
     Object.entries(formData).forEach(([key, value]) => {
       if (Array.isArray(value)) {
         value.forEach(v => combinedFormData.append(key, v));
-      } else if (value) {
+      } else if (value !== null && value !== undefined) {
+        // Include all values including empty strings (especially for dateOfBirth)
         combinedFormData.append(key, value);
       }
     });
@@ -460,6 +461,11 @@ export const FacultyRegistration: React.FC = () => {
     // Override with current form values (in case user changed something)
     for (const [key, value] of currentFormData.entries()) {
       combinedFormData.set(key, value);
+    }
+    
+    // CRITICAL: Ensure dateOfBirth is always in combinedFormData from state if not in current form
+    if (!combinedFormData.has('dateOfBirth') && formData.dateOfBirth) {
+      combinedFormData.set('dateOfBirth', formData.dateOfBirth);
     }
     
     if (!createdUserId) {

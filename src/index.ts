@@ -492,7 +492,7 @@ logger.info('  POST /api/payments/bulk-upload');
 logger.info('  POST /api/payments/:paymentId/generate-receipt');
 logger.info('  GET /api/payments');
 logger.info('  POST /api/payments');
-logger.info('============================');
+logger.info('====================');
 
 // Error handling middleware (must be last)
 app.use(notFoundHandler);

@@ -32,15 +32,12 @@ var __importStar = (this && this.__importStar) || (function () {
         return result;
     };
 })();
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
 Object.defineProperty(exports, "__esModule", { value: true });
-const express_1 = __importDefault(require("express"));
+const express = __importStar(require("express"));
 const studentAttendanceController = __importStar(require("../controllers/studentAttendance.controller"));
 const auth_middleware_1 = require("../middleware/auth.middleware");
 const upload_middleware_1 = require("../middleware/upload.middleware");
-const router = express_1.default.Router();
+const router = express.Router();
 // POST /student-attendance/punch-in → punch in
 router.post('/punch-in', auth_middleware_1.verifyTokenMiddleware, upload_middleware_1.attendanceUpload.single('photo'), studentAttendanceController.punchIn);
 // POST /student-attendance/punch-out → punch out

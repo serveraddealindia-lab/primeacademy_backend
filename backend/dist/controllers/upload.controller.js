@@ -1,11 +1,44 @@
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.uploadFiles = exports.uploadMiddleware = void 0;
 const multer_1 = __importDefault(require("multer"));
-const path_1 = __importDefault(require("path"));
+const path = __importStar(require("path"));
 const fs_1 = require("fs");
 const crypto_1 = require("crypto");
 const logger_1 = require("../utils/logger");
@@ -14,11 +47,11 @@ const logger_1 = require("../utils/logger");
 // Use process.cwd() as base which should be the backend directory
 const backendRoot = process.cwd();
 const uploadsRoot = process.env.UPLOAD_ROOT
-    ? path_1.default.resolve(process.env.UPLOAD_ROOT)
-    : path_1.default.join(backendRoot, 'uploads');
+    ? path.resolve(process.env.UPLOAD_ROOT)
+    : path.join(backendRoot, 'uploads');
 const generalUploadDir = process.env.UPLOAD_DIR
-    ? path_1.default.resolve(process.env.UPLOAD_DIR)
-    : path_1.default.join(uploadsRoot, 'general');
+    ? path.resolve(process.env.UPLOAD_DIR)
+    : path.join(uploadsRoot, 'general');
 const ensureDirExists = (dirPath) => {
     if (!(0, fs_1.existsSync)(dirPath)) {
         (0, fs_1.mkdirSync)(dirPath, { recursive: true });
@@ -33,7 +66,7 @@ const storage = multer_1.default.diskStorage({
         cb(null, generalUploadDir);
     },
     filename: (_req, file, cb) => {
-        const ext = path_1.default.extname(file.originalname) || '.jpg';
+        const ext = path.extname(file.originalname) || '.jpg';
         const uniqueName = `${Date.now()}-${(0, crypto_1.randomUUID)()}${ext}`;
         cb(null, uniqueName);
     },
@@ -98,12 +131,12 @@ const uploadFiles = async (req, res) => {
         const uploadedFiles = files.map((file) => {
             // Calculate relative path from uploads root
             // Normalize paths to handle Windows/Unix differences
-            const normalizedFilepath = path_1.default.normalize(file.path);
-            const normalizedUploadsRoot = path_1.default.normalize(uploadsRoot);
+            const normalizedFilepath = path.normalize(file.path);
+            const normalizedUploadsRoot = path.normalize(uploadsRoot);
             // Get relative path
-            let relativePath = path_1.default.relative(normalizedUploadsRoot, normalizedFilepath);
+            let relativePath = path.relative(normalizedUploadsRoot, normalizedFilepath);
             // If relative path calculation fails (different drives on Windows), try alternative
-            if (relativePath.startsWith('..') || path_1.default.isAbsolute(relativePath)) {
+            if (relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
                 // Try to extract path after 'uploads' directory
                 const uploadsIndex = normalizedFilepath.toLowerCase().indexOf('uploads');
                 if (uploadsIndex !== -1) {
@@ -113,7 +146,7 @@ const uploadFiles = async (req, res) => {
                 }
                 else {
                     // Fallback: assume it's in general subdirectory
-                    relativePath = path_1.default.join('general', path_1.default.basename(normalizedFilepath));
+                    relativePath = path.join('general', path.basename(normalizedFilepath));
                 }
             }
             // Convert to URL-friendly path (forward slashes)

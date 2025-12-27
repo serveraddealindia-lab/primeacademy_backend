@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Certificate of Completion</title>
+    <style>
+        @page {
+            size: A4 portrait;
+            margin: 0;
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            width: 210mm;
+            height: 297mm;
+            background-color: #F5F5DC;
+            font-family: 'Times New Roman', serif;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        /* Gold decorative border */
+        .border-outer {
+            position: absolute;
+            top: 10mm;
+            left: 10mm;
+            width: calc(100% - 20mm);
+            height: calc(100% - 20mm);
+            border: 6mm solid #D4AF37;
+            box-shadow: 
+                0 0 0 1mm #8B6914 inset,
+                0 0 0 2mm #D4AF37,
+                0 0 0 3mm #8B6914;
+        }
+        
+        .border-inner {
+            position: absolute;
+            top: 17mm;
+            left: 17mm;
+            width: calc(100% - 34mm);
+            height: calc(100% - 34mm);
+            border: 1mm solid #8B6914;
+        }
+        
+        .certificate-content {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            padding: 20mm 15mm;
+            z-index: 1;
+        }
+        
+        /* Logo section - top left */
+        .logo-section {
+            position: absolute;
+            top: 20mm;
+            left: 20mm;
+            width: 80mm;
+        }
+        
+        .logo-since {
+            font-size: 7pt;
+            font-style: italic;
+            color: #000;
+            margin-bottom: 3mm;
+        }
+        
+        .logo-container {
+            display: flex;
+            align-items: center;
+            margin-bottom: 2mm;
+        }
+        
+        .logo-prime-box {
+            background: linear-gradient(to bottom, #2a2a2a 0%, #000 100%);
+            color: #FFA500;
+            font-size: 13pt;
+            font-weight: bold;
+            padding: 2.5mm 5mm;
+            display: inline-block;
+            margin-right: 3mm;
+            line-height: 1;
+        }
+        
+        .logo-academy {
+            font-size: 11pt;
+            font-weight: normal;
+            color: #000;
+            display: inline-block;
+        }
+        
+        .logo-tagline {
+            font-size: 8pt;
+            color: #000;
+            margin-top: 2mm;
+        }
+        
+        /* Main title - top right */
+        .main-title-section {
+            position: absolute;
+            top: 20mm;
+            right: 20mm;
+            text-align: right;
+            width: 110mm;
+        }
+        
+        .academy-name {
+            font-size: 18pt;
+            font-weight: bold;
+            color: #1a237e;
+            margin-bottom: 3mm;
+            letter-spacing: 0.5pt;
+        }
+        
+        .certificate-title {
+            font-size: 20pt;
+            font-weight: bold;
+            color: #1a237e;
+            letter-spacing: 1pt;
+        }
+        
+        /* Award section - center */
+        .award-section {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -45%);
+            width: 90%;
+            text-align: left;
+        }
+        
+        .award-line {
+            margin-bottom: 8mm;
+            font-size: 11pt;
+            color: #000;
+            line-height: 2;
+        }
+        
+        .award-label {
+            display: inline-block;
+        }
+        
+        .award-value {
+            display: inline-block;
+            border-bottom: 1.5px solid #000;
+            min-width: 115mm;
+            padding-bottom: 1mm;
+            margin-left: 3mm;
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+        
+        .course-line {
+            margin-bottom: 8mm;
+            font-size: 11pt;
+            color: #000;
+            line-height: 2;
+        }
+        
+        .course-value {
+            display: inline-block;
+            border-bottom: 1.5px solid #000;
+            min-width: 85mm;
+            padding-bottom: 1mm;
+            margin-left: 3mm;
+            margin-right: 3mm;
+            font-weight: bold;
+        }
+        
+        .software-line {
+            margin-bottom: 8mm;
+            font-size: 11pt;
+            color: #000;
+            line-height: 2;
+        }
+        
+        .software-value {
+            display: inline-block;
+            border-bottom: 1.5px solid #000;
+            min-width: 125mm;
+            padding-bottom: 1mm;
+            margin-left: 3mm;
+            font-weight: bold;
+        }
+        
+        .grade-month-line {
+            margin-bottom: 20mm;
+            font-size: 11pt;
+            color: #000;
+            line-height: 2;
+        }
+        
+        .grade-label {
+            display: inline-block;
+        }
+        
+        .grade-value {
+            display: inline-block;
+            border-bottom: 1.5px solid #000;
+            min-width: 35mm;
+            padding-bottom: 1mm;
+            margin-left: 3mm;
+            margin-right: 20mm;
+            font-weight: bold;
+        }
+        
+        .month-label {
+            display: inline-block;
+        }
+        
+        .month-value {
+            display: inline-block;
+            border-bottom: 1.5px solid #000;
+            min-width: 45mm;
+            padding-bottom: 1mm;
+            margin-left: 3mm;
+            font-weight: bold;
+        }
+        
+        /* Signature section - right side */
+        .signature-section {
+            position: absolute;
+            bottom: 70mm;
+            right: 30mm;
+            text-align: center;
+            width: 65mm;
+        }
+        
+        .signature-line {
+            border-top: 1.5px solid #000;
+            width: 60mm;
+            margin: 0 auto 4mm;
+            padding-top: 2mm;
+        }
+        
+        .signature-label {
+            font-size: 9pt;
+            color: #000;
+            text-align: center;
+        }
+        
+        /* Bottom section */
+        .grade-legend {
+            position: absolute;
+            bottom: 18mm;
+            left: 20mm;
+            font-size: 7pt;
+            color: #000;
+        }
+        
+        .address {
+            position: absolute;
+            bottom: 18mm;
+            left: 50%;
+            transform: translateX(-50%);
+            text-align: center;
+            font-size: 7pt;
+            color: #000;
+            width: 85%;
+            line-height: 1.4;
+        }
+        
+        .certificate-number {
+            position: absolute;
+            bottom: 18mm;
+            right: 20mm;
+            font-size: 8pt;
+            font-weight: bold;
+            color: #000;
+        }
+    </style>
+</head>
+<body>
+    <!-- Gold decorative borders -->
+    <div class="border-outer"></div>
+    <div class="border-inner"></div>
+    
+    <div class="certificate-content">
+        <!-- Logo section - top left -->
+        <div class="logo-section">
+            <div class="logo-since">SINCE 2012</div>
+            <div class="logo-container">
+                <div class="logo-prime-box">PRIME</div>
+                <div class="logo-academy">ACADEMY</div>
+            </div>
+            <div class="logo-tagline">Digital Art With Excellence</div>
+        </div>
+        
+        <!-- Main title - top right -->
+        <div class="main-title-section">
+            <div class="academy-name">PRIME ACADEMY</div>
+            <div class="certificate-title">CERTIFICATE OF COMPLETION</div>
+        </div>
+        
+        <!-- Award section - center with underlined format -->
+        <div class="award-section">
+            <div class="award-line">
+                <span class="award-label">Awarded to</span>
+                <span class="award-value">{{STUDENT_NAME}}</span>
+            </div>
+            <div class="course-line">
+                <span class="award-label">for successfully completing the</span>
+                <span class="course-value">{{COURSE_NAME}}</span>
+                <span> course.</span>
+            </div>
+            <div class="software-line">
+                <span class="award-label">Softwares covered</span>
+                <span class="software-value">{{SOFTWARE_COVERED}}</span>
+            </div>
+            <div class="grade-month-line">
+                <span class="grade-label">Grade awarded</span>
+                <span class="grade-value">{{GRADE}}</span>
+                <span class="month-label">Month of completion</span>
+                <span class="month-value">{{MONTH_OF_COMPLETION}}</span>
+            </div>
+        </div>
+        
+        <!-- Signature section - right side -->
+        <div class="signature-section">
+            <div class="signature-line"></div>
+            <div class="signature-label">Authorize Signature</div>
+        </div>
+        
+        <!-- Bottom section -->
+        <div class="grade-legend">A=Excellent | B=Good | C=Average | D=Below Average</div>
+        <div class="address">102-103, 1st Floor, Prime Arcade, Opp. S.T. Bus Stand, Navsari. Ph: 02637-250000</div>
+        <div class="certificate-number">Cert No: {{CERTIFICATE_NUMBER}}</div>
+    </div>
+</body>
+</html>

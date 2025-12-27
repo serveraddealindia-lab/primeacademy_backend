@@ -674,15 +674,29 @@ export const StudentManagement: React.FC = () => {
       // Invalidate and refetch students list
       queryClient.invalidateQueries({ queryKey: ['students'] });
       queryClient.invalidateQueries({ queryKey: ['users'] });
+      queryClient.invalidateQueries({ queryKey: ['student-details', selectedStudent?.id] });
+      
       // Update the selected student's avatarUrl immediately
       if (selectedStudent) {
-        setSelectedStudent({ ...selectedStudent, avatarUrl: variables.avatarUrl });
+        const updatedStudent = { ...selectedStudent, avatarUrl: variables.avatarUrl };
+        setSelectedStudent(updatedStudent);
+        
+        // Update preview with cache-busted URL to force reload
+        const fullImageUrl = getImageUrl(variables.avatarUrl) || variables.avatarUrl;
+        const cacheBustedUrl = fullImageUrl + (fullImageUrl.includes('?') ? '&' : '?') + `t=${Date.now()}`;
+        setImagePreview(cacheBustedUrl);
       }
+      
       setUploadingImage(false);
-      setIsImageModalOpen(false);
-      setSelectedStudent(null);
-      setImagePreview(null);
       alert('Image updated successfully!');
+      
+      // Don't close modal immediately - let user see the updated image
+      // Close after a short delay
+      setTimeout(() => {
+        setIsImageModalOpen(false);
+        setSelectedStudent(null);
+        setImagePreview(null);
+      }, 1000);
     },
     onError: (error: any) => {
       alert(error.response?.data?.message || 'Failed to update image');
@@ -824,8 +838,15 @@ export const StudentManagement: React.FC = () => {
       if (uploadResponse.data && uploadResponse.data.files && uploadResponse.data.files.length > 0) {
         const imageUrl = uploadResponse.data.files[0].url;
         console.log('Uploaded image URL:', imageUrl);
-        // Update preview with the uploaded URL
-        setImagePreview(imageUrl);
+        
+        // Get full URL for preview with cache-busting
+        const fullImageUrl = getImageUrl(imageUrl) || imageUrl;
+        const cacheBustedUrl = fullImageUrl + (fullImageUrl.includes('?') ? '&' : '?') + `t=${Date.now()}`;
+        console.log('Full image URL for preview (with cache-busting):', cacheBustedUrl);
+        
+        // Update preview with the cache-busted URL
+        setImagePreview(cacheBustedUrl);
+        
         // Update user with new image URL
         updateUserImageMutation.mutate({
           userId: selectedStudent.id,
@@ -1141,11 +1162,13 @@ export const StudentManagement: React.FC = () => {
                               <div className="flex items-center">
                                 {student.avatarUrl ? (
                                   <img
-                                    src={getImageUrl(student.avatarUrl) || ''}
+                                    src={(getImageUrl(student.avatarUrl) || student.avatarUrl) + (student.avatarUrl.includes('?') ? '&' : '?') + `t=${Date.now()}`}
                                     alt={student.name}
                                     className="h-10 w-10 sm:h-12 sm:w-12 rounded-full object-cover border-2 border-gray-200"
                                     crossOrigin="anonymous"
+                                    key={`student-${student.id}-${student.avatarUrl}`}
                                     onError={(e) => {
+                                      console.error('Student photo failed to load:', student.avatarUrl);
                                       (e.target as HTMLImageElement).src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDgiIGhlaWdodD0iNDgiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHJlY3Qgd2lkdGg9IjEwMCUiIGhlaWdodD0iMTAwJSIgZmlsbD0iI2ZmOTUwMCIvPjx0ZXh0IHg9IjUwJSIgeT0iNTAlIiBmb250LWZhbWlseT0iQXJpYWwsIHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMjAiIGZpbGw9IiNmZmYiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGR5PSIuM2VtIj57e3N0dWRlbnQubmFtZS5jaGFyQXQoMCl9fTwvdGV4dD48L3N2Zz4=';
                                     }}
                                   />
@@ -1423,19 +1446,25 @@ export const StudentManagement: React.FC = () => {
               <div className="flex justify-center mb-4">
                 {imagePreview ? (
                   <img
-                    src={imagePreview}
+                    src={imagePreview.startsWith('data:') ? imagePreview : ((getImageUrl(imagePreview) || imagePreview) + (imagePreview.includes('?') ? '&' : '?') + `t=${Date.now()}`)}
                     alt="Preview"
                     className="h-32 w-32 rounded-full object-cover border-4 border-orange-500"
-                    key={imagePreview}
+                    key={`preview-${imagePreview}-${Date.now()}`}
+                    crossOrigin="anonymous"
+                    onError={(e) => {
+                      console.error('Image preview failed to load:', imagePreview);
+                      (e.target as HTMLImageElement).src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTI4IiBoZWlnaHQ9IjEyOCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZmY5NTAwIi8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtZmFtaWx5PSJBcmlhbCwgc2Fucy1zZXJpZiIgZm9udC1zaXplPSI0OCIgZmlsbD0iI2ZmZiIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZHk9Ii4zZW0iPnt7c2VsZWN0ZWRTdHVkZW50Lm5hbWUuY2hhckF0KDApfX08L3RleHQ+PC9zdmc+';
+                    }}
                   />
                 ) : selectedStudent?.avatarUrl ? (
                   <img
-                    src={getImageUrl(selectedStudent.avatarUrl) || ''}
+                    src={(getImageUrl(selectedStudent.avatarUrl) || selectedStudent.avatarUrl) + (selectedStudent.avatarUrl.includes('?') ? '&' : '?') + `t=${Date.now()}`}
                     alt="Current"
                     className="h-32 w-32 rounded-full object-cover border-4 border-orange-500"
                     crossOrigin="anonymous"
-                    key={selectedStudent.avatarUrl}
+                    key={`current-${selectedStudent.avatarUrl}-${Date.now()}`}
                     onError={(e) => {
+                      console.error('Current student photo failed to load:', selectedStudent.avatarUrl);
                       (e.target as HTMLImageElement).src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTI4IiBoZWlnaHQ9IjEyOCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZmY5NTAwIi8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtZmFtaWx5PSJBcmlhbCwgc2Fucy1zZXJpZiIgZm9udC1zaXplPSI0OCIgZmlsbD0iI2ZmZiIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZHk9Ii4zZW0iPnt7c2VsZWN0ZWRTdHVkZW50Lm5hbWUuY2hhckF0KDApfX08L3RleHQ+PC9zdmc+';
                     }}
                   />

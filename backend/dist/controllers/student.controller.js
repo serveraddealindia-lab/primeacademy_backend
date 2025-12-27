@@ -37,7 +37,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.downloadUnifiedTemplate = exports.getStudentAttendance = exports.bulkEnrollStudents = exports.unifiedStudentImport = exports.getCourseNames = exports.getAllSoftware = exports.createThreeDummyStudents = exports.createDummyStudent = exports.completeEnrollment = void 0;
-const bcrypt_1 = __importDefault(require("bcrypt"));
+const bcrypt = __importStar(require("bcrypt"));
 const XLSX = __importStar(require("xlsx"));
 const sequelize_1 = require("sequelize");
 const path = __importStar(require("path"));
@@ -437,7 +437,7 @@ const completeEnrollment = async (req, res) => {
         // Generate a default password (can be changed later)
         const defaultPassword = 'Student@123'; // You might want to make this configurable
         const saltRounds = 10;
-        const passwordHash = await bcrypt_1.default.hash(defaultPassword, saltRounds);
+        const passwordHash = await bcrypt.hash(defaultPassword, saltRounds);
         // Email is now required, so use the provided email
         const finalEmail = email.trim();
         // Extract photo URL from enrollmentDocuments (first image file)
@@ -742,7 +742,7 @@ const createDummyStudent = async (_req, res) => {
         // Hash password
         const password = 'Student@123';
         const saltRounds = 10;
-        const passwordHash = await bcrypt_1.default.hash(password, saltRounds);
+        const passwordHash = await bcrypt.hash(password, saltRounds);
         // Create user
         const user = await models_1.default.User.create({
             name: 'John Doe',
@@ -1186,7 +1186,7 @@ const unifiedStudentImport = async (req, res) => {
                     const finalPhone = normalizedPhone || null;
                     // Generate default password
                     const defaultPassword = `${finalEmail.split('@')[0]}123`;
-                    const passwordHash = await bcrypt_1.default.hash(defaultPassword, 10);
+                    const passwordHash = await bcrypt.hash(defaultPassword, 10);
                     student = await models_1.default.User.create({
                         name: finalName,
                         email: finalEmail,
@@ -1720,7 +1720,7 @@ const bulkEnrollStudents = async (req, res) => {
                 }
                 // Generate default password (email prefix + '123')
                 const defaultPassword = `${email.split('@')[0]}123`;
-                const passwordHash = await bcrypt_1.default.hash(defaultPassword, 10);
+                const passwordHash = await bcrypt.hash(defaultPassword, 10);
                 // Create user
                 const user = await models_1.default.User.create({
                     name: studentName,

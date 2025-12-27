@@ -1,0 +1,47 @@
+// REPLACE LINES 304-346 IN src/controllers/student.controller.ts
+// WITH THIS FIXED CODE:
+
+    // Handle number fields - they might come as strings or numbers
+    // Total Deal Amount is COMPULSORY - student registration not possible without it
+    let totalDealNum = 0;
+    if (totalDeal === null || totalDeal === undefined) {
+      validationErrors.push('Total Deal Amount is required. Student registration cannot proceed without a deal amount.');
+    } else {
+      totalDealNum = typeof totalDeal === 'string' 
+        ? parseFloat(String(totalDeal).replace(/[^\d.-]/g, '')) 
+        : Number(totalDeal);
+      if (isNaN(totalDealNum) || totalDealNum <= 0) {
+        validationErrors.push('Total Deal Amount must be greater than 0');
+      }
+    }
+    
+    const bookingAmountNum = bookingAmount !== null && bookingAmount !== undefined
+      ? (typeof bookingAmount === 'string' ? parseFloat(String(bookingAmount).replace(/[^\d.-]/g, '')) : Number(bookingAmount))
+      : 0;
+    if (bookingAmount === null || bookingAmount === undefined || isNaN(bookingAmountNum) || bookingAmountNum < 0) {
+      validationErrors.push('Booking Amount is required and must be 0 or greater');
+    }
+    
+    const balanceAmountNum = balanceAmount !== null && balanceAmount !== undefined
+      ? (typeof balanceAmount === 'string' ? parseFloat(String(balanceAmount).replace(/[^\d.-]/g, '')) : Number(balanceAmount))
+      : 0;
+    if (balanceAmount === null || balanceAmount === undefined || isNaN(balanceAmountNum) || balanceAmountNum < 0) {
+      validationErrors.push('Balance Amount is required and must be 0 or greater');
+    }
+    
+    // Validate booking amount doesn't exceed total deal
+    if (bookingAmountNum && totalDealNum && bookingAmountNum > totalDealNum) {
+      validationErrors.push(`Booking Amount (${bookingAmountNum}) cannot be greater than Total Deal Amount (${totalDealNum})`);
+    }
+    
+    // Validate balance + booking = total deal (with tolerance for floating point)
+    // Only validate if all three values are provided and valid
+    if (balanceAmountNum > 0 && totalDealNum > 0 && bookingAmountNum >= 0) {
+      const sum = balanceAmountNum + bookingAmountNum;
+      const difference = Math.abs(sum - totalDealNum);
+      // Allow small difference due to floating point precision (0.01)
+      if (difference > 0.01) {
+        validationErrors.push(`Balance Amount (${balanceAmountNum}) + Booking Amount (${bookingAmountNum}) = ${sum}, but Total Deal Amount is ${totalDealNum}. The sum must equal the total deal.`);
+      }
+    }
+

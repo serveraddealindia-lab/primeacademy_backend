@@ -11,13 +11,6 @@ router.post(
   facultyController.createFaculty
 );
 
-// GET /api/faculty/:userId - Get faculty profile by user ID
-router.get(
-  '/:userId',
-  verifyTokenMiddleware,
-  facultyController.getFacultyProfile
-);
-
 // PUT /api/faculty/:id - Update faculty profile
 router.put(
   '/:id',
@@ -26,3 +19,7 @@ router.put(
 );
 
 export default router;
+
+
+
+

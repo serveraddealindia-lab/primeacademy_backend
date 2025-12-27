@@ -39,17 +39,17 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.bulkUploadPayments = exports.downloadReceipt = exports.generateReceipt = exports.updatePayment = exports.createPayment = exports.getPaymentById = exports.getPayments = void 0;
 // @ts-ignore - pdfmake doesn't have type definitions
 const pdfmake_1 = __importDefault(require("pdfmake"));
-const path_1 = __importDefault(require("path"));
-const fs_1 = __importDefault(require("fs"));
+const path = __importStar(require("path"));
+const fs = __importStar(require("fs"));
 const XLSX = __importStar(require("xlsx"));
 const models_1 = __importDefault(require("../models"));
 const PaymentTransaction_1 = require("../models/PaymentTransaction");
 const logger_1 = require("../utils/logger");
 const User_1 = require("../models/User");
 // Create receipts directory
-const receiptsDir = path_1.default.join(__dirname, '../../receipts');
-if (!fs_1.default.existsSync(receiptsDir)) {
-    fs_1.default.mkdirSync(receiptsDir, { recursive: true });
+const receiptsDir = path.join(__dirname, '../../receipts');
+if (!fs.existsSync(receiptsDir)) {
+    fs.mkdirSync(receiptsDir, { recursive: true });
 }
 // Helper function to update payment plan balance based on payments
 const updatePaymentPlanBalance = async (studentId, enrollmentId) => {
@@ -216,43 +216,43 @@ const generateReceiptPDF = async (receiptNumber, studentName, _studentEmail, stu
             // Sanitize receipt number for filename - replace special characters that break URLs
             const sanitizedReceiptNumber = receiptNumber.replace(/\//g, '_').replace(/#/g, 'PRI').replace(/[^a-zA-Z0-9_-]/g, '_');
             const filename = `receipt_${sanitizedReceiptNumber}_${Date.now()}.pdf`;
-            const filepath = path_1.default.join(receiptsDir, filename);
+            const filepath = path.join(receiptsDir, filename);
             // Load rupee symbol image - try multiple formats and paths
             const possiblePaths = [
                 // Try PNG first (better quality) - check uploads directory
-                path_1.default.join(process.cwd(), 'uploads', 'rupee.png'),
-                path_1.default.join(__dirname, '../../uploads', 'rupee.png'),
-                path_1.default.join(process.cwd(), 'uploads', 'general', 'rupee.png'),
-                path_1.default.join(__dirname, '../../uploads', 'general', 'rupee.png'),
+                path.join(process.cwd(), 'uploads', 'rupee.png'),
+                path.join(__dirname, '../../uploads', 'rupee.png'),
+                path.join(process.cwd(), 'uploads', 'general', 'rupee.png'),
+                path.join(__dirname, '../../uploads', 'general', 'rupee.png'),
                 // Try root directories
-                path_1.default.join(process.cwd(), 'rupee.png'),
-                path_1.default.join(__dirname, '../../rupee.png'),
-                path_1.default.join(process.cwd(), 'backend', 'rupee.png'),
+                path.join(process.cwd(), 'rupee.png'),
+                path.join(__dirname, '../../rupee.png'),
+                path.join(process.cwd(), 'backend', 'rupee.png'),
                 // Then try JPG - check uploads directory
-                path_1.default.join(process.cwd(), 'uploads', 'rupee.jpg'),
-                path_1.default.join(__dirname, '../../uploads', 'rupee.jpg'),
-                path_1.default.join(process.cwd(), 'uploads', 'general', 'rupee.jpg'),
-                path_1.default.join(__dirname, '../../uploads', 'general', 'rupee.jpg'),
+                path.join(process.cwd(), 'uploads', 'rupee.jpg'),
+                path.join(__dirname, '../../uploads', 'rupee.jpg'),
+                path.join(process.cwd(), 'uploads', 'general', 'rupee.jpg'),
+                path.join(__dirname, '../../uploads', 'general', 'rupee.jpg'),
                 // Try root directories
-                path_1.default.join(process.cwd(), 'rupee.jpg'),
-                path_1.default.join(__dirname, '../../rupee.jpg'),
-                path_1.default.join(process.cwd(), 'backend', 'rupee.jpg'),
+                path.join(process.cwd(), 'rupee.jpg'),
+                path.join(__dirname, '../../rupee.jpg'),
+                path.join(process.cwd(), 'backend', 'rupee.jpg'),
                 // Then try SVG - check uploads directory
-                path_1.default.join(process.cwd(), 'uploads', 'rupee.svg'),
-                path_1.default.join(__dirname, '../../uploads', 'rupee.svg'),
-                path_1.default.join(process.cwd(), 'uploads', 'general', 'rupee.svg'),
-                path_1.default.join(__dirname, '../../uploads', 'general', 'rupee.svg'),
+                path.join(process.cwd(), 'uploads', 'rupee.svg'),
+                path.join(__dirname, '../../uploads', 'rupee.svg'),
+                path.join(process.cwd(), 'uploads', 'general', 'rupee.svg'),
+                path.join(__dirname, '../../uploads', 'general', 'rupee.svg'),
                 // Try root directories
-                path_1.default.join(process.cwd(), 'rupee.svg'),
-                path_1.default.join(__dirname, '../../rupee.svg'),
-                path_1.default.join(process.cwd(), 'backend', 'rupee.svg'),
+                path.join(process.cwd(), 'rupee.svg'),
+                path.join(__dirname, '../../rupee.svg'),
+                path.join(process.cwd(), 'backend', 'rupee.svg'),
             ];
             let rupeeImageDataUri = null;
             let rupeeImageType = 'png'; // default
             for (const imagePath of possiblePaths) {
-                if (fs_1.default.existsSync(imagePath)) {
+                if (fs.existsSync(imagePath)) {
                     try {
-                        const buffer = fs_1.default.readFileSync(imagePath);
+                        const buffer = fs.readFileSync(imagePath);
                         const base64 = buffer.toString('base64');
                         // Determine image type from file extension
                         if (imagePath.endsWith('.jpg') || imagePath.endsWith('.jpeg')) {
@@ -588,8 +588,8 @@ const generateReceiptPDF = async (receiptNumber, studentName, _studentEmail, stu
                 },
             };
             // Ensure receipts directory exists
-            if (!fs_1.default.existsSync(receiptsDir)) {
-                fs_1.default.mkdirSync(receiptsDir, { recursive: true });
+            if (!fs.existsSync(receiptsDir)) {
+                fs.mkdirSync(receiptsDir, { recursive: true });
                 logger_1.logger.info(`Created receipts directory: ${receiptsDir}`);
             }
             // Create PDF document with error handling
@@ -602,7 +602,7 @@ const generateReceiptPDF = async (receiptNumber, studentName, _studentEmail, stu
                 reject(new Error(`Failed to create PDF document: ${createError.message || createError}`));
                 return;
             }
-            const stream = fs_1.default.createWriteStream(filepath);
+            const stream = fs.createWriteStream(filepath);
             // Handle PDF generation errors
             pdfDoc.on('error', (error) => {
                 logger_1.logger.error('PDF generation error:', error);
@@ -1382,8 +1382,8 @@ const downloadReceipt = async (req, res) => {
         }
         // Extract filename from receiptUrl
         const filename = payment.receiptUrl.split('/').pop() || `receipt_${paymentId}.pdf`;
-        const filepath = path_1.default.join(receiptsDir, filename);
-        if (!fs_1.default.existsSync(filepath)) {
+        const filepath = path.join(receiptsDir, filename);
+        if (!fs.existsSync(filepath)) {
             res.status(404).json({
                 status: 'error',
                 message: 'Receipt file not found',
