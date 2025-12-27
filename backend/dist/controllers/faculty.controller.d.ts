@@ -9,6 +9,11 @@ export declare const createFaculty: (req: AuthRequest & {
         softwareProficiency?: string;
     };
 }, res: Response) => Promise<void>;
+export declare const getFacultyProfile: (req: AuthRequest & {
+    params: {
+        userId: string;
+    };
+}, res: Response) => Promise<void>;
 export declare const updateFacultyProfile: (req: AuthRequest & {
     params: {
         id: string;

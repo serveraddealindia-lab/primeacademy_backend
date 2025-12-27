@@ -57,10 +57,26 @@ const getEmployeeProfile = async (req, res) => {
             });
             return;
         }
+        // Parse JSON fields for employee profile
+        let employeeProfile = user.employeeProfile;
+        if (employeeProfile) {
+            const profileJson = employeeProfile.toJSON ? employeeProfile.toJSON() : employeeProfile;
+            // Parse documents if it's a string (MySQL JSON fields sometimes come as strings)
+            if (profileJson.documents && typeof profileJson.documents === 'string') {
+                try {
+                    profileJson.documents = JSON.parse(profileJson.documents);
+                }
+                catch (e) {
+                    logger_1.logger.warn(`Failed to parse documents JSON for employee ${userId}:`, e);
+                    profileJson.documents = null;
+                }
+            }
+            employeeProfile = profileJson;
+        }
         res.status(200).json({
             status: 'success',
             data: {
-                employeeProfile: user.employeeProfile || null,
+                employeeProfile: employeeProfile || null,
             },
         });
     }

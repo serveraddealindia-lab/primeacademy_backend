@@ -78,6 +78,7 @@ export declare const updateEmployeeProfile: (req: AuthRequest & {
         ifscCode?: string;
         branch?: string;
         panNumber?: string;
+        address?: string;
         city?: string;
         state?: string;
         postalCode?: string;

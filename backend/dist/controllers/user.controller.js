@@ -350,7 +350,18 @@ const getUserById = async (req, res) => {
                         try {
                             const employeeProfile = await models_1.default.EmployeeProfile.findOne({ where: { userId: user.id } });
                             if (employeeProfile) {
-                                user.employeeProfile = employeeProfile;
+                                const profileJson = employeeProfile.toJSON ? employeeProfile.toJSON() : employeeProfile;
+                                // Parse documents if it's a string (MySQL JSON fields sometimes come as strings)
+                                if (profileJson.documents && typeof profileJson.documents === 'string') {
+                                    try {
+                                        profileJson.documents = JSON.parse(profileJson.documents);
+                                    }
+                                    catch (e) {
+                                        logger_1.logger.warn(`Failed to parse documents JSON for employee ${user.id}:`, e);
+                                        profileJson.documents = null;
+                                    }
+                                }
+                                user.employeeProfile = profileJson;
                             }
                         }
                         catch (profileError) {
@@ -377,6 +388,19 @@ const getUserById = async (req, res) => {
                         try {
                             const facultyProfile = await models_1.default.FacultyProfile.findOne({ where: { userId: user.id } });
                             if (facultyProfile) {
+<<<<<<< HEAD
+                                const profileJson = facultyProfile.toJSON ? facultyProfile.toJSON() : facultyProfile;
+                                // Parse documents if it's a string (MySQL JSON fields sometimes come as strings)
+                                if (profileJson.documents && typeof profileJson.documents === 'string') {
+                                    try {
+                                        profileJson.documents = JSON.parse(profileJson.documents);
+                                    }
+                                    catch (e) {
+                                        logger_1.logger.warn(`Failed to parse documents JSON for faculty ${user.id}:`, e);
+                                        profileJson.documents = null;
+                                    }
+                                }
+=======
                                 // Parse JSON fields if they are strings (MySQL JSON columns sometimes return as strings)
                                 const profileJson = facultyProfile.toJSON ? facultyProfile.toJSON() : facultyProfile;
                                 // Parse documents if it's a string - CRITICAL for production
@@ -404,6 +428,7 @@ const getUserById = async (req, res) => {
                                     logger_1.logger.info(`Documents is null/undefined for faculty ${user.id}, setting to empty object`);
                                     profileJson.documents = {};
                                 }
+>>>>>>> bdb794acfb61cc2b2706640d091825482eb0ff56
                                 // Parse expertise if it's a string
                                 if (profileJson.expertise && typeof profileJson.expertise === 'string') {
                                     try {
@@ -411,6 +436,10 @@ const getUserById = async (req, res) => {
                                     }
                                     catch (e) {
                                         logger_1.logger.warn(`Failed to parse expertise JSON for faculty ${user.id}:`, e);
+<<<<<<< HEAD
+                                        // Keep as string if parsing fails
+=======
+>>>>>>> bdb794acfb61cc2b2706640d091825482eb0ff56
                                     }
                                 }
                                 // Parse availability if it's a string
@@ -420,6 +449,10 @@ const getUserById = async (req, res) => {
                                     }
                                     catch (e) {
                                         logger_1.logger.warn(`Failed to parse availability JSON for faculty ${user.id}:`, e);
+<<<<<<< HEAD
+                                        // Keep as string if parsing fails
+=======
+>>>>>>> bdb794acfb61cc2b2706640d091825482eb0ff56
                                     }
                                 }
                                 user.facultyProfile = profileJson;
@@ -466,6 +499,23 @@ const getUserById = async (req, res) => {
             });
             return;
         }
+<<<<<<< HEAD
+        // Parse JSON fields for profiles if included
+        const userJson = user.toJSON ? user.toJSON() : user;
+        // Parse faculty profile JSON fields
+        if (userJson.facultyProfile) {
+            const profile = userJson.facultyProfile;
+            // Parse documents if it's a string (MySQL JSON fields sometimes come as strings)
+            if (profile.documents && typeof profile.documents === 'string') {
+                try {
+                    profile.documents = JSON.parse(profile.documents);
+                }
+                catch (e) {
+                    logger_1.logger.warn(`Failed to parse documents JSON for faculty ${userJson.id}:`, e);
+                    profile.documents = null;
+                }
+            }
+=======
         // Parse JSON fields for faculty profile if it exists (MySQL JSON columns sometimes return as strings)
         const userJson = user.toJSON ? user.toJSON() : user;
         if (userJson.facultyProfile) {
@@ -495,6 +545,7 @@ const getUserById = async (req, res) => {
                 logger_1.logger.info(`Documents is null/undefined for faculty ${userJson.id}, setting to empty object`);
                 profile.documents = {};
             }
+>>>>>>> bdb794acfb61cc2b2706640d091825482eb0ff56
             // Parse expertise if it's a string
             if (profile.expertise && typeof profile.expertise === 'string') {
                 try {
@@ -502,6 +553,10 @@ const getUserById = async (req, res) => {
                 }
                 catch (e) {
                     logger_1.logger.warn(`Failed to parse expertise JSON for faculty ${userJson.id}:`, e);
+<<<<<<< HEAD
+                    // Keep as string if parsing fails
+=======
+>>>>>>> bdb794acfb61cc2b2706640d091825482eb0ff56
                 }
             }
             // Parse availability if it's a string
@@ -511,10 +566,32 @@ const getUserById = async (req, res) => {
                 }
                 catch (e) {
                     logger_1.logger.warn(`Failed to parse availability JSON for faculty ${userJson.id}:`, e);
+<<<<<<< HEAD
+                    // Keep as string if parsing fails
+=======
+>>>>>>> bdb794acfb61cc2b2706640d091825482eb0ff56
                 }
             }
             userJson.facultyProfile = profile;
         }
+<<<<<<< HEAD
+        // Parse employee profile JSON fields
+        if (userJson.employeeProfile) {
+            const profile = userJson.employeeProfile;
+            // Parse documents if it's a string (MySQL JSON fields sometimes come as strings)
+            if (profile.documents && typeof profile.documents === 'string') {
+                try {
+                    profile.documents = JSON.parse(profile.documents);
+                }
+                catch (e) {
+                    logger_1.logger.warn(`Failed to parse documents JSON for employee ${userJson.id}:`, e);
+                    profile.documents = null;
+                }
+            }
+            userJson.employeeProfile = profile;
+        }
+=======
+>>>>>>> bdb794acfb61cc2b2706640d091825482eb0ff56
         res.status(200).json({
             status: 'success',
             data: {
@@ -1370,7 +1447,48 @@ const updateFacultyProfile = async (req, res) => {
             const errorMessage = (saveError?.parent?.sqlMessage || saveError?.message || '').toLowerCase();
             const isDateOfBirthError = (errorMessage.includes("dateofbirth") || errorMessage.includes("date_of_birth")) &&
                 errorMessage.includes("unknown column");
-            if (isDateOfBirthError && facultyProfile.dateOfBirth !== undefined) {
+            // Check if error is due to missing documents column
+            const isDocumentsError = (errorMessage.includes("documents") || errorMessage.includes("`documents`")) &&
+                errorMessage.includes("unknown column");
+            if (isDocumentsError && facultyProfile.documents !== undefined) {
+                logger_1.logger.warn('documents column does not exist in database. Removing from update and retrying...');
+                // Get all changed fields except documents
+                const changedFields = facultyProfile.changed() || [];
+                const fieldsToSave = changedFields.filter((field) => field !== 'documents');
+                // Remove documents from the model instance
+                delete facultyProfile.documents;
+                // Also remove it from changed fields tracking
+                if (facultyProfile.changed('documents')) {
+                    facultyProfile.setDataValue('documents', undefined);
+                }
+                try {
+                    // Retry save without documents - use fields option to only save changed fields (excluding documents)
+                    const defaultFields = ['expertise', 'availability', 'dateOfBirth', 'updatedAt'];
+                    const fieldsToUpdate = fieldsToSave.length > 0 ? fieldsToSave : defaultFields;
+                    const savedProfile = await facultyProfile.save({ fields: fieldsToUpdate });
+                    logger_1.logger.info('Faculty profile saved successfully after removing documents:', {
+                        userId,
+                        profileId: savedProfile.id,
+                        updatedAt: savedProfile.updatedAt,
+                    });
+                    logger_1.logger.warn('Please run migration: 20251222000000-add-documents-to-faculty-profiles to add the documents column');
+                    // Continue with the rest of the function - don't return or throw
+                }
+                catch (retryError) {
+                    logger_1.logger.error('Error saving faculty profile after retry:', retryError);
+                    // If retry also fails, handle it as a regular database error
+                    if (retryError?.name === 'SequelizeDatabaseError') {
+                        res.status(400).json({
+                            status: 'error',
+                            message: `Database error: ${retryError?.parent?.sqlMessage || retryError.message}. Please run migration: 20251222000000-add-documents-to-faculty-profiles`,
+                            error: process.env.NODE_ENV === 'development' ? retryError.message : undefined,
+                        });
+                        return;
+                    }
+                    throw retryError;
+                }
+            }
+            else if (isDateOfBirthError && facultyProfile.dateOfBirth !== undefined) {
                 logger_1.logger.warn('dateOfBirth column does not exist in database. Removing from update and retrying...');
                 // Get all changed fields except dateOfBirth
                 const changedFields = facultyProfile.changed() || [];
@@ -1669,6 +1787,8 @@ const updateEmployeeProfile = async (req, res) => {
             employeeProfile.branch = req.body.branch;
         if (req.body.panNumber !== undefined)
             employeeProfile.panNumber = req.body.panNumber;
+        if (req.body.address !== undefined)
+            employeeProfile.address = req.body.address;
         if (req.body.city !== undefined)
             employeeProfile.city = req.body.city;
         if (req.body.state !== undefined)
