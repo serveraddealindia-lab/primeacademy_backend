@@ -92,10 +92,21 @@ logger.info(`Backend root (process.cwd()): ${backendRoot}`);
 logger.info(`__dirname: ${__dirname}`);
 
 // Serve uploads with proper headers - MUST be before API routes to avoid auth middleware
-app.use('/uploads', (req, res, next) => {
-<<<<<<< HEAD
-  // Set CORS headers for all upload requests - allow all origins for file serving
-  const origin = req.headers.origin;
+  // Set CORS headers for all upload requests
+  const origin = req.headers.origin as string | undefined;
+  const allowedOrigins = process.env.FRONTEND_URL?.split(',').map((o) => o.trim()) || [
+    'http://localhost:5173',
+    'http://crm.prashantthakar.com',
+  ];
+
+  // Set CORS headers for all upload requests
+  const origin = req.headers.origin as string | undefined;
+  const allowedOrigins = process.env.FRONTEND_URL?.split(',').map((o) => o.trim()) || [
+    'http://localhost:5173',
+    'http://crm.prashantthakar.com',
+  ];
+>>>>>>> bdb794acfb61cc2b2706640d091825482eb0ff56
+
 =======
   // Set CORS headers for all upload requests
   const origin = req.headers.origin as string | undefined;
@@ -511,7 +522,7 @@ logger.info('  POST /api/payments/bulk-upload');
 logger.info('  POST /api/payments/:paymentId/generate-receipt');
 logger.info('  GET /api/payments');
 logger.info('  POST /api/payments');
-logger.info('============================');
+logger.info('====================');
 
 // Error handling middleware (must be last)
 app.use(notFoundHandler);
