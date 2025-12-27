@@ -1,4 +1,4 @@
-import bcrypt from 'bcrypt';
+import * as bcrypt from 'bcrypt';
 import db from '../models';
 import { UserRole } from '../models/User';
 import { BatchMode } from '../models/Batch';

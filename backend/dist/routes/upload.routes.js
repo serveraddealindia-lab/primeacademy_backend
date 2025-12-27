@@ -18,8 +18,14 @@ router.get('/', auth_middleware_1.verifyTokenMiddleware, (_req, res) => {
 router.get('/test-static', auth_middleware_1.verifyTokenMiddleware, (_req, res) => {
     const path = require('path');
     const fs = require('fs');
-    const uploadsRoot = path.join(__dirname, '../../uploads');
-    const generalUploadDir = path.join(uploadsRoot, 'general');
+    // Use process.cwd() to match upload.controller.ts path calculation
+    const backendRoot = process.cwd();
+    const uploadsRoot = process.env.UPLOAD_ROOT
+        ? path.resolve(process.env.UPLOAD_ROOT)
+        : path.join(backendRoot, 'uploads');
+    const generalUploadDir = process.env.UPLOAD_DIR
+        ? path.resolve(process.env.UPLOAD_DIR)
+        : path.join(uploadsRoot, 'general');
     let files = [];
     try {
         if (fs.existsSync(generalUploadDir)) {
@@ -34,10 +40,11 @@ router.get('/test-static', auth_middleware_1.verifyTokenMiddleware, (_req, res) 
         message: 'Static file serving test',
         uploadsRoot,
         generalUploadDir,
+        backendRoot,
         exists: fs.existsSync(generalUploadDir),
         fileCount: files.length,
         sampleFiles: files,
-        note: 'Files should be accessible at http://localhost:3000/uploads/general/[filename]',
+        note: 'Files should be accessible at http://localhost:3001/uploads/general/[filename]',
     });
 });
 // POST /api/upload - Upload files (images)

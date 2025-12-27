@@ -5,6 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import { Layout } from '../components/Layout';
 import { facultyAPI } from '../api/faculty.api';
 import { userAPI, UpdateUserRequest } from '../api/user.api';
+import { usePhotoUpload } from '../hooks/usePhotoUpload';
 import { uploadAPI } from '../api/upload.api';
 import { getImageUrl } from '../utils/imageUtils';
 import { formatDateDDMMYYYY, convertDDMMYYYYToYYYYMMDD, isValidDDMMYYYY } from '../utils/dateUtils';
@@ -18,12 +19,14 @@ export const FacultyEdit: React.FC = () => {
   const [currentStep, setCurrentStep] = useState(1);
   const totalSteps = 7;
 
+  // Photo upload hook
+  const { uploadPhoto, uploading: uploadingPhoto, error: photoUploadError, getPhotoUrl } = usePhotoUpload();
+
   // Document upload states
   const [photo, setPhoto] = useState<{ name: string; url: string; size?: number } | null>(null);
   const [panCard, setPanCard] = useState<{ name: string; url: string; size?: number } | null>(null);
   const [aadharCard, setAadharCard] = useState<{ name: string; url: string; size?: number } | null>(null);
   const [otherDocuments, setOtherDocuments] = useState<Array<{ name: string; url: string; size?: number }>>([]);
-  const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [uploadingPanCard, setUploadingPanCard] = useState(false);
   const [uploadingAadharCard, setUploadingAadharCard] = useState(false);
   const [uploadingOtherDocs, setUploadingOtherDocs] = useState(false);
@@ -411,52 +414,51 @@ export const FacultyEdit: React.FC = () => {
     }
   }, [facultyData, parsedDocuments, personalInfo, employmentInfo, bankInfo, emergencyInfo, parsedExpertise, parsedAvailability]);
 
-  // Handle Photo upload
+  // Handle Photo upload - NEW SIMPLIFIED VERSION
   const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file) return;
-
-    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png'];
-    if (!allowedTypes.includes(file.type)) {
-      alert('Please select a valid image file (JPG or PNG)');
+    if (!file) {
+      console.log('No file selected');
       e.target.value = '';
       return;
     }
 
-    setUploadingPhoto(true);
-    try {
-      const uploadResponse = await uploadAPI.uploadFile(file);
-      if (uploadResponse.data && uploadResponse.data.files && uploadResponse.data.files.length > 0) {
-        const uploadedFile = uploadResponse.data.files[0];
-        // Store relative URL in database (backend will serve it)
-        const relativeUrl = uploadedFile.url;
-        setPhoto({
-          name: uploadedFile.originalName,
-          url: relativeUrl, // Store relative URL for database
-          size: uploadedFile.size,
-        });
-        // Immediately update user's avatarUrl with relative URL
-        if (id) {
-          try {
-            await userAPI.updateUser(Number(id), { avatarUrl: relativeUrl });
-            queryClient.invalidateQueries({ queryKey: ['faculty', id] });
-            queryClient.invalidateQueries({ queryKey: ['faculty'] });
-          } catch (error: any) {
-            console.error('Error updating avatarUrl:', error);
-            // Don't fail the upload if avatarUrl update fails
-          }
-        }
-        alert('Photo uploaded successfully!');
-      } else {
-        throw new Error('No file returned from upload');
-      }
-    } catch (error: any) {
-      console.error('Photo upload error:', error);
-      alert(error.response?.data?.message || error.message || 'Failed to upload photo');
-    } finally {
-      setUploadingPhoto(false);
+    console.log('Photo upload initiated:', { fileName: file.name, fileType: file.type, fileSize: file.size });
+
+    // Upload photo using hook
+    const photoData = await uploadPhoto(file);
+    
+    if (!photoData) {
+      // Error already set in hook, show alert
+      const errorMsg = photoUploadError || 'Failed to upload photo. Please try again.';
+      console.error('Photo upload failed:', errorMsg);
+      alert(errorMsg);
       e.target.value = '';
+      return;
     }
+
+    console.log('Photo uploaded successfully, updating state:', photoData);
+
+    // Set photo in state
+    setPhoto(photoData);
+
+    // Update user's avatarUrl in database
+    if (id) {
+      try {
+        console.log('Updating avatarUrl in database:', photoData.url);
+        await userAPI.updateUser(Number(id), { avatarUrl: photoData.url });
+        queryClient.invalidateQueries({ queryKey: ['faculty', id] });
+        queryClient.invalidateQueries({ queryKey: ['faculty'] });
+        console.log('AvatarUrl updated successfully');
+      } catch (error: any) {
+        console.error('Error updating avatarUrl:', error);
+        // Don't fail - photo is uploaded, just avatarUrl update failed
+        alert('Photo uploaded but failed to update profile. Please refresh the page.');
+      }
+    }
+
+    alert('Photo uploaded successfully!');
+    e.target.value = '';
   };
 
   // Handle PAN Card upload
@@ -551,7 +553,7 @@ export const FacultyEdit: React.FC = () => {
 
     setUploadingOtherDocs(true);
     try {
-      const uploadPromises = validFiles.map(file => uploadAPI.uploadFile(file));
+      const uploadPromises = validFiles.map((file: File) => uploadAPI.uploadFile(file));
       const uploadResponses = await Promise.all(uploadPromises);
       
       const newDocuments = uploadResponses
@@ -1970,37 +1972,42 @@ export const FacultyEdit: React.FC = () => {
                   <label className="block text-sm font-medium text-gray-700 mb-2">Photo</label>
                   <input
                     type="file"
-                    accept="image/jpeg,image/jpg,image/png"
+                    accept="image/jpeg,image/jpg,image/png,image/webp,image/gif"
                     onChange={handlePhotoUpload}
                     disabled={uploadingPhoto}
                     className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 disabled:opacity-50"
                   />
                   {uploadingPhoto && <p className="mt-2 text-sm text-gray-500">Uploading...</p>}
-                  {(() => {
-                    const currentPhoto = photo || parsedDocuments?.photo || null;
-                    
-                    return currentPhoto && currentPhoto.url ? (
-                      <div className="mt-3 p-3 bg-gray-50 rounded-lg border border-gray-200 flex items-center space-x-4">
-                        <img
-                          src={getImageUrl(currentPhoto.url) || ''}
-                          alt="Photo"
-                          className="h-16 w-16 object-cover rounded border border-gray-300"
-                          crossOrigin="anonymous"
-                        />
-                        <div className="flex-1">
-                          <p className="text-sm font-medium text-gray-900">{currentPhoto.name || 'Photo'}</p>
-                          <p className="text-xs text-gray-500">Image File</p>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => setPhoto(null)}
-                          className="px-3 py-1.5 text-sm text-red-600 hover:text-red-800 border border-red-300 rounded hover:bg-red-50"
-                        >
-                          Remove
-                        </button>
+                  {photo && photo.url && (
+                    <div className="mt-3 p-3 bg-gray-50 rounded-lg border border-gray-200 flex items-center space-x-4">
+                      <img
+                        key={`photo-${photo.url}-${Date.now()}`}
+                        src={(getPhotoUrl(photo.url) || photo.url) + (photo.url.includes('?') ? '&' : '?') + `t=${Date.now()}`}
+                        alt="Photo"
+                        className="h-16 w-16 object-cover rounded border border-gray-300"
+                        crossOrigin="anonymous"
+                        onError={(e) => {
+                          console.error('Photo failed to load:', photo.url);
+                          // Show placeholder on error
+                          (e.target as HTMLImageElement).style.display = 'none';
+                        }}
+                      />
+                      <div className="flex-1">
+                        <p className="text-sm font-medium text-gray-900">{photo.name || 'Photo'}</p>
+                        <p className="text-xs text-gray-500">Image File</p>
                       </div>
-                    ) : null;
-                  })()}
+                      <button
+                        type="button"
+                        onClick={() => setPhoto(null)}
+                        className="px-3 py-1.5 text-sm text-red-600 hover:text-red-800 border border-red-300 rounded hover:bg-red-50"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  )}
+                  {photoUploadError && (
+                    <p className="mt-2 text-sm text-red-600">{photoUploadError}</p>
+                  )}
                 </div>
 
                 {/* PAN Card */}

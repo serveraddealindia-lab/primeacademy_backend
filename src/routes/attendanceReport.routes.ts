@@ -1,4 +1,4 @@
-import express from 'express';
+import * as express from 'express';
 import * as attendanceReportController from '../controllers/attendanceReport.controller';
 import { verifyTokenMiddleware, checkRole } from '../middleware/auth.middleware';
 import { UserRole } from '../models/User';

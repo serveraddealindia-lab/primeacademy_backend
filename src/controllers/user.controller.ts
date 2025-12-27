@@ -1,5 +1,5 @@
 import { Response } from 'express';
-import bcrypt from 'bcrypt';
+import * as bcrypt from 'bcrypt';
 import { AuthRequest } from '../middleware/auth.middleware';
 import db from '../models';
 import { UserRole } from '../models/User';
@@ -1471,8 +1471,8 @@ export const updateFacultyProfile = async (
       if (updatedUser) {
         logger.info('Updated user fetched:', {
           userId: updatedUser.id,
-          hasFacultyProfile: !!updatedUser.facultyProfile,
-          profileId: updatedUser.facultyProfile?.id,
+          hasFacultyProfile: !!(updatedUser as any).facultyProfile,
+          profileId: (updatedUser as any).facultyProfile?.id,
         });
       }
     } catch (queryError: any) {
@@ -1493,7 +1493,7 @@ export const updateFacultyProfile = async (
     }
 
     // Ensure the profile is included in the response
-    if (!updatedUser.facultyProfile && facultyProfile) {
+    if (!(updatedUser as any).facultyProfile && facultyProfile) {
       // Manually attach the profile if it wasn't included
       (updatedUser as any).facultyProfile = facultyProfile;
     }

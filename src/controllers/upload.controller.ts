@@ -1,6 +1,6 @@
 import { Response } from 'express';
 import multer from 'multer';
-import path from 'path';
+import * as path from 'path';
 import { existsSync, mkdirSync } from 'fs';
 import { randomUUID } from 'crypto';
 import { AuthRequest } from '../middleware/auth.middleware';

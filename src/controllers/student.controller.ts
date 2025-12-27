@@ -1,5 +1,5 @@
 import { Response } from 'express';
-import bcrypt from 'bcrypt';
+import * as bcrypt from 'bcrypt';
 import * as XLSX from 'xlsx';
 import { Op } from 'sequelize';
 import * as path from 'path';

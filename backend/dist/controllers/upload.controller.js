@@ -10,7 +10,12 @@ const fs_1 = require("fs");
 const crypto_1 = require("crypto");
 const logger_1 = require("../utils/logger");
 // __dirname is available in CommonJS
-const uploadsRoot = path_1.default.join(__dirname, '../../uploads');
+// In production, __dirname is in dist/src/controllers, so we need to go up to backend root
+// Use process.cwd() as base which should be the backend directory
+const backendRoot = process.cwd();
+const uploadsRoot = process.env.UPLOAD_ROOT
+    ? path_1.default.resolve(process.env.UPLOAD_ROOT)
+    : path_1.default.join(backendRoot, 'uploads');
 const generalUploadDir = process.env.UPLOAD_DIR
     ? path_1.default.resolve(process.env.UPLOAD_DIR)
     : path_1.default.join(uploadsRoot, 'general');
@@ -82,18 +87,51 @@ const uploadFiles = async (req, res) => {
             });
             return;
         }
+        // Log path information for debugging
+        logger_1.logger.info('=== UPLOAD DEBUG INFO ===');
+        logger_1.logger.info(`process.cwd(): ${process.cwd()}`);
+        logger_1.logger.info(`backendRoot: ${backendRoot}`);
+        logger_1.logger.info(`uploadsRoot: ${uploadsRoot}`);
+        logger_1.logger.info(`generalUploadDir: ${generalUploadDir}`);
+        logger_1.logger.info(`generalUploadDir exists: ${(0, fs_1.existsSync)(generalUploadDir)}`);
+        logger_1.logger.info('========================');
         const uploadedFiles = files.map((file) => {
             // Calculate relative path from uploads root
-            const relativePath = path_1.default.relative(uploadsRoot, file.path);
+            // Normalize paths to handle Windows/Unix differences
+            const normalizedFilepath = path_1.default.normalize(file.path);
+            const normalizedUploadsRoot = path_1.default.normalize(uploadsRoot);
+            // Get relative path
+            let relativePath = path_1.default.relative(normalizedUploadsRoot, normalizedFilepath);
+            // If relative path calculation fails (different drives on Windows), try alternative
+            if (relativePath.startsWith('..') || path_1.default.isAbsolute(relativePath)) {
+                // Try to extract path after 'uploads' directory
+                const uploadsIndex = normalizedFilepath.toLowerCase().indexOf('uploads');
+                if (uploadsIndex !== -1) {
+                    relativePath = normalizedFilepath.substring(uploadsIndex + 'uploads'.length);
+                    // Remove leading path separator
+                    relativePath = relativePath.replace(/^[\\/]+/, '');
+                }
+                else {
+                    // Fallback: assume it's in general subdirectory
+                    relativePath = path_1.default.join('general', path_1.default.basename(normalizedFilepath));
+                }
+            }
             // Convert to URL-friendly path (forward slashes)
             const urlPath = relativePath.replace(/\\/g, '/');
             // Use relative URL that will work with the static middleware
             const url = `/uploads/${urlPath}`;
+            // Verify file actually exists after save
+            const fileExists = (0, fs_1.existsSync)(file.path);
             logger_1.logger.info(`File uploaded: ${file.originalname}`);
             logger_1.logger.info(`File saved to: ${file.path}`);
+            logger_1.logger.info(`File exists after save: ${fileExists}`);
+            logger_1.logger.info(`Uploads root: ${uploadsRoot}`);
             logger_1.logger.info(`Relative path: ${relativePath}`);
             logger_1.logger.info(`URL path: ${urlPath}`);
             logger_1.logger.info(`Final URL: ${url}`);
+            if (!fileExists) {
+                logger_1.logger.error(`WARNING: File was supposed to be saved to ${file.path} but it doesn't exist!`);
+            }
             return {
                 originalName: file.originalname,
                 filename: file.filename,
@@ -101,6 +139,7 @@ const uploadFiles = async (req, res) => {
                 mimetype: file.mimetype,
                 url: url,
                 path: file.path, // For debugging
+                fileExists: fileExists, // Add this for debugging
             };
         });
         const urls = uploadedFiles.map((f) => f.url);
