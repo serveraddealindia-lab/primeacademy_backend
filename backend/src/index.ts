@@ -93,8 +93,12 @@ logger.info(`__dirname: ${__dirname}`);
 
 // Serve uploads with proper headers - MUST be before API routes to avoid auth middleware
 app.use('/uploads', (req, res, next) => {
-  // Set CORS headers for all upload requests - allow all origins for file serving
-  const origin = req.headers.origin;
+  // Set CORS headers for all upload requests
+  const origin = req.headers.origin as string | undefined;
+  const allowedOrigins = process.env.FRONTEND_URL?.split(',').map((o) => o.trim()) || [
+    'http://localhost:5173',
+    'http://crm.prashantthakar.com',
+  ];
   
   // Always allow CORS for static files (needed for file:// and localhost)
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -204,7 +208,7 @@ app.get('/orientations/test', (_req, res) => {
 });
 
 app.use('/orientations', (req, res, next) => {
-  const origin = req.headers.origin;
+  const origin = req.headers.origin as string | undefined;
   const allowedOrigins = process.env.FRONTEND_URL?.split(',').map((o) => o.trim()) || [
     'http://localhost:5173',
     'http://crm.prashantthakar.com',
@@ -250,7 +254,7 @@ if (!fs.existsSync(receiptsStaticPath)) {
 logger.info(`Serving receipts from: ${receiptsStaticPath}`);
 
 app.use('/receipts', (req, res, next) => {
-  const origin = req.headers.origin;
+  const origin = req.headers.origin as string | undefined;
   const allowedOrigins = process.env.FRONTEND_URL?.split(',').map((o) => o.trim()) || [
     'http://localhost:5173',
     'http://crm.prashantthakar.com',
@@ -284,7 +288,7 @@ app.use('/receipts', (req, res, next) => {
 // Also serve receipts through /api/receipts/ for frontend compatibility
 // Custom handler to properly decode filenames with special characters
 app.use('/api/receipts', (req, res, next) => {
-  const origin = req.headers.origin;
+  const origin = req.headers.origin as string | undefined;
   const allowedOrigins = process.env.FRONTEND_URL?.split(',').map((o) => o.trim()) || [
     'http://localhost:5173',
     'http://crm.prashantthakar.com',
@@ -502,7 +506,7 @@ logger.info('  POST /api/payments/bulk-upload');
 logger.info('  POST /api/payments/:paymentId/generate-receipt');
 logger.info('  GET /api/payments');
 logger.info('  POST /api/payments');
-logger.info('============================');
+logger.info('====================');
 
 // Error handling middleware (must be last)
 app.use(notFoundHandler);

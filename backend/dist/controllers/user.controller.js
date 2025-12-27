@@ -37,7 +37,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.resetUserPassword = exports.getModulesList = exports.loginAsUser = exports.updateEmployeeProfile = exports.updateFacultyProfile = exports.updateStudentProfile = exports.deleteUser = exports.updateUser = exports.getUserById = exports.getAllUsers = void 0;
-const bcrypt_1 = __importDefault(require("bcrypt"));
+const bcrypt = __importStar(require("bcrypt"));
 const models_1 = __importDefault(require("../models"));
 const User_1 = require("../models/User");
 const logger_1 = require("../utils/logger");
@@ -2057,7 +2057,7 @@ const resetUserPassword = async (req, res) => {
         }
         // Hash the new password
         const saltRounds = 10;
-        const passwordHash = await bcrypt_1.default.hash(newPassword, saltRounds);
+        const passwordHash = await bcrypt.hash(newPassword, saltRounds);
         // Update user password
         user.passwordHash = passwordHash;
         await user.save();

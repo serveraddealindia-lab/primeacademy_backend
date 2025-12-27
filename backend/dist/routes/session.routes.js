@@ -32,15 +32,12 @@ var __importStar = (this && this.__importStar) || (function () {
         return result;
     };
 })();
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
 Object.defineProperty(exports, "__esModule", { value: true });
-const express_1 = __importDefault(require("express"));
+const express = __importStar(require("express"));
 const sessionController = __importStar(require("../controllers/session.controller"));
 const auth_middleware_1 = require("../middleware/auth.middleware");
 const User_1 = require("../models/User");
-const router = express_1.default.Router();
+const router = express.Router();
 const requireFaculty = [auth_middleware_1.verifyTokenMiddleware, (0, auth_middleware_1.checkRole)(User_1.UserRole.FACULTY, User_1.UserRole.ADMIN, User_1.UserRole.SUPERADMIN)];
 router.get('/faculty/assigned', requireFaculty, sessionController.getFacultyAssignedBatches);
 // Debug endpoint to check faculty assignments (admin only)

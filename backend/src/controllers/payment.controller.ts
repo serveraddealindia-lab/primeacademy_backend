@@ -1,8 +1,8 @@
 import { Response } from 'express';
 // @ts-ignore - pdfmake doesn't have type definitions
 import PdfPrinter from 'pdfmake';
-import path from 'path';
-import fs from 'fs';
+import * as path from 'path';
+import * as fs from 'fs';
 import * as XLSX from 'xlsx';
 import db from '../models';
 import { AuthRequest } from '../middleware/auth.middleware';

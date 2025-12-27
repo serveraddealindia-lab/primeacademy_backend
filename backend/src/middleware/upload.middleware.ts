@@ -1,5 +1,5 @@
 import multer from 'multer';
-import path from 'path';
+import * as path from 'path';
 import { existsSync, mkdirSync } from 'fs';
 import { randomUUID } from 'crypto';
 import type { Request } from 'express';

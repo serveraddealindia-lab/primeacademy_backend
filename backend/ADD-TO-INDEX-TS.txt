@@ -1,0 +1,18 @@
+Add these lines to src/index.ts AFTER line 139 (after the /uploads/test endpoint):
+
+// Handle directory requests to /uploads/general/ - return 404 with helpful message
+app.get('/uploads/general/', (_req, res) => {
+  res.status(404).json({
+    status: 'error',
+    message: 'Directory listing not allowed. Please access a specific file: /uploads/general/[filename]',
+  });
+});
+
+// Handle directory requests to /uploads/ - return 404 with helpful message
+app.get('/uploads/', (_req, res) => {
+  res.status(404).json({
+    status: 'error',
+    message: 'Directory listing not allowed. Please access a specific file: /uploads/[path]/[filename]',
+  });
+});
+

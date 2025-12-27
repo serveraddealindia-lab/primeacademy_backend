@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>API Connection Tester</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+        }
+        .test-section {
+            margin: 20px 0;
+            padding: 15px;
+            background: #f9f9f9;
+            border-radius: 5px;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        .result {
+            margin-top: 10px;
+            padding: 10px;
+            border-radius: 5px;
+            white-space: pre-wrap;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        .success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔍 API Connection Diagnostic Tool</h1>
+        <p>Use this tool to test your API connection from the browser</p>
+
+        <div class="test-section">
+            <h3>Test 1: Health Check Endpoint</h3>
+            <button onclick="testHealth()">Test /api/health</button>
+            <div id="health-result" class="result"></div>
+        </div>
+
+        <div class="test-section">
+            <h3>Test 2: CORS Check</h3>
+            <button onclick="testCORS()">Test CORS</button>
+            <div id="cors-result" class="result"></div>
+        </div>
+
+        <div class="test-section">
+            <h3>Test 3: SSL Certificate Check</h3>
+            <button onclick="testSSL()">Test SSL</button>
+            <div id="ssl-result" class="result"></div>
+        </div>
+
+        <div class="test-section">
+            <h3>Test 4: Network Information</h3>
+            <button onclick="showNetworkInfo()">Show Network Info</button>
+            <div id="network-result" class="result"></div>
+        </div>
+
+        <div class="test-section">
+            <h3>Test 5: Custom Endpoint</h3>
+            <input type="text" id="custom-endpoint" placeholder="/api/health" style="width: 200px; padding: 5px;">
+            <button onclick="testCustom()">Test Custom</button>
+            <div id="custom-result" class="result"></div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = 'https://api.prashantthakar.com/api';
+
+        function showResult(elementId, data, isError = false) {
+            const element = document.getElementById(elementId);
+            element.className = 'result ' + (isError ? 'error' : 'success');
+            element.textContent = JSON.stringify(data, null, 2);
+        }
+
+        function showInfo(elementId, message) {
+            const element = document.getElementById(elementId);
+            element.className = 'result info';
+            element.textContent = message;
+        }
+
+        async function testHealth() {
+            showInfo('health-result', 'Testing...');
+            try {
+                const response = await fetch(`${API_BASE}/health`, {
+                    method: 'GET',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                const data = {
+                    status: response.status,
+                    statusText: response.statusText,
+                    headers: Object.fromEntries(response.headers.entries()),
+                    body: await response.text()
+                };
+                
+                showResult('health-result', data, response.status !== 200);
+            } catch (error) {
+                showResult('health-result', {
+                    error: error.name,
+                    message: error.message,
+                    stack: error.stack
+                }, true);
+            }
+        }
+
+        async function testCORS() {
+            showInfo('cors-result', 'Testing CORS...');
+            try {
+                const response = await fetch(`${API_BASE}/health`, {
+                    method: 'OPTIONS',
+                    headers: {
+                        'Origin': window.location.origin,
+                        'Access-Control-Request-Method': 'GET'
+                    }
+                });
+                
+                const data = {
+                    status: response.status,
+                    corsHeaders: {
+                        'Access-Control-Allow-Origin': response.headers.get('Access-Control-Allow-Origin'),
+                        'Access-Control-Allow-Methods': response.headers.get('Access-Control-Allow-Methods'),
+                        'Access-Control-Allow-Headers': response.headers.get('Access-Control-Allow-Headers'),
+                        'Access-Control-Allow-Credentials': response.headers.get('Access-Control-Allow-Credentials')
+                    }
+                };
+                
+                showResult('cors-result', data);
+            } catch (error) {
+                showResult('cors-result', {
+                    error: error.name,
+                    message: error.message
+                }, true);
+            }
+        }
+
+        function testSSL() {
+            showInfo('ssl-result', 'Checking SSL...');
+            const info = {
+                protocol: window.location.protocol,
+                hostname: window.location.hostname,
+                isSecure: window.location.protocol === 'https:',
+                note: 'Open browser DevTools → Security tab to see certificate details'
+            };
+            showResult('ssl-result', info);
+        }
+
+        function showNetworkInfo() {
+            const info = {
+                userAgent: navigator.userAgent,
+                language: navigator.language,
+                platform: navigator.platform,
+                cookieEnabled: navigator.cookieEnabled,
+                onLine: navigator.onLine,
+                connection: navigator.connection ? {
+                    effectiveType: navigator.connection.effectiveType,
+                    downlink: navigator.connection.downlink,
+                    rtt: navigator.connection.rtt
+                } : 'Not available',
+                apiBase: API_BASE,
+                currentOrigin: window.location.origin
+            };
+            showResult('network-result', info);
+        }
+
+        async function testCustom() {
+            const endpoint = document.getElementById('custom-endpoint').value || '/health';
+            showInfo('custom-result', `Testing ${endpoint}...`);
+            
+            try {
+                const url = endpoint.startsWith('http') ? endpoint : `${API_BASE}${endpoint}`;
+                const response = await fetch(url, {
+                    method: 'GET',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                const data = {
+                    url: url,
+                    status: response.status,
+                    statusText: response.statusText,
+                    headers: Object.fromEntries(response.headers.entries()),
+                    body: await response.text()
+                };
+                
+                showResult('custom-result', data, response.status !== 200);
+            } catch (error) {
+                showResult('custom-result', {
+                    url: endpoint,
+                    error: error.name,
+                    message: error.message
+                }, true);
+            }
+        }
+    </script>
+</body>
+</html>
+

@@ -4,7 +4,7 @@ import db from '../models';
 import { UserRole } from '../models/User';
 import { logger } from '../utils/logger';
 import { Op } from 'sequelize';
-import path from 'path';
+import * as path from 'path';
 import { buildAttendanceRelativePath } from '../middleware/upload.middleware';
 
 const parseLocationPayload = (rawLocation: unknown): Record<string, unknown> | null => {

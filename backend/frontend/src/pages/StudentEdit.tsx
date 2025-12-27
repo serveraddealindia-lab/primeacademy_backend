@@ -5,6 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import { Layout } from '../components/Layout';
 import { userAPI, UpdateUserRequest, UpdateStudentProfileRequest } from '../api/user.api';
 import { studentAPI, StudentDetails } from '../api/student.api';
+import { usePhotoUpload } from '../hooks/usePhotoUpload';
 import { uploadAPI } from '../api/upload.api';
 import { getImageUrl } from '../utils/imageUtils';
 import { batchAPI } from '../api/batch.api';
@@ -52,7 +53,6 @@ export const StudentEdit: React.FC = () => {
   const totalSteps = 4;
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [uploadedPhotoUrl, setUploadedPhotoUrl] = useState<string | null>(null); // Store the uploaded photo URL
-  const [uploadingImage, setUploadingImage] = useState(false);
   const [selectedSoftwares, setSelectedSoftwares] = useState<string[]>([]);
   const [showOtherSoftwareInput, setShowOtherSoftwareInput] = useState(false);
   const [otherSoftware, setOtherSoftware] = useState('');
@@ -63,7 +63,8 @@ export const StudentEdit: React.FC = () => {
   const [panCard, setPanCard] = useState<{ name: string; url: string; size?: number } | null>(null);
   const [aadharCard, setAadharCard] = useState<{ name: string; url: string; size?: number } | null>(null);
   const [otherDocuments, setOtherDocuments] = useState<Array<{ name: string; url: string; size?: number }>>([]);
-  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  // Photo upload hook
+  const { uploadPhoto, uploading: uploadingPhoto, error: photoUploadError, getPhotoUrl } = usePhotoUpload();
   const [uploadingPanCard, setUploadingPanCard] = useState(false);
   const [uploadingAadharCard, setUploadingAadharCard] = useState(false);
   const [uploadingOtherDocs, setUploadingOtherDocs] = useState(false);
@@ -639,39 +640,58 @@ const { data: courseNamesData } = useQuery({
   };
 
 
-  // Handle photo upload
+  // Handle photo upload - NEW SIMPLIFIED VERSION
   const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file) return;
-
-    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'application/pdf'];
-    if (!allowedTypes.includes(file.type)) {
-      alert('Please select a valid file (JPG, PNG, or PDF)');
+    if (!file) {
+      console.log('No file selected');
       e.target.value = '';
       return;
     }
 
-    setUploadingPhoto(true);
-    try {
-      const uploadResponse = await uploadAPI.uploadFile(file);
-      if (uploadResponse.data && uploadResponse.data.files && uploadResponse.data.files.length > 0) {
-        const uploadedFile = uploadResponse.data.files[0];
-        setPhoto({
-          name: uploadedFile.originalName,
-          url: uploadedFile.url,
-          size: uploadedFile.size,
-        });
-        alert('Photo uploaded successfully!');
-      } else {
-        throw new Error('No file returned from upload');
-      }
-    } catch (error: any) {
-      console.error('Photo upload error:', error);
-      alert(error.response?.data?.message || error.message || 'Failed to upload photo');
-    } finally {
-      setUploadingPhoto(false);
+    console.log('Photo upload initiated:', { fileName: file.name, fileType: file.type, fileSize: file.size });
+
+    // Upload photo using hook
+    const photoData = await uploadPhoto(file);
+    
+    if (!photoData) {
+      // Error already set in hook, show alert
+      const errorMsg = photoUploadError || 'Failed to upload photo. Please try again.';
+      console.error('Photo upload failed:', errorMsg);
+      alert(errorMsg);
       e.target.value = '';
+      return;
     }
+
+    console.log('Photo uploaded successfully, updating state:', photoData);
+
+    // Set photo in state
+    setPhoto(photoData);
+    setUploadedPhotoUrl(photoData.url);
+    
+    // Set image preview for display
+    const previewUrl = getPhotoUrl(photoData.url) || photoData.url;
+    setImagePreview(previewUrl);
+
+    // Update user's avatarUrl and student profile photoUrl
+    if (id) {
+      try {
+        console.log('Updating avatarUrl and photoUrl in database:', photoData.url);
+        await userAPI.updateUser(Number(id), { avatarUrl: photoData.url });
+        if (studentData?.studentProfile) {
+          await userAPI.updateStudentProfile(Number(id), { photoUrl: photoData.url });
+        }
+        queryClient.invalidateQueries({ queryKey: ['student-details', id] });
+        console.log('Photo URLs updated successfully');
+      } catch (error: any) {
+        console.error('Error updating photo URLs:', error);
+        // Don't fail - photo is uploaded, just URL update failed
+        alert('Photo uploaded but failed to update profile. Please refresh the page.');
+      }
+    }
+
+    alert('Photo uploaded successfully!');
+    e.target.value = '';
   };
 
   // Handle PAN Card upload
@@ -763,7 +783,7 @@ const { data: courseNamesData } = useQuery({
     try {
       const uploadResponse = await uploadAPI.uploadMultipleFiles(fileArray);
       if (uploadResponse.data && uploadResponse.data.files) {
-        const newDocuments = uploadResponse.data.files.map((file) => ({
+        const newDocuments = uploadResponse.data.files.map((file: { originalName: string; url: string; size: number }) => ({
           name: file.originalName,
           url: file.url,
           size: file.size,
@@ -1200,13 +1220,16 @@ const { data: courseNamesData } = useQuery({
                         }
                         const studentName = formData.name || studentData?.name || 'Student';
                         if (photoUrl) {
+                          const cacheBustedUrl = photoUrl + (photoUrl.includes('?') ? '&' : '?') + `t=${Date.now()}`;
                           return (
                             <img
-                              src={photoUrl}
+                              key={`student-photo-${photoUrl}-${Date.now()}`}
+                              src={cacheBustedUrl}
                               alt={studentName}
                               className="w-24 h-24 md:w-32 md:h-32 rounded-full object-cover border-4 border-orange-500 shadow-lg"
                               crossOrigin="anonymous"
                               onError={(e) => {
+                                console.error('Student photo failed to load:', photoUrl);
                                 (e.target as HTMLImageElement).src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTI4IiBoZWlnaHQ9IjEyOCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZmY5NTAwIi8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtZmFtaWx5PSJBcmlhbCwgc2Fucy1zZXJpZiIgZm9udC1zaXplPSI0OCIgZmlsbD0iI2ZmZiIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZHk9Ii4zZW0iPnt7c3R1ZGVudE5hbWUuY2hhckF0KDApfX08L3RleHQ+PC9zdmc+';
                               }}
                             />
@@ -1223,50 +1246,13 @@ const { data: courseNamesData } = useQuery({
                         <label className="block text-sm font-medium text-gray-700 mb-2">Upload Photo</label>
                         <input
                           type="file"
-                          accept="image/*"
-                          onChange={async (e) => {
-                            const file = e.target.files?.[0];
-                            if (!file) return;
-                            if (!file.type.startsWith('image/')) {
-                              alert('Please select an image file');
-                              return;
-                            }
-                            if (file.size > 5 * 1024 * 1024) {
-                              alert('Image size must be less than 5MB');
-                              return;
-                            }
-                            const reader = new FileReader();
-                            reader.onloadend = () => {
-                              setImagePreview(reader.result as string);
-                            };
-                            reader.readAsDataURL(file);
-                            setUploadingImage(true);
-                            try {
-                              const uploadResponse = await uploadAPI.uploadFile(file);
-                              if (uploadResponse.data?.files?.[0]?.url) {
-                                const imageUrl = uploadResponse.data.files[0].url;
-                                // Store the uploaded URL for form submission
-                                setUploadedPhotoUrl(imageUrl);
-                                // Set preview with processed URL for display
-                                setImagePreview(getImageUrl(imageUrl) || imageUrl);
-                                // Immediately update both avatarUrl and photoUrl
-                                await userAPI.updateUser(Number(id!), { avatarUrl: imageUrl });
-                                if (studentData?.studentProfile) {
-                                  await userAPI.updateStudentProfile(Number(id!), { photoUrl: imageUrl });
-                                }
-                                queryClient.invalidateQueries({ queryKey: ['student-details', id] });
-                                alert('Photo uploaded successfully!');
-                              }
-                            } catch (error: any) {
-                              alert(error.response?.data?.message || 'Failed to upload image');
-                            } finally {
-                              setUploadingImage(false);
-                            }
-                          }}
-                          disabled={uploadingImage}
+                          accept="image/jpeg,image/jpg,image/png,image/webp,image/gif"
+                          onChange={handlePhotoUpload}
+                          disabled={uploadingPhoto}
                           className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 text-sm"
                         />
-                        {uploadingImage && <p className="mt-1 text-xs text-gray-500">Uploading...</p>}
+                        {uploadingPhoto && <p className="mt-1 text-xs text-gray-500">Uploading...</p>}
+                        {photoUploadError && <p className="mt-1 text-xs text-red-600">{photoUploadError}</p>}
                         <p className="mt-1 text-xs text-gray-500">JPG, PNG, WEBP, GIF - Max 5MB</p>
                       </div>
                     </div>

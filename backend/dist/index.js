@@ -89,21 +89,29 @@ logger_1.logger.info(`Serving uploads from: ${uploadsStaticPath}`);
 logger_1.logger.info(`Backend root (process.cwd()): ${backendRoot}`);
 logger_1.logger.info(`__dirname: ${__dirname}`);
 // Serve uploads with proper headers - MUST be before API routes to avoid auth middleware
-app.use('/uploads', (req, res, next) => {
-    // Set CORS headers for all upload requests - allow all origins for file serving
-    const origin = req.headers.origin;
-    // Always allow CORS for static files (needed for file:// and localhost)
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS, HEAD');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Range');
-    res.setHeader('Access-Control-Expose-Headers', 'Content-Length, Content-Range, Content-Type');
-    res.setHeader('Access-Control-Allow-Credentials', 'false'); // Must be false when origin is *
-    if (req.method === 'OPTIONS') {
-        res.sendStatus(200);
-        return;
-    }
-    next();
-}, express_1.default.static(uploadsStaticPath, {
+// Set CORS headers for all upload requests
+const origin = req.headers.origin;
+const allowedOrigins = process.env.FRONTEND_URL?.split(',').map((o) => o.trim()) || [
+    'http://localhost:5173',
+    'http://crm.prashantthakar.com',
+];
+// Set CORS headers for all upload requests
+const origin = req.headers.origin;
+const allowedOrigins = process.env.FRONTEND_URL?.split(',').map((o) => o.trim()) || [
+    'http://localhost:5173',
+    'http://crm.prashantthakar.com',
+];
+res.setHeader('Access-Control-Allow-Origin', '*');
+res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS, HEAD');
+res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Range');
+res.setHeader('Access-Control-Expose-Headers', 'Content-Length, Content-Range, Content-Type');
+res.setHeader('Access-Control-Allow-Credentials', 'false'); // Must be false when origin is *
+if (req.method === 'OPTIONS') {
+    res.sendStatus(200);
+    return;
+}
+next();
+express_1.default.static(uploadsStaticPath, {
     setHeaders: (res, filePath) => {
         // Set proper content type for images
         if (filePath.endsWith('.jpg') || filePath.endsWith('.jpeg')) {
@@ -128,7 +136,8 @@ app.use('/uploads', (req, res, next) => {
     },
     index: false,
     dotfiles: 'ignore',
-}));
+});
+;
 // Test endpoint to verify static file serving (no auth required)
 app.get('/uploads/test', (_req, res) => {
     const fs = require('fs');
@@ -475,7 +484,7 @@ logger_1.logger.info('  POST /api/payments/bulk-upload');
 logger_1.logger.info('  POST /api/payments/:paymentId/generate-receipt');
 logger_1.logger.info('  GET /api/payments');
 logger_1.logger.info('  POST /api/payments');
-logger_1.logger.info('============================');
+logger_1.logger.info('====================');
 // Error handling middleware (must be last)
 app.use(error_middleware_1.notFoundHandler);
 app.use(error_middleware_1.errorHandler);

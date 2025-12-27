@@ -1,0 +1,56 @@
+===========================================
+FACULTY FILES TO UPLOAD TO VPS
+Upload these 8 files one by one
+===========================================
+
+BACKEND FILES (4 files)
+===========================================
+
+1. src/controllers/faculty.controller.ts
+   → VPS: /var/www/primeacademy_backend/src/controllers/faculty.controller.ts
+
+2. src/routes/faculty.routes.ts
+   → VPS: /var/www/primeacademy_backend/src/routes/faculty.routes.ts
+
+3. src/controllers/user.controller.ts
+   → VPS: /var/www/primeacademy_backend/src/controllers/user.controller.ts
+
+4. src/index.ts
+   → VPS: /var/www/primeacademy_backend/src/index.ts
+   (Check it has: app.use('/api/faculty', facultyRoutes);)
+
+
+FRONTEND FILES (4 files)
+===========================================
+
+5. frontend/src/pages/FacultyRegistration.tsx
+   → VPS: /var/www/primeacademy_frontend/src/pages/FacultyRegistration.tsx
+
+6. frontend/src/pages/FacultyEdit.tsx
+   → VPS: /var/www/primeacademy_frontend/src/pages/FacultyEdit.tsx
+
+7. frontend/src/pages/FacultyManagement.tsx
+   → VPS: /var/www/primeacademy_frontend/src/pages/FacultyManagement.tsx
+
+8. frontend/src/utils/imageUtils.ts
+   → VPS: /var/www/primeacademy_frontend/src/utils/imageUtils.ts
+
+
+===========================================
+AFTER UPLOADING - RUN ON VPS:
+===========================================
+
+# Backend
+cd /var/www/primeacademy_backend
+npm run build
+pm2 restart backend-api
+
+# Frontend
+cd /var/www/primeacademy_frontend
+npm run build
+sudo systemctl reload nginx
+
+===========================================
+TOTAL: 8 FILES
+===========================================
+

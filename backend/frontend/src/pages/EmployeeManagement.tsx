@@ -134,15 +134,29 @@ export const EmployeeManagement: React.FC = () => {
       // Invalidate and refetch employees list
       queryClient.invalidateQueries({ queryKey: ['employees'] });
       queryClient.invalidateQueries({ queryKey: ['users'] });
+      queryClient.invalidateQueries({ queryKey: ['employee-profile', selectedEmployee?.id] });
+      
       // Update the selected employee's avatarUrl immediately
       if (selectedEmployee) {
-        setSelectedEmployee({ ...selectedEmployee, avatarUrl: variables.avatarUrl });
+        const updatedEmployee = { ...selectedEmployee, avatarUrl: variables.avatarUrl };
+        setSelectedEmployee(updatedEmployee);
+        
+        // Update preview with cache-busted URL to force reload
+        const fullImageUrl = getImageUrl(variables.avatarUrl) || variables.avatarUrl;
+        const cacheBustedUrl = fullImageUrl + (fullImageUrl.includes('?') ? '&' : '?') + `t=${Date.now()}`;
+        setImagePreview(cacheBustedUrl);
       }
+      
       setUploadingImage(false);
-      setIsImageModalOpen(false);
-      setSelectedEmployee(null);
-      setImagePreview(null);
       alert('Image updated successfully!');
+      
+      // Don't close modal immediately - let user see the updated image
+      // Close after a short delay
+      setTimeout(() => {
+        setIsImageModalOpen(false);
+        setSelectedEmployee(null);
+        setImagePreview(null);
+      }, 1000);
     },
     onError: (error: any) => {
       alert(error.response?.data?.message || 'Failed to update image');
@@ -164,6 +178,7 @@ export const EmployeeManagement: React.FC = () => {
       return;
     }
 
+    // Show immediate preview using FileReader
     const reader = new FileReader();
     reader.onloadend = () => {
       setImagePreview(reader.result as string);
@@ -177,11 +192,15 @@ export const EmployeeManagement: React.FC = () => {
       if (uploadResponse.data && uploadResponse.data.files && uploadResponse.data.files.length > 0) {
         const relativeUrl = uploadResponse.data.files[0].url;
         console.log('Uploaded image URL (relative):', relativeUrl);
-        // Get full URL for preview display
+        
+        // Get full URL for preview display with cache-busting
         const fullImageUrl = getImageUrl(relativeUrl) || relativeUrl;
-        console.log('Full image URL for preview:', fullImageUrl);
+        const cacheBustedUrl = fullImageUrl + (fullImageUrl.includes('?') ? '&' : '?') + `t=${Date.now()}`;
+        console.log('Full image URL for preview (with cache-busting):', cacheBustedUrl);
+        
         // Update preview with the full URL for display
-        setImagePreview(fullImageUrl);
+        setImagePreview(cacheBustedUrl);
+        
         // Update user with relative URL (backend will serve it)
         updateUserImageMutation.mutate({
           userId: selectedEmployee.id,
@@ -356,12 +375,13 @@ export const EmployeeManagement: React.FC = () => {
                           <div className="flex items-center">
                             {employee.avatarUrl ? (
                               <img
-                                src={getImageUrl(employee.avatarUrl) || ''}
+                                src={(getImageUrl(employee.avatarUrl) || employee.avatarUrl) + (employee.avatarUrl.includes('?') ? '&' : '?') + `t=${Date.now()}`}
                                 alt={employee.name}
                                 className="h-12 w-12 rounded-full object-cover border-2 border-gray-200"
                                 crossOrigin="anonymous"
-                                key={employee.avatarUrl}
+                                key={`employee-${employee.id}-${employee.avatarUrl}`}
                                 onError={(e) => {
+                                  console.error('Employee photo failed to load:', employee.avatarUrl);
                                   (e.target as HTMLImageElement).src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDgiIGhlaWdodD0iNDgiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHJlY3Qgd2lkdGg9IjEwMCUiIGhlaWdodD0iMTAwJSIgZmlsbD0iI2ZmOTUwMCIvPjx0ZXh0IHg9IjUwJSIgeT0iNTAlIiBmb250LWZhbWlseT0iQXJpYWwsIHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMjAiIGZpbGw9IiNmZmYiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGR5PSIuM2VtIj57e2VtcGxveWVlLm5hbWUuY2hhckF0KDApfX08L3RleHQ+PC9zdmc+';
                                 }}
                               />
@@ -489,19 +509,25 @@ export const EmployeeManagement: React.FC = () => {
               <div className="flex justify-center mb-4">
                 {imagePreview ? (
                   <img
-                    src={imagePreview}
+                    src={imagePreview.startsWith('data:') ? imagePreview : ((getImageUrl(imagePreview) || imagePreview) + (imagePreview.includes('?') ? '&' : '?') + `t=${Date.now()}`)}
                     alt="Preview"
                     className="h-32 w-32 rounded-full object-cover border-4 border-orange-500"
-                    key={imagePreview}
+                    key={`preview-${imagePreview}-${Date.now()}`}
+                    crossOrigin="anonymous"
+                    onError={(e) => {
+                      console.error('Image preview failed to load:', imagePreview);
+                      (e.target as HTMLImageElement).src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTI4IiBoZWlnaHQ9IjEyOCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZmY5NTAwIi8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtZmFtaWx5PSJBcmlhbCwgc2Fucy1zZXJpZiIgZm9udC1zaXplPSI0OCIgZmlsbD0iI2ZmZiIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZHk9Ii4zZW0iPnt7c2VsZWN0ZWRFbXBsb3llZS5uYW1lLmNoYXJBdCgwKX19PC90ZXh0Pjwvc3ZnPg==';
+                    }}
                   />
                 ) : selectedEmployee?.avatarUrl ? (
                   <img
-                    src={getImageUrl(selectedEmployee.avatarUrl) || ''}
+                    src={(getImageUrl(selectedEmployee.avatarUrl) || selectedEmployee.avatarUrl) + (selectedEmployee.avatarUrl.includes('?') ? '&' : '?') + `t=${Date.now()}`}
                     alt="Current"
                     className="h-32 w-32 rounded-full object-cover border-4 border-orange-500"
                     crossOrigin="anonymous"
-                    key={selectedEmployee.avatarUrl}
+                    key={`current-${selectedEmployee.avatarUrl}-${Date.now()}`}
                     onError={(e) => {
+                      console.error('Current employee photo failed to load:', selectedEmployee.avatarUrl);
                       (e.target as HTMLImageElement).src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTI4IiBoZWlnaHQ9IjEyOCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZmY5NTAwIi8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtZmFtaWx5PSJBcmlhbCwgc2Fucy1zZXJpZiIgZm9udC1zaXplPSI0OCIgZmlsbD0iI2ZmZiIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZHk9Ii4zZW0iPnt7c2VsZWN0ZWRFbXBsb3llZS5uYW1lLmNoYXJBdCgwKX19PC90ZXh0Pjwvc3ZnPg==';
                     }}
                   />
