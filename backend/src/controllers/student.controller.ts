@@ -303,10 +303,11 @@ export const completeEnrollment = async (
     
     // Handle number fields - they might come as strings or numbers
     // Total Deal Amount is COMPULSORY - student registration not possible without it
+    let totalDealNum = 0;
     if (totalDeal === null || totalDeal === undefined) {
       validationErrors.push('Total Deal Amount is required. Student registration cannot proceed without a deal amount.');
     } else {
-      const totalDealNum = typeof totalDeal === 'string' 
+      totalDealNum = typeof totalDeal === 'string' 
         ? parseFloat(String(totalDeal).replace(/[^\d.-]/g, '')) 
         : Number(totalDeal);
       if (isNaN(totalDealNum) || totalDealNum <= 0) {
