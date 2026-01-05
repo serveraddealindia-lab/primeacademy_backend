@@ -2746,3 +2746,98 @@ export const downloadUnifiedTemplate = async (req: AuthRequest, res: Response): 
   }
 };
 
+// GET /students/check-duplicate → Check if email or phone already exists
+export const checkDuplicate = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    if (!req.user) {
+      res.status(401).json({
+        status: 'error',
+        message: 'Authentication required',
+      });
+      return;
+    }
+
+    const { email, phone, excludeId } = req.query;
+    const excludeStudentId = excludeId ? parseInt(String(excludeId), 10) : null;
+    
+    let existingUserByEmail = null;
+    let existingUserByPhone = null;
+    
+    // Check for email duplicate if provided
+    if (email) {
+      const emailWhereClause: any = db.sequelize.where(
+        db.sequelize.fn('LOWER', db.sequelize.col('email')),
+        db.sequelize.fn('LOWER', String(email))
+      );
+      
+      // Add exclude condition if excludeId is provided
+      if (excludeStudentId) {
+        existingUserByEmail = await db.User.findOne({ 
+          where: {
+            [Op.and]: [
+              emailWhereClause,
+              { id: { [Op.ne]: excludeStudentId } }
+            ]
+          }
+        });
+      } else {
+        existingUserByEmail = await db.User.findOne({ 
+          where: emailWhereClause
+        });
+      }
+    }
+    
+    // Check for phone duplicate if provided
+    if (phone) {
+      const normalizedPhone = String(phone).replace(/\D/g, '');
+      
+      // Build where clause for phone (excluding the current student if excludeId is provided)
+      const phoneWhereClause: any = { phone: { [Op.ne]: null } };
+      if (excludeStudentId) {
+        phoneWhereClause.id = { [Op.ne]: excludeStudentId };
+      }
+      
+      // Get all users with phone numbers and check normalized phone numbers
+      const allUsersWithPhone = await db.User.findAll({ 
+        where: phoneWhereClause,
+        attributes: ['id', 'name', 'email', 'phone'],
+      });
+      
+      existingUserByPhone = allUsersWithPhone.find(user => {
+        if (!user.phone) return false;
+        const userNormalizedPhone = String(user.phone).replace(/\D/g, '');
+        const matches = userNormalizedPhone === normalizedPhone && userNormalizedPhone.length > 0;
+        return matches;
+      });
+    }
+
+    const response: { exists: boolean; type?: string; studentId?: number; studentName?: string } = {
+      exists: false,
+    };
+
+    if (existingUserByEmail) {
+      response.exists = true;
+      response.type = 'email';
+      response.studentId = existingUserByEmail.id;
+      response.studentName = existingUserByEmail.name;
+    } else if (existingUserByPhone) {
+      response.exists = true;
+      response.type = 'phone';
+      response.studentId = existingUserByPhone.id;
+      response.studentName = existingUserByPhone.name;
+    }
+
+    res.status(200).json({
+      status: 'success',
+      data: response,
+    });
+  } catch (error: any) {
+    logger.error('Check duplicate error:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Internal server error while checking for duplicates',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+    });
+  }
+};
+
