@@ -295,8 +295,13 @@ export const createEmployeeProfile = async (
       return;
     }
 
-    // Prepare documents object for emergency contact only
+    // Prepare documents object for emergency contact and address
     const documents: any = {};
+    
+    // Store address if provided
+    if (profileData.address && profileData.address.trim()) {
+      documents.address = profileData.address.trim();
+    }
     
     // Store emergency contact information if provided
     if (profileData.emergencyContactName || profileData.emergencyRelationship || 
@@ -328,7 +333,6 @@ export const createEmployeeProfile = async (
       ifscCode: profileData.ifscCode.trim().toUpperCase(),
       branch: profileData.branch.trim(),
       panNumber: profileData.panNumber.trim().toUpperCase(),
-      address: profileData.address?.trim() || null,
       city: profileData.city.trim(),
       state: profileData.state.trim(),
       postalCode: profileData.postalCode.trim(),

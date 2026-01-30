@@ -6,7 +6,7 @@ import dotenv from 'dotenv';
 import path from 'path';
 import fs from 'fs';
 import sequelize from './config/database';
-import { runPendingMigrations } from './utils/runMigrations';
+// import { runPendingMigrations } from './utils/runMigrations';
 import healthRoutes from './routes/health.routes';
 import authRoutes from './routes/auth.routes';
 import batchRoutes from './routes/batch.routes';
@@ -94,21 +94,18 @@ logger.info(`__dirname: ${__dirname}`);
 // Serve uploads with proper headers - MUST be before API routes to avoid auth middleware
 app.use('/uploads', (req, res, next) => {
   // Set CORS headers for all upload requests
-  const uploadOrigin = req.headers.origin as string | undefined;
+  const origin = req.headers.origin as string | undefined;
   const allowedOrigins = process.env.FRONTEND_URL?.split(',').map((o) => o.trim()) || [
     'http://localhost:5173',
     'http://crm.prashantthakar.com',
   ];
   
-  if (uploadOrigin && allowedOrigins.includes(uploadOrigin)) {
-    res.setHeader('Access-Control-Allow-Origin', uploadOrigin);
-  } else {
-    res.setHeader('Access-Control-Allow-Origin', '*');
-  }
+  // Always allow CORS for static files (needed for file:// and localhost)
+  res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS, HEAD');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Range');
   res.setHeader('Access-Control-Expose-Headers', 'Content-Length, Content-Range, Content-Type');
-  res.setHeader('Access-Control-Allow-Credentials', uploadOrigin ? 'true' : 'false'); // Must be false when origin is *
+  res.setHeader('Access-Control-Allow-Credentials', 'false'); // Must be false when origin is *
   
   if (req.method === 'OPTIONS') {
     res.sendStatus(200);
@@ -211,14 +208,14 @@ app.get('/orientations/test', (_req, res) => {
 });
 
 app.use('/orientations', (req, res, next) => {
-  const orientationOrigin = req.headers.origin as string | undefined;
+  const origin = req.headers.origin as string | undefined;
   const allowedOrigins = process.env.FRONTEND_URL?.split(',').map((o) => o.trim()) || [
     'http://localhost:5173',
     'http://crm.prashantthakar.com',
   ];
   
-  if (orientationOrigin && allowedOrigins.includes(orientationOrigin)) {
-    res.setHeader('Access-Control-Allow-Origin', orientationOrigin);
+  if (origin && allowedOrigins.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
   } else {
     res.setHeader('Access-Control-Allow-Origin', '*');
   }
@@ -257,14 +254,14 @@ if (!fs.existsSync(receiptsStaticPath)) {
 logger.info(`Serving receipts from: ${receiptsStaticPath}`);
 
 app.use('/receipts', (req, res, next) => {
-  const receiptOrigin = req.headers.origin as string | undefined;
+  const origin = req.headers.origin as string | undefined;
   const allowedOrigins = process.env.FRONTEND_URL?.split(',').map((o) => o.trim()) || [
     'http://localhost:5173',
     'http://crm.prashantthakar.com',
   ];
   
-  if (receiptOrigin && allowedOrigins.includes(receiptOrigin)) {
-    res.setHeader('Access-Control-Allow-Origin', receiptOrigin);
+  if (origin && allowedOrigins.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
   } else {
     res.setHeader('Access-Control-Allow-Origin', '*');
   }
@@ -291,14 +288,14 @@ app.use('/receipts', (req, res, next) => {
 // Also serve receipts through /api/receipts/ for frontend compatibility
 // Custom handler to properly decode filenames with special characters
 app.use('/api/receipts', (req, res, next) => {
-  const apiReceiptOrigin = req.headers.origin as string | undefined;
+  const origin = req.headers.origin as string | undefined;
   const allowedOrigins = process.env.FRONTEND_URL?.split(',').map((o) => o.trim()) || [
     'http://localhost:5173',
     'http://crm.prashantthakar.com',
   ];
   
-  if (apiReceiptOrigin && allowedOrigins.includes(apiReceiptOrigin)) {
-    res.setHeader('Access-Control-Allow-Origin', apiReceiptOrigin);
+  if (origin && allowedOrigins.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
   } else {
     res.setHeader('Access-Control-Allow-Origin', '*');
   }
@@ -522,15 +519,15 @@ const startServer = async () => {
     await sequelize.authenticate();
     logger.info('Database connection established successfully.');
 
-    // Run migrations - but don't crash if they fail
-    try {
-      await runPendingMigrations();
-    } catch (migrationError: unknown) {
-      // Log the error but continue server startup
-      const errorMessage = migrationError instanceof Error ? migrationError.message : String(migrationError);
-      logger.error('Migration failed, but continuing server startup:', errorMessage);
-      logger.warn('Server will start without applying migrations. Please check and fix migrations manually.');
-    }
+    // Run migrations - DISABLED due to umzug import issues
+    // try {
+    //   await runPendingMigrations();
+    // } catch (migrationError: unknown) {
+    //   // Log the error but continue server startup
+    //   const errorMessage = migrationError instanceof Error ? migrationError.message : String(migrationError);
+    //   logger.error('Migration failed, but continuing server startup:', errorMessage);
+    //   logger.warn('Server will start without applying migrations. Please check and fix migrations manually.');
+    // }
 
     // Sync database (use { force: true } only in development to drop and recreate tables)
     // In production, use migrations instead

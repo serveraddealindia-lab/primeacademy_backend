@@ -2747,3 +2747,145 @@ export const downloadUnifiedTemplate = async (req: AuthRequest, res: Response): 
   }
 };
 
+// GET /students/check-duplicate → Check for duplicate email or phone
+export const checkDuplicate = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    if (!req.user) {
+      res.status(401).json({
+        status: 'error',
+        message: 'Authentication required',
+      });
+      return;
+    }
+
+    const { email, phone, excludeStudentId } = req.query;
+    
+    // Validation
+    if (!email && !phone) {
+      res.status(400).json({
+        status: 'error',
+        message: 'Either email or phone number is required',
+      });
+      return;
+    }
+
+    const emailStr = email ? String(email).trim().toLowerCase() : null;
+    const phoneStr = phone ? String(phone).trim() : null;
+    
+    // Normalize phone number (remove all non-digit characters)
+    const normalizedPhone = phoneStr ? phoneStr.replace(/\D/g, '') : null;
+    
+    // Build query conditions
+    const whereConditions: any[] = [];
+    
+    if (emailStr) {
+      // Case-insensitive email check using LOWER function
+      whereConditions.push(db.sequelize.where(
+        db.sequelize.fn('LOWER', db.sequelize.col('email')),
+        emailStr
+      ));
+    }
+    
+    if (normalizedPhone && normalizedPhone.length >= 10) {
+      // Phone check using REPLACE to remove non-digits
+      whereConditions.push(db.sequelize.where(
+        db.sequelize.fn('REPLACE', 
+          db.sequelize.fn('REPLACE', 
+            db.sequelize.fn('REPLACE', 
+              db.sequelize.fn('REPLACE', db.sequelize.col('phone'), '-', ''), 
+              ' ', ''), 
+            '+', ''), 
+          ')', ''),
+        normalizedPhone
+      ));
+    }
+    
+    // Exclude current student if editing
+    if (excludeStudentId) {
+      whereConditions.push({ id: { [Op.ne]: Number(excludeStudentId) } });
+    }
+    
+    // Combine conditions with OR for email/phone, AND for exclusion
+    let finalWhere;
+    if (whereConditions.length === 1) {
+      finalWhere = whereConditions[0];
+    } else if (whereConditions.length === 2) {
+      // Email OR Phone condition
+      const emailOrPhoneCondition = {
+        [Op.or]: [whereConditions[0], whereConditions[1]]
+      };
+      
+      if (excludeStudentId) {
+        // Email OR Phone AND NOT excludeStudentId
+        finalWhere = {
+          [Op.and]: [
+            emailOrPhoneCondition,
+            whereConditions[2] // exclusion condition
+          ]
+        };
+      } else {
+        finalWhere = emailOrPhoneCondition;
+      }
+    } else if (whereConditions.length === 3) {
+      // Email OR Phone AND NOT excludeStudentId
+      finalWhere = {
+        [Op.and]: [
+          {
+            [Op.or]: [whereConditions[0], whereConditions[1]]
+          },
+          whereConditions[2]
+        ]
+      };
+    }
+    
+    // Query database
+    const existingStudent = await db.User.findOne({
+      where: finalWhere,
+      attributes: ['id', 'name', 'email', 'phone'],
+    });
+    
+    if (existingStudent) {
+      let conflictMessage = '';
+      let conflictType = '';
+      
+      // Determine which field caused the conflict
+      const existingEmail = existingStudent.email ? existingStudent.email.toLowerCase() : '';
+      const existingPhone = existingStudent.phone ? existingStudent.phone.replace(/\D/g, '') : '';
+      
+      if (emailStr && existingEmail === emailStr) {
+        conflictType = 'email';
+        conflictMessage = `A student with email "${email}" already exists.`;
+      } else if (normalizedPhone && existingPhone === normalizedPhone) {
+        conflictType = 'phone';
+        conflictMessage = `A student with phone number "${phone}" already exists.`;
+      } else if (emailStr && normalizedPhone && existingEmail === emailStr && existingPhone === normalizedPhone) {
+        conflictType = 'both';
+        conflictMessage = `A student with both email "${email}" and phone number "${phone}" already exists.`;
+      }
+      
+      res.status(409).json({
+        status: 'error',
+        message: conflictMessage,
+        conflictType: conflictType,
+        existingStudentId: existingStudent.id,
+        existingStudentName: existingStudent.name,
+      });
+      return;
+    }
+    
+    // No duplicates found
+    res.status(200).json({
+      status: 'success',
+      message: 'No duplicates found',
+      isDuplicate: false,
+    });
+  } catch (error: any) {
+    logger.error('Check duplicate error:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Internal server error while checking for duplicates',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+    });
+  }
+};
+

@@ -539,7 +539,13 @@ const { data: courseNamesData } = useQuery({
         transactionId: '',
         notes: '',
       });
-      alert(`Payment created successfully!\n\nPayment ID: ${response?.data?.payment?.id}\nStudent ID: ${response?.data?.payment?.studentId}\nAmount: ₹${response?.data?.payment?.amount}\n\nThe payment will appear in the Payment History section below.`);
+      alert(`Payment created successfully!
+
+Payment ID: ${response?.data?.payment?.id}
+Student ID: ${response?.data?.payment?.studentId}
+Amount: ₹${response?.data?.payment?.amount}
+
+The payment will appear in the Payment History section below.`);
     },
     onError: (error: any) => {
       const errorMessage = error.response?.data?.message || error.message || 'Failed to create payment';
@@ -1574,27 +1580,84 @@ const { data: courseNamesData } = useQuery({
                       )}
                       <div className={`border border-gray-300 rounded-md p-3 md:p-4 max-h-64 overflow-y-auto ${formData.courseName ? 'bg-gray-50' : ''}`}>
                         <div className="grid grid-cols-2 md:grid-cols-3 gap-2 md:gap-3">
-                          {availableSoftwares.map((software) => (
-                            <label 
-                              key={software} 
-                              className={`flex items-center space-x-2 p-1 md:p-2 rounded text-sm ${formData.courseName ? 'cursor-not-allowed opacity-75' : 'cursor-pointer hover:bg-gray-50'}`}
-                            >
-                              <input
-                                type="checkbox"
-                                checked={selectedSoftwares.includes(software)}
-                                onChange={(e) => {
-                                  if (!formData.courseName) {
-                                    handleSoftwareChange(software, e.target.checked);
-                                  }
-                                }}
-                                disabled={!!formData.courseName}
-                                className="w-4 h-4 text-orange-600 border-gray-300 rounded focus:ring-orange-500 disabled:opacity-50 disabled:cursor-not-allowed"
-                              />
-                              <span className={`text-xs md:text-sm ${formData.courseName ? 'text-gray-500' : 'text-gray-700'}`}>{software}</span>
-                            </label>
-                          ))}
-                          {/* Show "Other" option only when course is NOT selected */}
-                          {!formData.courseName && (
+                          {/* Show enrollment restriction message */}
+                          {enrollmentsData?.data && Array.isArray(enrollmentsData.data) && enrollmentsData.data.length > 0 && user?.role !== 'superadmin' && (
+                            <div className="col-span-full mb-3 p-3 bg-yellow-50 border border-yellow-200 rounded-md">
+                              <p className="text-sm font-medium text-yellow-800">⚠️ Enrollment Restriction</p>
+                              <p className="text-xs text-yellow-700 mt-1">This student is already enrolled. Only originally opted software can be selected. Contact superadmin to add/remove software.</p>
+                            </div>
+                          )}
+                          {availableSoftwares.map((software) => {
+                            // Check if student is enrolled and user is not superadmin
+                            const hasEnrollments = enrollmentsData?.data && Array.isArray(enrollmentsData.data) && enrollmentsData.data.length > 0;
+                            const originallyOptedSoftware = studentData?.studentProfile?.softwareList || [];
+                            const isOriginallyOpted = originallyOptedSoftware.includes(software);
+                            const isRestricted = hasEnrollments && user?.role !== 'superadmin' && !isOriginallyOpted;
+                            
+                            return (
+                              <label 
+                                key={software} 
+                                className={`flex items-center space-x-2 p-1 md:p-2 rounded text-sm ${
+                                  formData.courseName 
+                                    ? 'cursor-not-allowed opacity-75' 
+                                    : isRestricted 
+                                      ? 'cursor-not-allowed opacity-50' 
+                                      : 'cursor-pointer hover:bg-gray-50'
+                                }`}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={selectedSoftwares.includes(software)}
+                                  onChange={(e) => {
+                                    if (!formData.courseName) {
+                                      // Check if student is enrolled and user is not superadmin
+                                      const hasEnrollments = enrollmentsData?.data && Array.isArray(enrollmentsData.data) && enrollmentsData.data.length > 0;
+                                      if (hasEnrollments && user?.role !== 'superadmin') {
+                                        const originallyOptedSoftware = studentData?.studentProfile?.softwareList || [];
+                                        const isOriginallyOpted = originallyOptedSoftware.includes(software);
+                                        
+                                        if (e.target.checked && !isOriginallyOpted) {
+                                          alert('Error: Cannot add new software. This student is already enrolled. Only superadmin can add additional software to enrolled students.');
+                                          return;
+                                        }
+                                        
+                                        if (!e.target.checked && isOriginallyOpted) {
+                                          alert('Error: Cannot remove originally opted software. This student is already enrolled. Only superadmin can modify software for enrolled students.');
+                                          return;
+                                        }
+                                      }
+                                      
+                                      if (e.target.checked) {
+                                        setSelectedSoftwares(prev => [...prev, software]);
+                                      } else {
+                                        setSelectedSoftwares(prev => prev.filter(s => s !== software));
+                                      }
+                                    }
+                                  }}
+                                  disabled={!!formData.courseName || isRestricted}
+                                  className={`w-4 h-4 text-orange-600 border-gray-300 rounded focus:ring-orange-500 ${
+                                    formData.courseName || isRestricted 
+                                      ? 'disabled:opacity-50 disabled:cursor-not-allowed' 
+                                      : ''
+                                  }`}
+                                />
+                                <span className={`text-xs md:text-sm ${
+                                  formData.courseName 
+                                    ? 'text-gray-500' 
+                                    : isRestricted 
+                                      ? 'text-gray-400' 
+                                      : 'text-gray-700'
+                                }`}>
+                                  {software}
+                                  {isRestricted && (
+                                    <span className="ml-1 text-xs text-red-500">(restricted)</span>
+                                  )}
+                                </span>
+                              </label>
+                            );
+                          })}
+                          {/* Show "Other" option only when course is NOT selected and student is not enrolled or user is superadmin */}
+                          {!formData.courseName && (!enrollmentsData?.data || !Array.isArray(enrollmentsData.data) || enrollmentsData.data.length === 0 || user?.role === 'superadmin') && (
                             <label 
                               key="Other" 
                               className="flex items-center space-x-2 cursor-pointer hover:bg-gray-50 p-1 md:p-2 rounded text-sm"
@@ -1610,6 +1673,12 @@ const { data: courseNamesData } = useQuery({
                               <span className="text-xs md:text-sm text-gray-700">Other</span>
                             </label>
                           )}
+                          {/* Show restriction message for "Other" software when student is enrolled and user is not superadmin */}
+                          {!formData.courseName && enrollmentsData?.data && Array.isArray(enrollmentsData.data) && enrollmentsData.data.length > 0 && user?.role !== 'superadmin' && (
+                            <div className="col-span-full mt-2 p-2 bg-gray-100 rounded text-xs text-gray-500">
+                              Other software options are restricted for enrolled students. Contact superadmin for modifications.
+                            </div>
+                          )}
                         </div>
                       </div>
                       {showOtherSoftwareInput && !formData.courseName && (
@@ -1617,18 +1686,33 @@ const { data: courseNamesData } = useQuery({
                           <label className="block text-sm font-medium text-gray-700 mb-1">
                             Specify Other Software
                           </label>
+                          {/* Show restriction message for enrolled students */}
+                          {enrollmentsData?.data && Array.isArray(enrollmentsData.data) && enrollmentsData.data.length > 0 && user?.role !== 'superadmin' && (
+                            <div className="mb-2 p-2 bg-yellow-50 border border-yellow-200 rounded-md">
+                              <p className="text-xs text-yellow-800">⚠️ Cannot add other software. This student is already enrolled. Only superadmin can add additional software.</p>
+                            </div>
+                          )}
                           <input
                             type="text"
                             value={otherSoftware}
                             onChange={(e) => {
                               const value = e.target.value;
+                              
+                              // Check if student is enrolled and user is not superadmin
+                              const hasEnrollments = enrollmentsData?.data && Array.isArray(enrollmentsData.data) && enrollmentsData.data.length > 0;
+                              if (hasEnrollments && user?.role !== 'superadmin') {
+                                alert('Error: Cannot add new software. This student is already enrolled. Only superadmin can add additional software to enrolled students.');
+                                return;
+                              }
+                              
                               setOtherSoftware(value);
                               if (value.trim() && !selectedSoftwares.includes(value.trim())) {
                                 setSelectedSoftwares(prev => [...prev, value.trim()]);
                               }
                             }}
                             placeholder="Enter software names (comma separated)"
-                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
+                            disabled={enrollmentsData?.data && Array.isArray(enrollmentsData.data) && enrollmentsData.data.length > 0 && user?.role !== 'superadmin'}
+                            className={`w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500 ${enrollmentsData?.data && Array.isArray(enrollmentsData.data) && enrollmentsData.data.length > 0 && user?.role !== 'superadmin' ? 'bg-gray-100 cursor-not-allowed' : ''}`}
                           />
                         </div>
                       )}

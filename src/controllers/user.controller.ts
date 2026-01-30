@@ -380,7 +380,7 @@ export const getUserById = async (
                       logger.info(`Successfully parsed documents JSON for faculty ${user.id}`);
                     } catch (e) {
                       logger.warn(`Failed to parse documents JSON for faculty ${user.id}:`, e);
-                      logger.warn(`Documents string value (first 200 chars): ${profileJson.documents?.substring(0, 200) || ''}`);
+                      logger.warn(`Documents string value (first 200 chars): ${profileJson.documents.substring(0, 200)}`);
                       // Try to set to empty object instead of null to avoid frontend issues
                       profileJson.documents = {};
                     }
@@ -458,8 +458,8 @@ export const getUserById = async (
 
     // Parse JSON fields for faculty profile if it exists (MySQL JSON columns sometimes return as strings)
     const userJson = user.toJSON ? user.toJSON() : user;
-    if ((userJson as any).facultyProfile) {
-      const profile = (userJson as any).facultyProfile;
+    if (userJson.facultyProfile) {
+      const profile = userJson.facultyProfile;
       
       // Parse documents if it's a string - CRITICAL for production
       if (profile.documents) {
@@ -502,37 +502,7 @@ export const getUserById = async (
         }
       }
       
-      (userJson as any).facultyProfile = profile;
-    }
-    
-    // Parse JSON fields for employee profile if it exists (MySQL JSON columns sometimes return as strings)
-    if ((userJson as any).employeeProfile) {
-      const profile = (userJson as any).employeeProfile;
-      
-      // Parse documents if it's a string - CRITICAL for production
-      if (profile.documents) {
-        if (typeof profile.documents === 'string') {
-          try {
-            const parsed = JSON.parse(profile.documents);
-            profile.documents = parsed;
-            logger.info(`Successfully parsed documents JSON for employee ${userJson.id}`);
-          } catch (e) {
-            logger.warn(`Failed to parse documents JSON for employee ${userJson.id}:`, e);
-            logger.warn(`Documents string value (first 200 chars): ${profile.documents.substring(0, 200)}`);
-            // Try to set to empty object instead of null to avoid frontend issues
-            profile.documents = {};
-          }
-        } else if (typeof profile.documents === 'object' && profile.documents !== null) {
-          // Already an object, ensure it's properly structured
-          logger.info(`Documents is already an object for employee ${userJson.id}`);
-        }
-      } else {
-        // Documents is null/undefined - set to empty object for frontend
-        logger.info(`Documents is null/undefined for employee ${userJson.id}, setting to empty object`);
-        profile.documents = {};
-      }
-      
-      (userJson as any).employeeProfile = profile;
+      userJson.facultyProfile = profile;
     }
 
     res.status(200).json({
@@ -1609,7 +1579,6 @@ export const updateEmployeeProfile = async (
     ifscCode?: string;
     branch?: string;
     panNumber?: string;
-    address?: string;
     city?: string;
     state?: string;
     postalCode?: string;
@@ -1734,7 +1703,6 @@ export const updateEmployeeProfile = async (
     if (req.body.ifscCode !== undefined) employeeProfile.ifscCode = req.body.ifscCode;
     if (req.body.branch !== undefined) employeeProfile.branch = req.body.branch;
     if (req.body.panNumber !== undefined) employeeProfile.panNumber = req.body.panNumber;
-    if (req.body.address !== undefined) employeeProfile.address = req.body.address;
     if (req.body.city !== undefined) employeeProfile.city = req.body.city;
     if (req.body.state !== undefined) employeeProfile.state = req.body.state;
     if (req.body.postalCode !== undefined) employeeProfile.postalCode = req.body.postalCode;

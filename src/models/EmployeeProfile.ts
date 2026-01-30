@@ -21,7 +21,6 @@ export interface EmployeeProfileAttributes {
   ifscCode: string | null;
   branch: string | null;
   panNumber: string | null;
-  address: string | null;
   city: string | null;
   state: string | null;
   postalCode: string | null;
@@ -49,7 +48,6 @@ export interface EmployeeProfileCreationAttributes
     | 'ifscCode'
     | 'branch'
     | 'panNumber'
-    | 'address'
     | 'city'
     | 'state'
     | 'postalCode'
@@ -77,7 +75,6 @@ class EmployeeProfile extends Model<EmployeeProfileAttributes, EmployeeProfileCr
   public ifscCode!: string | null;
   public branch!: string | null;
   public panNumber!: string | null;
-  public address!: string | null;
   public city!: string | null;
   public state!: string | null;
   public postalCode!: string | null;
@@ -171,10 +168,6 @@ EmployeeProfile.init(
     },
     panNumber: {
       type: DataTypes.STRING,
-      allowNull: true,
-    },
-    address: {
-      type: DataTypes.TEXT,
       allowNull: true,
     },
     city: {
