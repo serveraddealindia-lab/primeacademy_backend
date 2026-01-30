@@ -6,7 +6,7 @@ import dotenv from 'dotenv';
 import path from 'path';
 import fs from 'fs';
 import sequelize from './config/database';
-import { runPendingMigrations } from './utils/runMigrations';
+// import { runPendingMigrations } from './utils/runMigrations';
 import healthRoutes from './routes/health.routes';
 import authRoutes from './routes/auth.routes';
 import batchRoutes from './routes/batch.routes';
@@ -519,15 +519,15 @@ const startServer = async () => {
     await sequelize.authenticate();
     logger.info('Database connection established successfully.');
 
-    // Run migrations - but don't crash if they fail
-    try {
-      await runPendingMigrations();
-    } catch (migrationError: unknown) {
-      // Log the error but continue server startup
-      const errorMessage = migrationError instanceof Error ? migrationError.message : String(migrationError);
-      logger.error('Migration failed, but continuing server startup:', errorMessage);
-      logger.warn('Server will start without applying migrations. Please check and fix migrations manually.');
-    }
+    // Run migrations - DISABLED due to umzug import issues
+    // try {
+    //   await runPendingMigrations();
+    // } catch (migrationError: unknown) {
+    //   // Log the error but continue server startup
+    //   const errorMessage = migrationError instanceof Error ? migrationError.message : String(migrationError);
+    //   logger.error('Migration failed, but continuing server startup:', errorMessage);
+    //   logger.warn('Server will start without applying migrations. Please check and fix migrations manually.');
+    // }
 
     // Sync database (use { force: true } only in development to drop and recreate tables)
     // In production, use migrations instead

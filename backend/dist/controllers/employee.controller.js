@@ -57,26 +57,10 @@ const getEmployeeProfile = async (req, res) => {
             });
             return;
         }
-        // Parse JSON fields for employee profile
-        let employeeProfile = user.employeeProfile;
-        if (employeeProfile) {
-            const profileJson = employeeProfile.toJSON ? employeeProfile.toJSON() : employeeProfile;
-            // Parse documents if it's a string (MySQL JSON fields sometimes come as strings)
-            if (profileJson.documents && typeof profileJson.documents === 'string') {
-                try {
-                    profileJson.documents = JSON.parse(profileJson.documents);
-                }
-                catch (e) {
-                    logger_1.logger.warn(`Failed to parse documents JSON for employee ${userId}:`, e);
-                    profileJson.documents = null;
-                }
-            }
-            employeeProfile = profileJson;
-        }
         res.status(200).json({
             status: 'success',
             data: {
-                employeeProfile: employeeProfile || null,
+                employeeProfile: user.employeeProfile || null,
             },
         });
     }
@@ -249,12 +233,8 @@ const createEmployeeProfile = async (req, res) => {
             });
             return;
         }
-        // Prepare documents object for emergency contact and address
+        // Prepare documents object for emergency contact only
         const documents = {};
-        // Store address if provided
-        if (profileData.address && profileData.address.trim()) {
-            documents.address = profileData.address.trim();
-        }
         // Store emergency contact information if provided
         if (profileData.emergencyContactName || profileData.emergencyRelationship ||
             profileData.emergencyPhoneNumber || profileData.emergencyAlternatePhone) {
@@ -284,6 +264,7 @@ const createEmployeeProfile = async (req, res) => {
             ifscCode: profileData.ifscCode.trim().toUpperCase(),
             branch: profileData.branch.trim(),
             panNumber: profileData.panNumber.trim().toUpperCase(),
+            address: profileData.address?.trim() || null,
             city: profileData.city.trim(),
             state: profileData.state.trim(),
             postalCode: profileData.postalCode.trim(),

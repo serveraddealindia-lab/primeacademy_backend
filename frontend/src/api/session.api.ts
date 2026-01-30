@@ -81,7 +81,7 @@ export interface SessionSummary {
   actualEndAt?: string | null;
 }
 
-export type AttendanceOption = 'present' | 'absent' | 'late';
+export type AttendanceOption = 'present' | 'absent' | 'late' | 'online';
 
 export interface StudentAttendanceEntry {
   studentId: number;

@@ -19,6 +19,7 @@ export interface EmployeeProfileAttributes {
     ifscCode: string | null;
     branch: string | null;
     panNumber: string | null;
+    address: string | null;
     city: string | null;
     state: string | null;
     postalCode: string | null;
@@ -26,7 +27,7 @@ export interface EmployeeProfileAttributes {
     createdAt?: Date;
     updatedAt?: Date;
 }
-export interface EmployeeProfileCreationAttributes extends Optional<EmployeeProfileAttributes, 'id' | 'gender' | 'dateOfBirth' | 'nationality' | 'maritalStatus' | 'department' | 'designation' | 'dateOfJoining' | 'employmentType' | 'reportingManager' | 'workLocation' | 'bankName' | 'accountNumber' | 'ifscCode' | 'branch' | 'panNumber' | 'city' | 'state' | 'postalCode' | 'documents' | 'createdAt' | 'updatedAt'> {
+export interface EmployeeProfileCreationAttributes extends Optional<EmployeeProfileAttributes, 'id' | 'gender' | 'dateOfBirth' | 'nationality' | 'maritalStatus' | 'department' | 'designation' | 'dateOfJoining' | 'employmentType' | 'reportingManager' | 'workLocation' | 'bankName' | 'accountNumber' | 'ifscCode' | 'branch' | 'panNumber' | 'address' | 'city' | 'state' | 'postalCode' | 'documents' | 'createdAt' | 'updatedAt'> {
 }
 declare class EmployeeProfile extends Model<EmployeeProfileAttributes, EmployeeProfileCreationAttributes> implements EmployeeProfileAttributes {
     id: number;
@@ -47,6 +48,7 @@ declare class EmployeeProfile extends Model<EmployeeProfileAttributes, EmployeeP
     ifscCode: string | null;
     branch: string | null;
     panNumber: string | null;
+    address: string | null;
     city: string | null;
     state: string | null;
     postalCode: string | null;

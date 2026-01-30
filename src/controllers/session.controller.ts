@@ -7,13 +7,14 @@ import { AttendanceStatus } from '../models/Attendance';
 import { logger } from '../utils/logger';
 import { Op, Transaction } from 'sequelize';
 
-type UiAttendanceStatus = 'present' | 'absent' | 'late';
+type UiAttendanceStatus = 'present' | 'absent' | 'late' | 'online';
 
 const mapUiStatusToDb = (status: UiAttendanceStatus): AttendanceStatus => {
   switch (status) {
     case 'absent':
       return AttendanceStatus.ABSENT;
     case 'late':
+    case 'online':
       return AttendanceStatus.MANUAL_PRESENT;
     case 'present':
     default:

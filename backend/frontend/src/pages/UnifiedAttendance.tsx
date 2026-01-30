@@ -7,7 +7,7 @@ import { sessionAPI, FacultyBatch, StudentAttendanceEntry, AttendanceOption, Ses
 import { formatDateDDMMYYYY } from '../utils/dateUtils';
 
 type AttendanceState = Record<number, AttendanceOption>;
-const ATTENDANCE_OPTIONS: AttendanceOption[] = ['present', 'absent', 'late'];
+const ATTENDANCE_OPTIONS: AttendanceOption[] = ['present', 'absent', 'late', 'online'];
 
 export const UnifiedAttendance: React.FC = () => {
   const { user } = useAuth();

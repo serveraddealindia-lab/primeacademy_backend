@@ -87,6 +87,10 @@ EmployeeProfile.init({
         type: sequelize_1.DataTypes.STRING,
         allowNull: true,
     },
+    address: {
+        type: sequelize_1.DataTypes.TEXT,
+        allowNull: true,
+    },
     city: {
         type: sequelize_1.DataTypes.STRING,
         allowNull: true,

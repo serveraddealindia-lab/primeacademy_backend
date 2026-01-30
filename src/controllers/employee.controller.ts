@@ -63,10 +63,42 @@ export const getEmployeeProfile = async (
       return;
     }
 
+    // Process employee profile to ensure document URLs are properly formatted
+    const employeeProfile = user.employeeProfile ? { ...user.employeeProfile.toJSON() } : null;
+    
+    if (employeeProfile && employeeProfile.documents) {
+      // Ensure document URLs are properly formatted with full paths
+      const documents = employeeProfile.documents;
+      
+      // Process documents to ensure any file paths are converted to full URLs
+      const processedDocuments: Record<string, any> = {};
+      
+      for (const [key, value] of Object.entries(documents)) {
+        if (typeof value === 'string' && (value.includes('uploads/') || value.includes('/general/'))) {
+          // If it's already a full URL, keep as is
+          if (value.startsWith('http://') || value.startsWith('https://')) {
+            processedDocuments[key] = value;
+          } else {
+            // If it's a relative path, convert to full URL
+            // Check if it's already in the correct format
+            if (!value.startsWith('/uploads/')) {
+              processedDocuments[key] = `/uploads/${value}`;
+            } else {
+              processedDocuments[key] = value;
+            }
+          }
+        } else {
+          processedDocuments[key] = value;
+        }
+      }
+      
+      employeeProfile.documents = processedDocuments;
+    }
+    
     res.status(200).json({
       status: 'success',
       data: {
-        employeeProfile: user.employeeProfile || null,
+        employeeProfile,
       },
     });
   } catch (error) {
@@ -295,13 +327,8 @@ export const createEmployeeProfile = async (
       return;
     }
 
-    // Prepare documents object for emergency contact and address
+    // Prepare documents object for emergency contact
     const documents: any = {};
-    
-    // Store address if provided
-    if (profileData.address && profileData.address.trim()) {
-      documents.address = profileData.address.trim();
-    }
     
     // Store emergency contact information if provided
     if (profileData.emergencyContactName || profileData.emergencyRelationship || 
@@ -336,6 +363,7 @@ export const createEmployeeProfile = async (
       city: profileData.city.trim(),
       state: profileData.state.trim(),
       postalCode: profileData.postalCode.trim(),
+      address: profileData.address?.trim() || null,
       documents: Object.keys(documents).length > 0 ? documents : null,
     });
 

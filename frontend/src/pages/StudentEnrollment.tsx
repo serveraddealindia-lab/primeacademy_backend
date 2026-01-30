@@ -1,43 +1,16 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { Layout } from '../components/Layout';
 import { studentAPI, CompleteEnrollmentRequest } from '../api/student.api';
-import { batchAPI, Batch } from '../api/batch.api';
-import { formatDateDDMMYYYY, formatDateInputToDDMMYYYY, convertDDMMYYYYToYYYYMMDD, isValidDDMMYYYY, isValidPhone, isValidEmail } from '../utils/dateUtils';
+import { formatDateInputToDDMMYYYY, convertDDMMYYYYToYYYYMMDD, isValidDDMMYYYY, isValidPhone, isValidEmail } from '../utils/dateUtils';
 import { uploadAPI } from '../api/upload.api';
 import { getImageUrl } from '../utils/imageUtils';
 import { employeeAPI } from '../api/employee.api';
 import { facultyAPI } from '../api/faculty.api';
 import { courseAPI } from '../api/course.api';
-const ALL_SOFTWARES = [
-  'Photoshop',
-  'Illustrator',
-  'InDesign',
-  'After Effects',
-  'Premiere Pro',
-  'Figma',
-  'Sketch',
-  'Blender',
-  'Maya',
-  '3ds Max',
-  'Cinema 4D',
-  'Lightroom',
-  'CorelDRAW',
-  'AutoCAD',
-  'SolidWorks',
-  'Revit',
-  'SketchUp',
-  'Unity',
-  'Unreal Engine',
-  'DaVinci Resolve',
-  'Final Cut Pro',
-  'Procreate',
-  'Affinity Designer',
-  'Affinity Photo',
-  'Canva Pro',
-];
+import { ALL_SOFTWARES } from '../utils/softwareOptions';
 
 export const StudentEnrollment: React.FC = () => {
   const navigate = useNavigate();
@@ -50,13 +23,14 @@ export const StudentEnrollment: React.FC = () => {
   const [otherSoftware, setOtherSoftware] = useState('');
   const [selectedSoftwares, setSelectedSoftwares] = useState<string[]>([]);
   const [complimentarySelectedSoftwares, setComplimentarySelectedSoftwares] = useState<string[]>([]);
-  const [suggestedBatches, setSuggestedBatches] = useState<Batch[]>([]);
   const [availableSoftwares, setAvailableSoftwares] = useState<string[]>(ALL_SOFTWARES); // Software options based on selected course
+  const [customSoftwares, setCustomSoftwares] = useState<string[]>([]); // Custom software added by user
   
   // Form data state to preserve values across steps
   // Store dates in DD/MM/YYYY format for display
   const [formData, setFormData] = useState<Partial<CompleteEnrollmentRequest>>({
     emiInstallments: [],
+    schedule: [],
   });
   const [dateOfAdmissionDDMMYYYY, setDateOfAdmissionDDMMYYYY] = useState<string>('');
   const [dateOfAdmissionYYYYMMDD, setDateOfAdmissionYYYYMMDD] = useState<string>('');
@@ -69,6 +43,7 @@ export const StudentEnrollment: React.FC = () => {
   const [customDateEmiIndices, setCustomDateEmiIndices] = useState<Set<number>>(new Set()); // Track which EMIs have custom dates
   const [whatsappCountryCode, setWhatsappCountryCode] = useState<string>('+91'); // Default to India
   const [isPhoneWhatsApp, setIsPhoneWhatsApp] = useState<boolean>(false); // Checkbox state for phone = WhatsApp
+  const [isSameAsPermanent, setIsSameAsPermanent] = useState<boolean>(false); // Checkbox state for same as permanent address
   const [uploadedDocuments] = useState<Array<{ name: string; url: string; size?: number }>>([]);
   const [photo, setPhoto] = useState<{ name: string; url: string; size?: number } | null>(null);
   const [panCard, setPanCard] = useState<{ name: string; url: string; size?: number } | null>(null);
@@ -79,10 +54,29 @@ export const StudentEnrollment: React.FC = () => {
   const [uploadingAadharCard, setUploadingAadharCard] = useState(false);
   const [uploadingOtherDocs, setUploadingOtherDocs] = useState(false);
   const [validationErrors, setValidationErrors] = useState<{ [key: string]: string }>({});
+  
+  // Initialize lumpSumPayments array if not present
+  useEffect(() => {
+    if (formData.lumpSumPayment && !formData.lumpSumPayments) {
+      setFormData(prev => ({
+        ...prev,
+        lumpSumPayments: []
+      }));
+    }
+  }, [formData.lumpSumPayment]);
   const [showLeadSourceModal, setShowLeadSourceModal] = useState(false);
   const [editingLeadSource, setEditingLeadSource] = useState<string | null>(null);
   const [newLeadSourceName, setNewLeadSourceName] = useState('');
   const [leadSources, setLeadSources] = useState<string[]>(['Walk-in', 'Online', 'Reference', 'Social Media', 'Advertisement', 'Other']);
+  
+  const formContainerRef = useRef<HTMLDivElement>(null);
+  
+  // Scroll to top of form container when step changes
+  useEffect(() => {
+    if (formContainerRef.current) {
+      formContainerRef.current.scrollTop = 0;
+    }
+  }, [currentStep]);
   
   // Common country codes
   const countryCodes = [
@@ -180,37 +174,54 @@ export const StudentEnrollment: React.FC = () => {
   // Update form data when input changes
   const handleInputChange = (field: keyof CompleteEnrollmentRequest, value: any) => {
     setFormData(prev => ({ ...prev, [field]: value }));
-    
+        
     // If phone number changes and checkbox is checked, update WhatsApp number
     if (field === 'phone' && isPhoneWhatsApp) {
       setFormData(prev => ({ ...prev, whatsappNumber: value }));
     }
-    
+        
     // Fetch and display course software when course is selected
     if (field === 'courseName' && value) {
       const selectedCourse = coursesData?.data?.find(course => course.name === value);
       if (selectedCourse?.software && Array.isArray(selectedCourse.software) && selectedCourse.software.length > 0) {
         const courseSoftware = selectedCourse.software as string[];
-        // Set available software to only course software
-        setAvailableSoftwares(courseSoftware);
-        // Auto-select all course software (read-only, comes from course)
+        // Auto-select all course software
         setSelectedSoftwares(courseSoftware);
         // Clear any manually added "Other" software when course is selected
         setShowOtherSoftwareInput(false);
         setOtherSoftware('');
       } else {
         // If no course software found, reset to all software
-        setAvailableSoftwares(ALL_SOFTWARES);
         setSelectedSoftwares([]);
       }
     } else if (field === 'courseName' && !value) {
       // Reset to all software when course is cleared - allow manual selection
-      setAvailableSoftwares(ALL_SOFTWARES);
-      setSelectedSoftwares([]);
+      setAvailableSoftwares([...ALL_SOFTWARES, ...customSoftwares]);
+      // Keep existing selected softwares when course is cleared
+      // Only reset if there were course-based selections
       setShowOtherSoftwareInput(false);
       setOtherSoftware('');
     }
-    
+          
+    // Update available softwares to include ALL_SOFTWARES when course is selected
+    // This allows users to still select additional software beyond the course software
+    if (field === 'courseName') {
+      if (value) {
+        const selectedCourse = coursesData?.data?.find(course => course.name === value);
+        if (selectedCourse?.software && Array.isArray(selectedCourse.software) && selectedCourse.software.length > 0) {
+          const courseSoftware = selectedCourse.software as string[];
+          // Combine course software with ALL_SOFTWARES to allow additional selections
+          setAvailableSoftwares([...new Set([...courseSoftware, ...ALL_SOFTWARES, ...customSoftwares])]);
+        } else {
+          // If no course software, show all available software
+          setAvailableSoftwares([...ALL_SOFTWARES, ...customSoftwares]);
+        }
+      } else {
+        // When no course is selected, show all available software
+        setAvailableSoftwares([...ALL_SOFTWARES, ...customSoftwares]);
+      }
+    }
+        
     // Clear validation error for this field
     if (validationErrors[field]) {
       setValidationErrors(prev => {
@@ -385,12 +396,6 @@ export const StudentEnrollment: React.FC = () => {
     setOtherDocuments(prev => prev.filter((_, i) => i !== index));
   };
 
-// Fetch batches for enrollment
-const { data: batchesData } = useQuery({
-  queryKey: ['batches'],
-  queryFn: () => batchAPI.getAllBatches(),
-});
-
 // Fetch employees for dropdown
 // Fetch course names from Excel (legacy source)
 const { data: courseNamesData } = useQuery({
@@ -419,7 +424,6 @@ const { data: employeesData } = useQuery({
     mutationFn: (data: CompleteEnrollmentRequest) => studentAPI.completeEnrollment(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['students'] });
-      queryClient.invalidateQueries({ queryKey: ['batches'] });
       alert('Student enrolled successfully!');
       navigate('/students');
     },
@@ -437,7 +441,7 @@ const { data: employeesData } = useQuery({
         const validationErrors = errorData.errors;
         const errorMessage = errorData.message || 'Validation failed';
         const errorDetails = validationErrors.length > 0 
-          ? `\n\nPlease fix the following errors:\n${validationErrors.map((err: string, idx: number) => `${idx + 1}. ${err}`).join('\n')}`
+          ? '\n\nPlease fix the following errors:\n' + validationErrors.map((err: string, idx: number) => (idx + 1) + '. ' + err).join('\n')
           : '';
         alert(errorMessage + errorDetails);
         return;
@@ -446,24 +450,7 @@ const { data: employeesData } = useQuery({
       // Check if it's a duplicate email/phone error (409 Conflict)
       if (statusCode === 409) {
         const errorMessage = errorData?.message || error.message || 'Failed to enroll student.';
-        const existingStudentId = errorData?.existingStudentId;
-        const existingStudentName = errorData?.existingStudentName || 'the student';
-        
-        if (existingStudentId) {
-          const shouldEdit = window.confirm(
-            `${errorMessage}\n\n` +
-            `Existing Student: ${existingStudentName}\n` +
-            `Would you like to edit this student's profile instead?`
-          );
-          
-          if (shouldEdit) {
-            navigate(`/students/${existingStudentId}/edit`);
-          }
-          // If user clicks Cancel, they stay on the enrollment form
-        } else {
-          // 409 but no student ID - show error anyway
-          alert(errorMessage);
-        }
+        alert(`${errorMessage} Please correct the email or phone number in the current form.`);
       } else {
         // Other errors
         const errorMessage = errorData?.message || error.message || 'Failed to enroll student. Please check all required fields.';
@@ -472,40 +459,16 @@ const { data: employeesData } = useQuery({
     },
   });
 
-  const batches = batchesData?.data || [];
-
-  // Filter batches based on selected software
-  useEffect(() => {
-    if (selectedSoftwares.length > 0) {
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      
-      const suggested = batches.filter(batch => {
-        // Check if batch hasn't started yet
-        const batchStartDate = new Date(batch.startDate);
-        batchStartDate.setHours(0, 0, 0, 0);
-        if (batchStartDate < today) return false;
-        
-        // Check if batch software matches any selected software
-        if (batch.software) {
-          const batchSoftwareLower = batch.software.toLowerCase();
-          return selectedSoftwares.some(sw => 
-            batchSoftwareLower.includes(sw.toLowerCase()) || 
-            sw.toLowerCase().includes(batchSoftwareLower)
-          );
-        }
-        return false;
-      });
-      
-      setSuggestedBatches(suggested);
-    } else {
-      setSuggestedBatches([]);
-    }
-  }, [selectedSoftwares, batches]);
-
   const handleSoftwareChange = (software: string, checked: boolean) => {
     if (checked) {
       setSelectedSoftwares(prev => [...prev, software]);
+      // If it's a custom software not in available list, add it
+      if (!availableSoftwares.includes(software)) {
+        setAvailableSoftwares(prev => [...prev, software]);
+        if (!ALL_SOFTWARES.includes(software) && !customSoftwares.includes(software)) {
+          setCustomSoftwares(prev => [...prev, software]);
+        }
+      }
     } else {
       setSelectedSoftwares(prev => prev.filter(s => s !== software));
     }
@@ -585,9 +548,10 @@ const { data: employeesData } = useQuery({
       errors.emergencyRelation = 'Emergency Contact Relation is required';
     }
     
-    if (!formData.courseName || !formData.courseName.trim()) {
-      errors.courseName = 'Course Name is required';
-    }
+    // Course name is now optional to allow direct software selection
+    // if (!formData.courseName || !formData.courseName.trim()) {
+    //   errors.courseName = 'Course Name is required';
+    // }
     
     if (selectedSoftwares.length === 0 && !otherSoftware.trim()) {
       errors.softwaresIncluded = 'At least one software must be selected';
@@ -605,7 +569,40 @@ const { data: employeesData } = useQuery({
       errors.bookingAmount = 'Booking Amount cannot be greater than Total Deal Amount';
     }
     
-      if (formData.emiPlan) {
+    // Validate that EMI and Lump Sum are mutually exclusive
+    if (formData.emiPlan && formData.lumpSumPayment) {
+      errors.emiPlan = 'Cannot select both EMI Plan and Lump Sum Payment';
+      errors.lumpSumPayment = 'Cannot select both EMI Plan and Lump Sum Payment';
+    }
+    
+    // Validate Lump Sum Payments if Lump Sum is selected
+    if (formData.lumpSumPayment && formData.lumpSumPayments && formData.lumpSumPayments.length > 0) {
+      formData.lumpSumPayments.forEach((payment, idx) => {
+        if (!payment.date) {
+          errors[`lumpSumPaymentDate-${idx}`] = `Lump Sum Payment ${idx + 1} date is required`;
+        } else {
+          // Validate date format
+          const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+          if (!dateRegex.test(payment.date)) {
+            errors[`lumpSumPaymentDate-${idx}`] = `Lump Sum Payment ${idx + 1} date format is invalid`;
+          } else {
+            // Validate that payment date is not in the past
+            const paymentDate = new Date(payment.date);
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            if (paymentDate < today) {
+              errors[`lumpSumPaymentDate-${idx}`] = `Lump Sum Payment ${idx + 1} date cannot be in the past`;
+            }
+          }
+        }
+        
+        if (!payment.amount || payment.amount <= 0) {
+          errors[`lumpSumPaymentAmount-${idx}`] = `Lump Sum Payment ${idx + 1} amount is required and must be greater than 0`;
+        }
+      });
+    }
+    
+    if (formData.emiPlan) {
         if (!emiPlanDateYYYYMMDD || !emiPlanDateYYYYMMDD.trim()) {
           errors.emiPlanDate = 'EMI Plan Date is required when EMI Plan is selected';
         }
@@ -673,7 +670,7 @@ const { data: employeesData } = useQuery({
     if (!validateAllFields()) {
       // Find the first step with errors
       let errorStep = 1;
-      if (validationErrors.courseName || validationErrors.softwaresIncluded || validationErrors.totalDeal || validationErrors.bookingAmount) {
+      if (validationErrors.softwaresIncluded || validationErrors.totalDeal || validationErrors.bookingAmount) {
         errorStep = 3;
       } else if (validationErrors.localAddress || validationErrors.permanentAddress || validationErrors.emergencyContactNumber) {
         errorStep = 2;
@@ -735,6 +732,9 @@ const { data: employeesData } = useQuery({
       emiPlan: formData.emiPlan || false,
       emiPlanDate: emiPlanDate,
       emiInstallments: emiInstallments,
+      lumpSumPayment: formData.lumpSumPayment || false,
+      nextPayDate: formData.nextPayDate || undefined,
+      lumpSumPayments: formData.lumpSumPayments || undefined,
       complimentarySoftware: formData.complimentarySoftware?.trim() || undefined,
       complimentaryGift: formData.complimentaryGift?.trim() || undefined,
       hasReference: formData.hasReference || false,
@@ -762,7 +762,7 @@ const { data: employeesData } = useQuery({
     enrollmentMutation.mutate(data);
   };
 
-  const nextStep = () => {
+  const nextStep = async () => {
     // Validate required fields before proceeding to next step
     const errors: { [key: string]: string } = {};
     
@@ -798,6 +798,27 @@ const { data: employeesData } = useQuery({
       if (!dateOfAdmissionYYYYMMDD || !dateOfAdmissionYYYYMMDD.trim()) {
         errors.dateOfAdmission = 'Date of Admission is required';
       }
+      
+      // Check for duplicate email or phone
+      if (Object.keys(errors).length === 0) { // Only check if basic validation passes
+        try {
+          const response = await studentAPI.checkDuplicate(formData.email, formData.phone);
+          
+          if (response.data.exists) {
+            const conflictType = response.data.type;
+            const existingStudentName = response.data.studentName;
+            
+            const message = `A student with this ${conflictType} already exists: ${existingStudentName}. Please correct the ${conflictType} before proceeding.`;
+            alert(message);
+            return; // Block form progression if duplicate found
+          }
+          // If no duplicates found, continue to next step
+        } catch (error) {
+          // If there's an API error (not a duplicate found), log the error but allow form progression
+          console.error('Error checking for duplicates:', error);
+          // Allow form progression despite the API error - don't bother the user
+        }
+      }
     } else if (currentStep === 2) {
       if (!formData.localAddress || !formData.localAddress.trim()) {
         errors.localAddress = 'Local Address is required';
@@ -817,9 +838,10 @@ const { data: employeesData } = useQuery({
         errors.emergencyRelation = 'Emergency Contact Relation is required';
       }
     } else if (currentStep === 3) {
-      if (!formData.courseName || !formData.courseName.trim()) {
-        errors.courseName = 'Course Name is required';
-      }
+      // Course name is now optional to allow direct software selection
+      // if (!formData.courseName || !formData.courseName.trim()) {
+      //   errors.courseName = 'Course Name is required';
+      // }
       if (selectedSoftwares.length === 0 && !otherSoftware.trim()) {
         errors.softwaresIncluded = 'At least one software must be selected';
       }
@@ -928,7 +950,7 @@ const { data: employeesData } = useQuery({
               e.stopPropagation();
             }
           }}>
-            <div className="p-4 md:p-8 max-h-[calc(100vh-12rem)] overflow-y-auto">
+            <div ref={formContainerRef} className="p-4 md:p-8 max-h-[calc(100vh-12rem)] overflow-y-auto">
               {/* Step 1: Basic Information */}
               {currentStep === 1 && (
                 <div className="space-y-6">
@@ -1112,9 +1134,42 @@ const { data: employeesData } = useQuery({
                         <p className="mt-1 text-sm text-red-600">{validationErrors.dateOfAdmission}</p>
                       )}
                     </div>
+
+                    {/* Date of Birth Field */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Date of Birth
+                      </label>
+                      <input
+                        type="date"
+                        name="dateOfBirth"
+                        value={formData.dateOfBirth || ''}
+                        onChange={(e) => {
+                          handleInputChange('dateOfBirth', e.target.value);
+                          // Clear validation error
+                          setValidationErrors(prev => {
+                            const newErrors = { ...prev };
+                            delete newErrors.dateOfBirth;
+                            return newErrors;
+                          });
+                        }}
+                        className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 ${
+                          validationErrors.dateOfBirth 
+                            ? 'border-red-500 focus:ring-red-500' 
+                            : 'border-gray-300 focus:ring-orange-500'
+                        }`}
+                      />
+                      {validationErrors.dateOfBirth && (
+                        <p className="mt-1 text-sm text-red-600">{validationErrors.dateOfBirth}</p>
+                      )}
+                      <p className="mt-1 text-xs text-gray-500">
+                        Optional - Date of birth for the student
+                      </p>
+                    </div>
                   </div>
                 </div>
-              )}
+
+        )}
 
               {/* Step 2: Contact & Address */}
               {currentStep === 2 && (
@@ -1136,7 +1191,8 @@ const { data: employeesData } = useQuery({
                           validationErrors.localAddress 
                             ? 'border-red-500 focus:ring-red-500' 
                             : 'border-gray-300 focus:ring-orange-500'
-                        }`}
+                        } ${isSameAsPermanent ? 'bg-gray-100 cursor-not-allowed' : ''}`}
+                        disabled={isSameAsPermanent}
                       />
                       {validationErrors.localAddress && (
                         <p className="mt-1 text-sm text-red-600">{validationErrors.localAddress}</p>
@@ -1152,7 +1208,13 @@ const { data: employeesData } = useQuery({
                         rows={3}
                         required
                         value={formData.permanentAddress || ''}
-                        onChange={(e) => handleInputChange('permanentAddress', e.target.value)}
+                        onChange={(e) => {
+                          handleInputChange('permanentAddress', e.target.value);
+                          // If same as permanent checkbox is checked, copy to local address
+                          if (isSameAsPermanent) {
+                            handleInputChange('localAddress', e.target.value);
+                          }
+                        }}
                         className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 ${
                           validationErrors.permanentAddress 
                             ? 'border-red-500 focus:ring-red-500' 
@@ -1162,6 +1224,26 @@ const { data: employeesData } = useQuery({
                       {validationErrors.permanentAddress && (
                         <p className="mt-1 text-sm text-red-600">{validationErrors.permanentAddress}</p>
                       )}
+                      
+                      <div className="mt-2 flex items-center">
+                        <input
+                          type="checkbox"
+                          id="sameAsPermanent"
+                          checked={isSameAsPermanent}
+                          onChange={(e) => {
+                            const isChecked = e.target.checked;
+                            setIsSameAsPermanent(isChecked);
+                            // If checked, copy permanent address to local address
+                            if (isChecked && formData.permanentAddress) {
+                              handleInputChange('localAddress', formData.permanentAddress);
+                            }
+                          }}
+                          className="mr-2 h-4 w-4 text-orange-600 focus:ring-orange-500 border-gray-300 rounded"
+                        />
+                        <label htmlFor="sameAsPermanent" className="text-sm text-gray-700">
+                          Same as Permanent Address
+                        </label>
+                      </div>
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -1241,11 +1323,10 @@ const { data: employeesData } = useQuery({
                   <div className="space-y-6">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Course Name <span className="text-red-500">*</span>
+                        Course Name
                       </label>
                       <select
                         name="courseName"
-                        required
                         value={formData.courseName || ''}
                         onChange={(e) => handleInputChange('courseName', e.target.value)}
                         onKeyDown={(e) => {
@@ -1254,13 +1335,9 @@ const { data: employeesData } = useQuery({
                             e.stopPropagation();
                           }
                         }}
-                        className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 ${
-                          validationErrors.courseName 
-                            ? 'border-red-500 focus:ring-red-500' 
-                            : 'border-gray-300 focus:ring-orange-500'
-                        }`}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
                       >
-                        <option value="">Select course name</option>
+                        <option value="">Select course name (optional)</option>
                         {Array.from(
                           new Set([
                             // Course names from Course Modules (database)
@@ -1276,85 +1353,6 @@ const { data: employeesData } = useQuery({
                             </option>
                           ))}
                       </select>
-                      {validationErrors.courseName && (
-                        <p className="mt-1 text-sm text-red-600">{validationErrors.courseName}</p>
-                      )}
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Select Batch
-                      </label>
-                      
-                      {/* Suggested Batches */}
-                      {suggestedBatches.length > 0 && (
-                        <div className="mb-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                          <p className="text-sm font-semibold text-blue-900 mb-2">
-                            💡 Suggested Batches (based on your software selection)
-                          </p>
-                          <div className="space-y-2">
-                            {suggestedBatches.map((batch) => (
-                              <div
-                                key={batch.id}
-                                className="p-2 bg-white border border-blue-300 rounded hover:bg-blue-50 cursor-pointer"
-                                onClick={() => handleInputChange('batchId', batch.id)}
-                              >
-                                <div className="flex justify-between items-center">
-                                  <div>
-                                    <span className="font-medium">{batch.title}</span>
-                                    {batch.software && (
-                                      <span className="text-sm text-gray-600 ml-2">- {batch.software}</span>
-                                    )}
-                                    <span className="text-xs text-gray-500 ml-2">
-                                      ({batch.mode}) | Starts: {formatDateDDMMYYYY(batch.startDate)}
-                                    </span>
-                                  </div>
-                                  <span className="text-xs bg-green-100 text-green-800 px-2 py-1 rounded">
-                                    Suggested
-                                  </span>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                      
-                      <select
-                        name="batchId"
-                        value={formData.batchId?.toString() || ''}
-                        onChange={(e) => handleInputChange('batchId', e.target.value ? parseInt(e.target.value) : undefined)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
-                      >
-                        <option value="">Select a batch (optional)</option>
-                        {suggestedBatches.length > 0 && (
-                          <optgroup label="Suggested Batches">
-                            {suggestedBatches.map((batch) => (
-                              <option key={batch.id} value={batch.id}>
-                                {batch.title} {batch.software ? `- ${batch.software}` : ''} ({batch.mode}) - Starts: {formatDateDDMMYYYY(batch.startDate)}
-                              </option>
-                            ))}
-                          </optgroup>
-                        )}
-                        {suggestedBatches.length > 0 && batches.length > suggestedBatches.length && (
-                          <optgroup label="All Batches">
-                            {batches.filter(b => !suggestedBatches.some(sb => sb.id === b.id)).map((batch) => (
-                              <option key={batch.id} value={batch.id}>
-                                {batch.title} {batch.software ? `- ${batch.software}` : ''} ({batch.mode})
-                              </option>
-                            ))}
-                          </optgroup>
-                        )}
-                        {suggestedBatches.length === 0 && batches.map((batch) => (
-                          <option key={batch.id} value={batch.id}>
-                            {batch.title} {batch.software ? `- ${batch.software}` : ''} ({batch.mode})
-                          </option>
-                        ))}
-                      </select>
-                      {suggestedBatches.length > 0 && (
-                        <p className="mt-1 text-xs text-blue-600">
-                          Batches matching your software selection are shown above
-                        </p>
-                      )}
                     </div>
 
                     <div>
@@ -1384,12 +1382,12 @@ const { data: employeesData } = useQuery({
                           </p>
                         </div>
                       )}
-                      <div className={`border border-gray-300 rounded-md p-4 max-h-48 overflow-y-auto ${formData.courseName ? 'bg-gray-50' : ''}`}>
+                      <div className="border border-gray-300 rounded-md p-4 max-h-48 overflow-y-auto">
                         <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                           {availableSoftwares.map((software) => (
                             <label 
                               key={software} 
-                              className={`flex items-center space-x-2 p-2 rounded ${formData.courseName ? 'cursor-not-allowed opacity-75' : 'cursor-pointer hover:bg-gray-50'}`}
+                              className="flex items-center space-x-2 cursor-pointer hover:bg-gray-50 p-2 rounded"
                             >
                               <input
                                 type="checkbox"
@@ -1397,35 +1395,48 @@ const { data: employeesData } = useQuery({
                                 value={software}
                                 checked={selectedSoftwares.includes(software)}
                                 onChange={(e) => {
-                                  if (!formData.courseName) {
-                                    handleSoftwareChange(software, e.target.checked);
-                                  }
-                                }}
-                                disabled={!!formData.courseName}
-                                className="w-4 h-4 text-orange-600 border-gray-300 rounded focus:ring-orange-500 disabled:opacity-50 disabled:cursor-not-allowed"
-                              />
-                              <span className={`text-sm ${formData.courseName ? 'text-gray-500' : 'text-gray-700'}`}>{software}</span>
-                            </label>
-                          ))}
-                          {/* Show "Other" option only when course is NOT selected */}
-                          {!formData.courseName && (
-                            <label 
-                              key="Other" 
-                              className="flex items-center space-x-2 cursor-pointer hover:bg-gray-50 p-2 rounded"
-                            >
-                              <input
-                                type="checkbox"
-                                name="softwaresIncluded"
-                                value="Other"
-                                checked={showOtherSoftwareInput}
-                                onChange={(e) => {
-                                  setShowOtherSoftwareInput(e.target.checked);
+                                  // Allow software selection regardless of course selection
+                                  handleSoftwareChange(software, e.target.checked);
                                 }}
                                 className="w-4 h-4 text-orange-600 border-gray-300 rounded focus:ring-orange-500"
                               />
-                              <span className="text-sm text-gray-700">Other</span>
+                              <span className="text-sm text-gray-700">{software}</span>
+                              {ALL_SOFTWARES.includes(software) && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    // Remove this standard software from custom list if it was added
+                                    setCustomSoftwares(prev => prev.filter(s => s !== software));
+                                    setAvailableSoftwares(prev => prev.filter(s => s !== software));
+                                    // Uncheck if it was selected
+                                    if (selectedSoftwares.includes(software)) {
+                                      handleSoftwareChange(software, false);
+                                    }
+                                  }}
+                                  className="ml-2 text-xs text-red-600 hover:text-red-800"
+                                >
+                                  ×
+                                </button>
+                              )}
                             </label>
-                          )}
+                          ))}
+                          {/* Show "Other" option when course is NOT selected OR when user wants to add custom software */}
+                          <label 
+                            key="Other" 
+                            className="flex items-center space-x-2 cursor-pointer hover:bg-gray-50 p-2 rounded"
+                          >
+                            <input
+                              type="checkbox"
+                              name="softwaresIncluded"
+                              value="Other"
+                              checked={showOtherSoftwareInput}
+                              onChange={(e) => {
+                                setShowOtherSoftwareInput(e.target.checked);
+                              }}
+                              className="w-4 h-4 text-orange-600 border-gray-300 rounded focus:ring-orange-500"
+                            />
+                            <span className="text-sm text-gray-700">Other</span>
+                          </label>
                         </div>
                       </div>
                       {showOtherSoftwareInput && !formData.courseName && (
@@ -1442,9 +1453,24 @@ const { data: employeesData } = useQuery({
                               // Update selected softwares when other software is entered
                               if (value.trim()) {
                                 const trimmed = value.trim();
-                                if (!selectedSoftwares.includes(trimmed)) {
-                                  setSelectedSoftwares(prev => [...prev, trimmed]);
-                                }
+                                // Split by comma to allow multiple software entries
+                                const softwareList = trimmed.split(',').map(s => s.trim()).filter(s => s);
+                                
+                                // Add new software to custom list if not already there
+                                softwareList.forEach(software => {
+                                  if (!ALL_SOFTWARES.includes(software) && !customSoftwares.includes(software)) {
+                                    setCustomSoftwares(prev => [...prev, software]);
+                                    setAvailableSoftwares(prev => [...prev, software]);
+                                  }
+                                  
+                                  // Add to selected softwares if not already there
+                                  if (!selectedSoftwares.includes(software)) {
+                                    setSelectedSoftwares(prev => [...prev, software]);
+                                  }
+                                });
+                              } else {
+                                // If input is empty, remove from selected softwares but keep in available
+                                setSelectedSoftwares(prev => prev.filter(s => !customSoftwares.includes(s) || !value.includes(s)));
                               }
                             }}
                             placeholder="Enter software names (comma separated)"
@@ -1548,7 +1574,15 @@ const { data: employeesData } = useQuery({
                         <select
                           name="emiPlan"
                           value={formData.emiPlan ? 'yes' : 'no'}
-                          onChange={(e) => handleInputChange('emiPlan', e.target.value === 'yes')}
+                          onChange={(e) => {
+                            const isEmi = e.target.value === 'yes';
+                            handleInputChange('emiPlan', isEmi);
+                            // When EMI is selected, unselect lump sum
+                            if (isEmi) {
+                              handleInputChange('lumpSumPayment', false);
+                              handleInputChange('lumpSumPayments', []);
+                            }
+                          }}
                           className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
                         >
                           <option value="no">No</option>
@@ -1558,15 +1592,38 @@ const { data: employeesData } = useQuery({
 
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">
-                          EMI Plan Date <span className="text-red-500">*</span>
+                          Lump Sum Payment
+                        </label>
+                        <select
+                          name="lumpSumPayment"
+                          value={formData.lumpSumPayment ? 'yes' : 'no'}
+                          onChange={(e) => {
+                            const isLumpSum = e.target.value === 'yes';
+                            handleInputChange('lumpSumPayment', isLumpSum);
+                            // When lump sum is selected, unselect EMI
+                            if (isLumpSum) {
+                              handleInputChange('emiPlan', false);
+                            }
+                          }}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
+                        >
+                          <option value="no">No</option>
+                          <option value="yes">Yes</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          EMI Plan Date
                         </label>
                         <input
                           type="date"
                           name="emiPlanDate"
-                          required={formData.emiPlan}
                           disabled={!formData.emiPlan}
                           min={new Date().toISOString().split('T')[0]}
-                          value={emiPlanDateYYYYMMDD}
+                          value={formData.emiPlan ? emiPlanDateYYYYMMDD : ''}
                           onChange={(e) => {
                             const yyyymmdd = e.target.value;
                             setEmiPlanDateYYYYMMDD(yyyymmdd);
@@ -1588,15 +1645,240 @@ const { data: employeesData } = useQuery({
                               : 'border-gray-300 focus:ring-orange-500'
                           } ${!formData.emiPlan ? 'bg-gray-100 cursor-not-allowed' : ''}`}
                         />
-                        {emiPlanDateDDMMYYYY && (
+                        {emiPlanDateDDMMYYYY && formData.emiPlan && (
                           <p className="mt-1 text-xs text-gray-600">Selected: {emiPlanDateDDMMYYYY}</p>
                         )}
                         {validationErrors.emiPlanDate && (
                           <p className="mt-1 text-sm text-red-600">{validationErrors.emiPlanDate}</p>
                         )}
                       </div>
+
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Next Pay Date
+                        </label>
+                        <input
+                          type="date"
+                          name="nextPayDate"
+                          disabled={!formData.lumpSumPayment || (formData.lumpSumPayments && formData.lumpSumPayments.length > 0)}
+                          min={new Date().toISOString().split('T')[0]}
+                          value={formData.lumpSumPayment && (!formData.lumpSumPayments || formData.lumpSumPayments.length === 0) && formData.nextPayDate ? formData.nextPayDate : ''}
+                          onChange={(e) => {
+                            const nextPayDate = e.target.value;
+                            handleInputChange('nextPayDate', nextPayDate);
+                          }}
+                          className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 ${
+                            validationErrors.nextPayDate 
+                              ? 'border-red-500 focus:ring-red-500' 
+                              : 'border-gray-300 focus:ring-orange-500'
+                          } ${!formData.lumpSumPayment || (formData.lumpSumPayments && formData.lumpSumPayments.length > 0) ? 'bg-gray-100 cursor-not-allowed' : ''}`}
+                        />
+                        {formData.nextPayDate && formData.lumpSumPayment && (!formData.lumpSumPayments || formData.lumpSumPayments.length === 0) && (
+                          <p className="mt-1 text-xs text-gray-600">Selected: {formatDateInputToDDMMYYYY(formData.nextPayDate)}</p>
+                        )}
+                        {validationErrors.nextPayDate && (
+                          <p className="mt-1 text-sm text-red-600">{validationErrors.nextPayDate}</p>
+                        )}
+                      </div>
                     </div>
 
+                    {/* Lump Sum Payment Details - Show when lump sum is selected */}
+                    {formData.lumpSumPayment && (
+                      <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                        <h4 className="text-lg font-semibold text-gray-800 mb-4">Lump Sum Payment Details</h4>
+                        
+                        {/* Lump Sum Payments Table */}
+                        <div className="mb-4">
+                          <div className="flex justify-between items-center mb-2">
+                            <label className="block text-sm font-medium text-gray-700">
+                              Payment Schedule
+                            </label>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const newPayment = {
+                                  date: '',
+                                  amount: 0
+                                };
+                                // Ensure we're working with a fresh array to avoid mutation issues
+                                const currentPayments = formData.lumpSumPayments || [];
+                                const updatedPayments = [...currentPayments, newPayment];
+                                handleInputChange('lumpSumPayments', updatedPayments);
+                              }}
+                              className="px-3 py-1 bg-green-600 text-white text-sm rounded-md hover:bg-green-700 transition-colors"
+                            >
+                              + Add Payment
+                            </button>
+                          </div>
+                          
+                          {formData.lumpSumPayments && formData.lumpSumPayments.length > 0 && (
+                            <div className="overflow-x-auto">
+                              <table className="min-w-full divide-y divide-gray-200 border border-gray-300 rounded">
+                                <thead className="bg-gray-50">
+                                  <tr>
+                                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Date</th>
+                                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Amount (₹)</th>
+                                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Actions</th>
+                                  </tr>
+                                </thead>
+                                <tbody className="bg-white divide-y divide-gray-200">
+                                  {(formData.lumpSumPayments || []).map((payment, index) => (
+                                    <tr key={index}>
+                                      <td className="px-4 py-2 whitespace-nowrap">
+                                        <input
+                                          type="date"
+                                          min={new Date().toISOString().split('T')[0]}
+                                          value={payment.date || ''}
+                                          onChange={(e) => {
+                                            const updatedPayments = [...(formData.lumpSumPayments || [])];
+                                            if (updatedPayments[index]) {
+                                              updatedPayments[index] = { ...updatedPayments[index], date: e.target.value };
+                                            }
+                                            handleInputChange('lumpSumPayments', updatedPayments);
+                                          }}
+                                          className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
+                                        />
+                                        {validationErrors[`lumpSumPaymentDate-${index}`] && (
+                                          <p className="text-xs text-red-600 mt-1">{validationErrors[`lumpSumPaymentDate-${index}`]}</p>
+                                        )}
+                                      </td>
+                                      <td className="px-4 py-2 whitespace-nowrap">
+                                        <input
+                                          type="number"
+                                          min="0"
+                                          step="0.01"
+                                          value={payment.amount || ''}
+                                          onChange={(e) => {
+                                            const updatedPayments = [...(formData.lumpSumPayments || [])];
+                                            if (updatedPayments[index]) {
+                                              updatedPayments[index] = { ...updatedPayments[index], amount: Number(e.target.value) };
+                                            }
+                                            handleInputChange('lumpSumPayments', updatedPayments);
+                                          }}
+                                          className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
+                                        />
+                                        {validationErrors[`lumpSumPaymentAmount-${index}`] && (
+                                          <p className="text-xs text-red-600 mt-1">{validationErrors[`lumpSumPaymentAmount-${index}`]}</p>
+                                        )}
+                                      </td>
+                                      <td className="px-4 py-2 whitespace-nowrap text-sm">
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            const updatedPayments = [...(formData.lumpSumPayments || [])];
+                                            updatedPayments.splice(index, 1);
+                                            handleInputChange('lumpSumPayments', updatedPayments);
+                                          }}
+                                          className="px-2 py-1 bg-red-600 text-white text-xs rounded hover:bg-red-700 transition-colors"
+                                        >
+                                          Remove
+                                        </button>
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
+                        </div>
+                        
+                        {validationErrors.lumpSumPayments && (
+                          <p className="mt-2 text-sm text-red-600">{validationErrors.lumpSumPayments}</p>
+                        )}
+                      </div>
+                    )}
+                    
+                    {/* Schedule Information */}
+                    <div className="grid grid-cols-1 gap-6">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Class Schedule
+                        </label>
+                        <p className="text-xs text-gray-500 mb-3">Add class timings for each day</p>
+                        
+                        {/* Schedule List */}
+                        <div className="space-y-3 mb-4">
+                          {(formData.schedule || []).map((slot, index) => (
+                            <div key={index} className="flex flex-col sm:flex-row gap-2 items-end">
+                              <div className="flex-1 grid grid-cols-1 md:grid-cols-3 gap-2">
+                                <div>
+                                  <label className="block text-xs text-gray-600 mb-1">Day</label>
+                                  <select
+                                    value={slot.day}
+                                    onChange={(e) => {
+                                      const newSchedule = [...(formData.schedule || [])];
+                                      newSchedule[index].day = e.target.value;
+                                      handleInputChange('schedule', newSchedule);
+                                    }}
+                                    className="w-full px-2 py-1 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                                  >
+                                    <option value="">Select Day</option>
+                                    <option value="Monday">Monday</option>
+                                    <option value="Tuesday">Tuesday</option>
+                                    <option value="Wednesday">Wednesday</option>
+                                    <option value="Thursday">Thursday</option>
+                                    <option value="Friday">Friday</option>
+                                    <option value="Saturday">Saturday</option>
+                                    <option value="Sunday">Sunday</option>
+                                  </select>
+                                </div>
+                                <div>
+                                  <label className="block text-xs text-gray-600 mb-1">Start Time</label>
+                                  <input
+                                    type="time"
+                                    value={slot.startTime}
+                                    onChange={(e) => {
+                                      const newSchedule = [...(formData.schedule || [])];
+                                      newSchedule[index].startTime = e.target.value;
+                                      handleInputChange('schedule', newSchedule);
+                                    }}
+                                    className="w-full px-2 py-1 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-xs text-gray-600 mb-1">End Time</label>
+                                  <input
+                                    type="time"
+                                    value={slot.endTime}
+                                    onChange={(e) => {
+                                      const newSchedule = [...(formData.schedule || [])];
+                                      newSchedule[index].endTime = e.target.value;
+                                      handleInputChange('schedule', newSchedule);
+                                    }}
+                                    className="w-full px-2 py-1 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                                  />
+                                </div>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const newSchedule = [...(formData.schedule || [])];
+                                  newSchedule.splice(index, 1);
+                                  handleInputChange('schedule', newSchedule);
+                                }}
+                                className="px-3 py-2 bg-red-600 text-white rounded-md text-sm hover:bg-red-700"
+                              >
+                                Remove
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                        
+                        {/* Add Schedule Button */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const newSlot = { day: '', startTime: '', endTime: '' };
+                            const newSchedule = [...(formData.schedule || []), newSlot];
+                            handleInputChange('schedule', newSchedule);
+                          }}
+                          className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm hover:bg-blue-700"
+                        >
+                          + Add Time Slot
+                        </button>
+                      </div>
+                    </div>
+                    
                     {/* EMI Installments Table */}
                     {formData.emiPlan && (
                       <div className="mt-6">
@@ -2642,8 +2924,8 @@ const { data: employeesData } = useQuery({
                   </button>
                 )}
               </div>
-            </div>
-          </form>
+          </div>
+        </form>
 
           {/* Lead Source Management Modal */}
           {showLeadSourceModal && (

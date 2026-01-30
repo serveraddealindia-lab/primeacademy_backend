@@ -39,8 +39,6 @@ const auth_middleware_1 = require("../middleware/auth.middleware");
 const router = (0, express_1.Router)();
 // POST /api/faculty - Create faculty profile
 router.post('/', auth_middleware_1.verifyTokenMiddleware, facultyController.createFaculty);
-// GET /api/faculty/:userId - Get faculty profile by user ID
-router.get('/:userId', auth_middleware_1.verifyTokenMiddleware, facultyController.getFacultyProfile);
 // PUT /api/faculty/:id - Update faculty profile
 router.put('/:id', auth_middleware_1.verifyTokenMiddleware, facultyController.updateFacultyProfile);
 exports.default = router;

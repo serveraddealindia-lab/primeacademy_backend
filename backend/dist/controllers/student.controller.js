@@ -263,19 +263,12 @@ const completeEnrollment = async (req, res) => {
         }
         // Handle number fields - they might come as strings or numbers
         // Total Deal Amount is COMPULSORY - student registration not possible without it
-<<<<<<< HEAD
-=======
         let totalDealNum = 0;
->>>>>>> bdb794acfb61cc2b2706640d091825482eb0ff56
         if (totalDeal === null || totalDeal === undefined) {
             validationErrors.push('Total Deal Amount is required. Student registration cannot proceed without a deal amount.');
         }
         else {
-<<<<<<< HEAD
-            const totalDealNum = typeof totalDeal === 'string'
-=======
             totalDealNum = typeof totalDeal === 'string'
->>>>>>> bdb794acfb61cc2b2706640d091825482eb0ff56
                 ? parseFloat(String(totalDeal).replace(/[^\d.-]/g, ''))
                 : Number(totalDeal);
             if (isNaN(totalDealNum) || totalDealNum <= 0) {

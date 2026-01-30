@@ -98,5 +98,12 @@ router.get(
   studentController.getStudentAttendance
 );
 
+// GET /students/check-duplicate → Check for duplicate email or phone
+router.get(
+  '/check-duplicate',
+  verifyTokenMiddleware,
+  studentController.checkDuplicate
+);
+
 export default router;
 

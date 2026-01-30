@@ -3,11 +3,9 @@ import sequelize from '../config/database';
 import User from './User';
 
 export enum PaymentStatus {
-  PENDING = 'pending',
+  UNPAID = 'unpaid',
   PARTIAL = 'partial',
   PAID = 'paid',
-  OVERDUE = 'overdue',
-  CANCELLED = 'cancelled',
 }
 
 export interface PaymentTransactionAttributes {
@@ -22,6 +20,8 @@ export interface PaymentTransactionAttributes {
   receiptUrl: string | null;
   paymentMethod?: string | null;
   transactionId?: string | null;
+  bankName?: string | null;
+  bankAccount?: string | null;
   notes?: string | null;
   createdAt?: Date;
   updatedAt?: Date;
@@ -40,6 +40,8 @@ export interface PaymentTransactionCreationAttributes
     | 'enrollmentId'
     | 'paymentMethod'
     | 'transactionId'
+    | 'bankName'
+    | 'bankAccount'
     | 'notes'
   > {}
 
@@ -58,6 +60,8 @@ class PaymentTransaction
   public receiptUrl!: string | null;
   public paymentMethod!: string | null;
   public transactionId!: string | null;
+  public bankName!: string | null;
+  public bankAccount!: string | null;
   public notes!: string | null;
   public readonly createdAt!: Date;
   public readonly updatedAt!: Date;
@@ -114,7 +118,7 @@ PaymentTransaction.init(
     status: {
       type: DataTypes.ENUM(...Object.values(PaymentStatus)),
       allowNull: false,
-      defaultValue: PaymentStatus.PENDING,
+      defaultValue: PaymentStatus.UNPAID,
     },
     receiptUrl: {
       type: DataTypes.STRING,
@@ -125,6 +129,14 @@ PaymentTransaction.init(
       allowNull: true,
     },
     transactionId: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
+    bankName: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
+    bankAccount: {
       type: DataTypes.STRING,
       allowNull: true,
     },

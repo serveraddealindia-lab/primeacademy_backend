@@ -3,7 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.updateFacultyProfile = exports.getFacultyProfile = exports.createFaculty = void 0;
+exports.updateFacultyProfile = exports.createFaculty = void 0;
 const models_1 = __importDefault(require("../models"));
 const User_1 = require("../models/User");
 const logger_1 = require("../utils/logger");
@@ -316,36 +316,13 @@ const createFaculty = async (req, res) => {
             documentsData.softwareProficiency = softwareProficiency;
         }
         // Create faculty profile
-        let facultyProfile;
-        try {
-            facultyProfile = await models_1.default.FacultyProfile.create({
-                userId,
-                dateOfBirth: personalInfo.dateOfBirth ? new Date(personalInfo.dateOfBirth) : null,
-                expertise: typeof expertise === 'string' ? { description: expertise } : expertise,
-                availability: typeof availability === 'string' ? { schedule: availability } : availability,
-                documents: Object.keys(documentsData).length > 0 ? documentsData : null,
-            });
-        }
-        catch (createError) {
-            // Check if error is due to missing documents column
-            const errorMessage = (createError?.parent?.sqlMessage || createError?.message || '').toLowerCase();
-            const isDocumentsError = (errorMessage.includes("documents") || errorMessage.includes("`documents`")) &&
-                errorMessage.includes("unknown column");
-            if (isDocumentsError) {
-                logger_1.logger.warn('documents column does not exist. Creating profile without documents field...');
-                // Try creating without documents field
-                facultyProfile = await models_1.default.FacultyProfile.create({
-                    userId,
-                    dateOfBirth: personalInfo.dateOfBirth ? new Date(personalInfo.dateOfBirth) : null,
-                    expertise: typeof expertise === 'string' ? { description: expertise } : expertise,
-                    availability: typeof availability === 'string' ? { schedule: availability } : availability,
-                });
-                logger_1.logger.warn('Please run migration: 20251222000000-add-documents-to-faculty-profiles to add the documents column');
-            }
-            else {
-                throw createError;
-            }
-        }
+        const facultyProfile = await models_1.default.FacultyProfile.create({
+            userId,
+            dateOfBirth: personalInfo.dateOfBirth ? new Date(personalInfo.dateOfBirth) : null,
+            expertise: typeof expertise === 'string' ? { description: expertise } : expertise,
+            availability: typeof availability === 'string' ? { schedule: availability } : availability,
+            documents: Object.keys(documentsData).length > 0 ? documentsData : null,
+        });
         // Fetch the created profile with user information
         const profileWithUser = await models_1.default.FacultyProfile.findByPk(facultyProfile.id, {
             include: [
@@ -381,108 +358,6 @@ const createFaculty = async (req, res) => {
     }
 };
 exports.createFaculty = createFaculty;
-// GET /api/faculty/:userId - Get faculty profile by user ID
-const getFacultyProfile = async (req, res) => {
-    try {
-        if (!req.user) {
-            res.status(401).json({
-                status: 'error',
-                message: 'Authentication required',
-            });
-            return;
-        }
-        const userId = parseInt(req.params.userId, 10);
-        if (isNaN(userId)) {
-            res.status(400).json({
-                status: 'error',
-                message: 'Invalid user ID',
-            });
-            return;
-        }
-        // Users can view their own profile, or admins can view any profile
-        if (req.user.userId !== userId && req.user.role !== User_1.UserRole.SUPERADMIN && req.user.role !== User_1.UserRole.ADMIN) {
-            res.status(403).json({
-                status: 'error',
-                message: 'You can only view your own profile unless you are an admin',
-            });
-            return;
-        }
-        const user = await models_1.default.User.findByPk(userId, {
-            attributes: { exclude: ['passwordHash'] },
-            include: models_1.default.FacultyProfile ? [
-                {
-                    model: models_1.default.FacultyProfile,
-                    as: 'facultyProfile',
-                    required: false,
-                },
-            ] : undefined,
-        });
-        if (!user) {
-            res.status(404).json({
-                status: 'error',
-                message: 'User not found',
-            });
-            return;
-        }
-        if (user.role !== User_1.UserRole.FACULTY) {
-            res.status(400).json({
-                status: 'error',
-                message: 'User is not a faculty member',
-            });
-            return;
-        }
-        // Parse JSON fields for faculty profile
-        let facultyProfile = user.facultyProfile;
-        if (facultyProfile) {
-            const profileJson = facultyProfile.toJSON ? facultyProfile.toJSON() : facultyProfile;
-            // Parse documents if it's a string (MySQL JSON fields sometimes come as strings)
-            if (profileJson.documents && typeof profileJson.documents === 'string') {
-                try {
-                    profileJson.documents = JSON.parse(profileJson.documents);
-                }
-                catch (e) {
-                    logger_1.logger.warn(`Failed to parse documents JSON for faculty ${userId}:`, e);
-                    profileJson.documents = null;
-                }
-            }
-            // Parse expertise if it's a string
-            if (profileJson.expertise && typeof profileJson.expertise === 'string') {
-                try {
-                    profileJson.expertise = JSON.parse(profileJson.expertise);
-                }
-                catch (e) {
-                    logger_1.logger.warn(`Failed to parse expertise JSON for faculty ${userId}:`, e);
-                    // Keep as string if parsing fails
-                }
-            }
-            // Parse availability if it's a string
-            if (profileJson.availability && typeof profileJson.availability === 'string') {
-                try {
-                    profileJson.availability = JSON.parse(profileJson.availability);
-                }
-                catch (e) {
-                    logger_1.logger.warn(`Failed to parse availability JSON for faculty ${userId}:`, e);
-                    // Keep as string if parsing fails
-                }
-            }
-            facultyProfile = profileJson;
-        }
-        res.status(200).json({
-            status: 'success',
-            data: {
-                facultyProfile: facultyProfile || null,
-            },
-        });
-    }
-    catch (error) {
-        logger_1.logger.error('Get faculty profile error:', error);
-        res.status(500).json({
-            status: 'error',
-            message: 'Internal server error',
-        });
-    }
-};
-exports.getFacultyProfile = getFacultyProfile;
 // PUT /api/faculty/:id - Update faculty profile
 const updateFacultyProfile = async (req, res) => {
     try {

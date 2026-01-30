@@ -89,29 +89,29 @@ logger_1.logger.info(`Serving uploads from: ${uploadsStaticPath}`);
 logger_1.logger.info(`Backend root (process.cwd()): ${backendRoot}`);
 logger_1.logger.info(`__dirname: ${__dirname}`);
 // Serve uploads with proper headers - MUST be before API routes to avoid auth middleware
-// Set CORS headers for all upload requests
-const origin = req.headers.origin;
-const allowedOrigins = process.env.FRONTEND_URL?.split(',').map((o) => o.trim()) || [
-    'http://localhost:5173',
-    'http://crm.prashantthakar.com',
-];
-// Set CORS headers for all upload requests
-const origin = req.headers.origin;
-const allowedOrigins = process.env.FRONTEND_URL?.split(',').map((o) => o.trim()) || [
-    'http://localhost:5173',
-    'http://crm.prashantthakar.com',
-];
-res.setHeader('Access-Control-Allow-Origin', '*');
-res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS, HEAD');
-res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Range');
-res.setHeader('Access-Control-Expose-Headers', 'Content-Length, Content-Range, Content-Type');
-res.setHeader('Access-Control-Allow-Credentials', 'false'); // Must be false when origin is *
-if (req.method === 'OPTIONS') {
-    res.sendStatus(200);
-    return;
-}
-next();
-express_1.default.static(uploadsStaticPath, {
+app.use('/uploads', (req, res, next) => {
+    // Set CORS headers for all upload requests
+    const uploadOrigin = req.headers.origin;
+    const allowedOrigins = process.env.FRONTEND_URL?.split(',').map((o) => o.trim()) || [
+        'http://localhost:5173',
+        'http://crm.prashantthakar.com',
+    ];
+    if (uploadOrigin && allowedOrigins.includes(uploadOrigin)) {
+        res.setHeader('Access-Control-Allow-Origin', uploadOrigin);
+    }
+    else {
+        res.setHeader('Access-Control-Allow-Origin', '*');
+    }
+    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS, HEAD');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Range');
+    res.setHeader('Access-Control-Expose-Headers', 'Content-Length, Content-Range, Content-Type');
+    res.setHeader('Access-Control-Allow-Credentials', uploadOrigin ? 'true' : 'false'); // Must be false when origin is *
+    if (req.method === 'OPTIONS') {
+        res.sendStatus(200);
+        return;
+    }
+    next();
+}, express_1.default.static(uploadsStaticPath, {
     setHeaders: (res, filePath) => {
         // Set proper content type for images
         if (filePath.endsWith('.jpg') || filePath.endsWith('.jpeg')) {
@@ -136,8 +136,7 @@ express_1.default.static(uploadsStaticPath, {
     },
     index: false,
     dotfiles: 'ignore',
-});
-;
+}));
 // Test endpoint to verify static file serving (no auth required)
 app.get('/uploads/test', (_req, res) => {
     const fs = require('fs');
@@ -211,13 +210,13 @@ app.get('/orientations/test', (_req, res) => {
     }
 });
 app.use('/orientations', (req, res, next) => {
-    const origin = req.headers.origin;
+    const orientationOrigin = req.headers.origin;
     const allowedOrigins = process.env.FRONTEND_URL?.split(',').map((o) => o.trim()) || [
         'http://localhost:5173',
         'http://crm.prashantthakar.com',
     ];
-    if (origin && allowedOrigins.includes(origin)) {
-        res.setHeader('Access-Control-Allow-Origin', origin);
+    if (orientationOrigin && allowedOrigins.includes(orientationOrigin)) {
+        res.setHeader('Access-Control-Allow-Origin', orientationOrigin);
     }
     else {
         res.setHeader('Access-Control-Allow-Origin', '*');
@@ -251,13 +250,13 @@ if (!fs_1.default.existsSync(receiptsStaticPath)) {
 }
 logger_1.logger.info(`Serving receipts from: ${receiptsStaticPath}`);
 app.use('/receipts', (req, res, next) => {
-    const origin = req.headers.origin;
+    const receiptOrigin = req.headers.origin;
     const allowedOrigins = process.env.FRONTEND_URL?.split(',').map((o) => o.trim()) || [
         'http://localhost:5173',
         'http://crm.prashantthakar.com',
     ];
-    if (origin && allowedOrigins.includes(origin)) {
-        res.setHeader('Access-Control-Allow-Origin', origin);
+    if (receiptOrigin && allowedOrigins.includes(receiptOrigin)) {
+        res.setHeader('Access-Control-Allow-Origin', receiptOrigin);
     }
     else {
         res.setHeader('Access-Control-Allow-Origin', '*');
@@ -281,13 +280,13 @@ app.use('/receipts', (req, res, next) => {
 // Also serve receipts through /api/receipts/ for frontend compatibility
 // Custom handler to properly decode filenames with special characters
 app.use('/api/receipts', (req, res, next) => {
-    const origin = req.headers.origin;
+    const apiReceiptOrigin = req.headers.origin;
     const allowedOrigins = process.env.FRONTEND_URL?.split(',').map((o) => o.trim()) || [
         'http://localhost:5173',
         'http://crm.prashantthakar.com',
     ];
-    if (origin && allowedOrigins.includes(origin)) {
-        res.setHeader('Access-Control-Allow-Origin', origin);
+    if (apiReceiptOrigin && allowedOrigins.includes(apiReceiptOrigin)) {
+        res.setHeader('Access-Control-Allow-Origin', apiReceiptOrigin);
     }
     else {
         res.setHeader('Access-Control-Allow-Origin', '*');

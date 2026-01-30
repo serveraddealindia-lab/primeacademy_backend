@@ -5,6 +5,7 @@ import { AuthRequest } from '../middleware/auth.middleware';
 import { UserRole } from '../models/User';
 import db from '../models';
 import { logger } from '../utils/logger';
+import { checkDuplicateEmailOrPhone } from './user.controller';
 
 // Software code to name mapping
 const SOFTWARE_CODE_MAP: Record<string, string> = {
@@ -538,10 +539,23 @@ export const importExcel = async (req: AuthRequest, res: Response): Promise<void
           
           logger.info(`Student not found with phone ${normalizedPhone}, creating new student with name: ${studentName}...`);
           try {
+            // Check for duplicate email or phone across all users
+            const emailValue = getValue(row, ['email', 'Email']) || `student_${normalizedPhone}@primeacademy.local`;
+            const duplicateCheck = await checkDuplicateEmailOrPhone(emailValue, normalizedPhone);
+            
+            if (duplicateCheck.isDuplicate && duplicateCheck.existingUser && duplicateCheck.duplicateFields) {
+              result.failed++;
+              result.errors.push({ 
+                row: i + 2, 
+                error: `A user with this ${duplicateCheck.duplicateFields.join(' and ')} already exists.` 
+              });
+              continue;
+            }
+            
             // Create student automatically
             const newStudent = await db.User.create({
               name: studentName,
-              email: getValue(row, ['email', 'Email']) || `student_${normalizedPhone}@primeacademy.local`,
+              email: emailValue,
               phone: normalizedPhone,
               role: UserRole.STUDENT,
               passwordHash: '$2b$10$dummyhashforstudents', // Default password

@@ -32,6 +32,14 @@ router.get(
   batchController.getBatchEnrollments
 );
 
+// POST /batches/check-availability → check faculty availability
+router.post(
+  '/check-availability',
+  verifyTokenMiddleware,
+  checkRole(UserRole.ADMIN, UserRole.SUPERADMIN),
+  batchController.checkFacultyAvailability
+);
+
 // PUT /batches/:id/faculty → assign faculty to batch
 router.put(
   '/:id/faculty',

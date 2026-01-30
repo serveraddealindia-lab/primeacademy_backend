@@ -92,37 +92,24 @@ logger.info(`Backend root (process.cwd()): ${backendRoot}`);
 logger.info(`__dirname: ${__dirname}`);
 
 // Serve uploads with proper headers - MUST be before API routes to avoid auth middleware
+app.use('/uploads', (req, res, next) => {
   // Set CORS headers for all upload requests
   const origin = req.headers.origin as string | undefined;
   const allowedOrigins = process.env.FRONTEND_URL?.split(',').map((o) => o.trim()) || [
     'http://localhost:5173',
     'http://crm.prashantthakar.com',
   ];
-
-  // Set CORS headers for all upload requests
-  const origin = req.headers.origin as string | undefined;
-  const allowedOrigins = process.env.FRONTEND_URL?.split(',').map((o) => o.trim()) || [
-    'http://localhost:5173',
-    'http://crm.prashantthakar.com',
-  ];
->>>>>>> bdb794acfb61cc2b2706640d091825482eb0ff56
-
-=======
-  // Set CORS headers for all upload requests
-  const origin = req.headers.origin as string | undefined;
-  const allowedOrigins = process.env.FRONTEND_URL?.split(',').map((o) => o.trim()) || [
-    'http://localhost:5173',
-    'http://crm.prashantthakar.com',
-  ];
->>>>>>> bdb794acfb61cc2b2706640d091825482eb0ff56
   
-  // Always allow CORS for static files (needed for file:// and localhost)
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS, HEAD');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Range');
-  res.setHeader('Access-Control-Expose-Headers', 'Content-Length, Content-Range, Content-Type');
-  res.setHeader('Access-Control-Allow-Credentials', 'false'); // Must be false when origin is *
+  if (origin && allowedOrigins.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+  } else {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+  }
   
+  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+
   if (req.method === 'OPTIONS') {
     res.sendStatus(200);
     return;
@@ -154,7 +141,7 @@ logger.info(`__dirname: ${__dirname}`);
 
 // Test endpoint to verify static file serving (no auth required)
 app.get('/uploads/test', (_req, res) => {
-  const fs = require('fs');
+
   const generalDir = path.join(uploadsStaticPath, 'general');
   const generalExists = fs.existsSync(generalDir);
   
@@ -469,6 +456,17 @@ app.get('/certificates/:filename', (req, res, next) => {
     }
   });
 });
+
+// Serve frontend static files in production
+const frontendDistPath = path.join(process.cwd(), 'frontend', 'dist');
+logger.info(`Serving frontend from: ${frontendDistPath}`);
+
+if (fs.existsSync(frontendDistPath)) {
+  app.use(express.static(frontendDistPath));
+  logger.info('Frontend static files serving enabled');
+} else {
+  logger.warn('Frontend dist directory not found. Frontend files will not be served.');
+}
 
 // Routes
 app.use('/api', healthRoutes);
