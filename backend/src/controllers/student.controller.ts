@@ -1,4 +1,3 @@
-import { Response } from 'express';
 import * as bcrypt from 'bcrypt';
 import * as XLSX from 'xlsx';
 import { Op } from 'sequelize';
@@ -8,6 +7,8 @@ import { AuthRequest } from '../middleware/auth.middleware';
 import { UserRole } from '../models/User';
 import { PaymentStatus } from '../models/PaymentTransaction';
 import db from '../models';
+import { Response } from 'express';
+import { checkDuplicateEmailOrPhone } from './user.controller';
 import { logger } from '../utils/logger';
 
 /**
@@ -96,6 +97,7 @@ interface CompleteEnrollmentBody {
   phone: string;
   whatsappNumber?: string;
   dateOfAdmission: string; // Required
+  dateOfBirth?: string;    // Add this field for student date of birth
   localAddress?: string;
   permanentAddress?: string;
   emergencyContactNumber?: string;
@@ -113,6 +115,11 @@ interface CompleteEnrollmentBody {
     month: number;
     amount: number;
     dueDate?: string;
+  }>;
+  lumpSumPayment?: boolean;
+  lumpSumPayments?: Array<{
+    date: string;
+    amount: number;
   }>;
   complimentarySoftware?: string;
   complimentaryGift?: string;
@@ -170,6 +177,9 @@ export const completeEnrollment = async (
       emiPlan,
       emiPlanDate,
       emiInstallments,
+      lumpSumPayment,
+      nextPayDate,
+      lumpSumPayments,
       complimentarySoftware,
       complimentaryGift,
       hasReference,
@@ -284,8 +294,9 @@ export const completeEnrollment = async (
       validationErrors.push('Emergency Contact Relation is required');
     }
     
-    if (isEmptyString(courseName)) {
-      validationErrors.push('Course Name is required');
+    // Either course name or direct software selection is required
+    if (isEmptyString(courseName) && isEmptyString(softwaresIncluded)) {
+      validationErrors.push('Either Course Name or Software List is required');
     }
     
     // Batch ID is optional - student can be enrolled without being assigned to a batch
@@ -297,8 +308,9 @@ export const completeEnrollment = async (
       }
     }
     
-    if (isEmptyString(softwaresIncluded)) {
-      validationErrors.push('At least one software must be selected');
+    // If no course name provided, software list must be specified directly
+    if (isEmptyString(courseName) && isEmptyString(softwaresIncluded)) {
+      validationErrors.push('At least one software must be selected when no course is specified');
     }
     
     // Handle number fields - they might come as strings or numbers
@@ -322,11 +334,24 @@ export const completeEnrollment = async (
       validationErrors.push('Booking Amount is required and must be 0 or greater');
     }
     
-    const balanceAmountNum = balanceAmount !== null && balanceAmount !== undefined
-      ? (typeof balanceAmount === 'string' ? parseFloat(String(balanceAmount).replace(/[^\d.-]/g, '')) : Number(balanceAmount))
-      : 0;
-    if (balanceAmount === null || balanceAmount === undefined || isNaN(balanceAmountNum) || balanceAmountNum < 0) {
-      validationErrors.push('Balance Amount is required and must be 0 or greater');
+    // Handle balance amount - if not provided, calculate it from total deal and booking amount
+    let balanceAmountNum = 0;
+    if (balanceAmount === null || balanceAmount === undefined) {
+      // If balance amount is not provided, calculate it
+      if (totalDealNum > 0 && bookingAmountNum >= 0) {
+        balanceAmountNum = Math.max(0, totalDealNum - bookingAmountNum);
+        logger.info(`Calculated balance amount: ${balanceAmountNum} (total: ${totalDealNum} - booking: ${bookingAmountNum})`);
+      } else {
+        validationErrors.push('Balance Amount is required when Total Deal or Booking Amount is provided');
+      }
+    } else {
+      balanceAmountNum = typeof balanceAmount === 'string' 
+        ? parseFloat(String(balanceAmount).replace(/[^\d.-]/g, '')) 
+        : Number(balanceAmount);
+      
+      if (isNaN(balanceAmountNum) || balanceAmountNum < 0) {
+        validationErrors.push('Balance Amount must be 0 or greater');
+      }
     }
     
     // Validate booking amount doesn't exceed total deal
@@ -345,6 +370,11 @@ export const completeEnrollment = async (
       }
     }
     
+    // Validate mutual exclusivity between EMI and Lump Sum payment
+    if (emiPlan && lumpSumPayment) {
+      validationErrors.push('EMI Plan and Lump Sum Payment cannot both be selected');
+    }
+    
     if (emiPlan) {
       if (isEmptyString(emiPlanDate)) {
         validationErrors.push('EMI Plan Date is required when EMI Plan is selected');
@@ -353,6 +383,55 @@ export const completeEnrollment = async (
         const emiDateRegex = /^\d{4}-\d{2}-\d{2}$/;
         if (!emiDateRegex.test(emiDateStr)) {
           validationErrors.push('EMI Plan Date must be in valid format');
+        }
+      }
+    }
+    
+    if (lumpSumPayment) {
+      // If lumpSumPayments array is provided, validate it
+      if (lumpSumPayments && Array.isArray(lumpSumPayments) && lumpSumPayments.length > 0) {
+        for (let i = 0; i < lumpSumPayments.length; i++) {
+          const payment = lumpSumPayments[i];
+          if (!payment.date || !payment.amount) {
+            validationErrors.push(`Lump Sum Payment ${i + 1} must have both date and amount`);
+          } else {
+            const paymentDateStr = String(payment.date).trim();
+            const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+            if (!dateRegex.test(paymentDateStr)) {
+              validationErrors.push(`Lump Sum Payment ${i + 1} date must be in valid format`);
+            } else {
+              // Validate that payment date is not in the past
+              const paymentDateObj = new Date(paymentDateStr);
+              const today = new Date();
+              today.setHours(0, 0, 0, 0); // Set to start of day for comparison
+              if (paymentDateObj < today) {
+                validationErrors.push(`Lump Sum Payment ${i + 1} date cannot be in the past`);
+              }
+            }
+            
+            if (typeof payment.amount !== 'number' || payment.amount <= 0) {
+              validationErrors.push(`Lump Sum Payment ${i + 1} amount must be a positive number`);
+            }
+          }
+        }
+      } else {
+        // If no lumpSumPayments array, fall back to single nextPayDate and amount
+        if (isEmptyString(nextPayDate)) {
+          validationErrors.push('Next Pay Date is required when Lump Sum Payment is selected');
+        } else {
+          const nextPayDateStr = String(nextPayDate).trim();
+          const nextPayDateRegex = /^\d{4}-\d{2}-\d{2}$/;
+          if (!nextPayDateRegex.test(nextPayDateStr)) {
+            validationErrors.push('Next Pay Date must be in valid format');
+          } else {
+            // Validate that next pay date is not in the past
+            const nextPayDateObj = new Date(nextPayDateStr);
+            const today = new Date();
+            today.setHours(0, 0, 0, 0); // Set to start of day for comparison
+            if (nextPayDateObj < today) {
+              validationErrors.push('Next Pay Date cannot be in the past');
+            }
+          }
         }
       }
     }
@@ -382,6 +461,15 @@ export const completeEnrollment = async (
     
     if (isEmptyString(masterFaculty)) {
       validationErrors.push('Faculty is required');
+    }
+    
+    // Validate date of birth format if provided
+    if (req.body.dateOfBirth) {
+      const dobStr = String(req.body.dateOfBirth).trim();
+      const dobRegex = /^\d{4}-\d{2}-\d{2}$/;
+      if (!dobRegex.test(dobStr)) {
+        validationErrors.push('Date of Birth must be in valid format (YYYY-MM-DD)');
+      }
     }
     
     if (validationErrors.length > 0) {
@@ -433,62 +521,23 @@ export const completeEnrollment = async (
     const trimmedPhone = String(phone || '').trim();
     const trimmedEmail = String(email || '').trim();
 
-    // Normalize phone number (remove all non-digit characters for comparison)
-    const normalizedPhone = trimmedPhone.replace(/\D/g, '');
-
-    // Check if user already exists by email OR phone (both must be unique)
-    // For email: case-insensitive match
-    const existingUserByEmail = await db.User.findOne({ 
-      where: db.sequelize.where(
-        db.sequelize.fn('LOWER', db.sequelize.col('email')),
-        db.sequelize.fn('LOWER', trimmedEmail)
-      ), 
-      transaction 
-    });
+    // Check for duplicate email or phone across all users
+    const duplicateCheck = await checkDuplicateEmailOrPhone(trimmedEmail, trimmedPhone);
     
-    // For phone: normalize and compare
-    // Get all users with phone numbers and check normalized phone numbers
-    const allUsersWithPhone = await db.User.findAll({ 
-      where: {
-        phone: { [Op.ne]: null }
-      },
-      attributes: ['id', 'name', 'email', 'phone'],
-      transaction 
-    });
-    
-    const existingUserByPhone = allUsersWithPhone.find(user => {
-      if (!user.phone) return false;
-      const userNormalizedPhone = String(user.phone).replace(/\D/g, '');
-      const matches = userNormalizedPhone === normalizedPhone && userNormalizedPhone.length > 0;
-      if (matches) {
-        logger.info(`Duplicate phone found: Input phone "${trimmedPhone}" (normalized: "${normalizedPhone}") matches existing user ${user.id} with phone "${user.phone}" (normalized: "${userNormalizedPhone}")`);
-      }
-      return matches;
-    });
-
-    // Log for debugging
-    if (existingUserByEmail) {
-      logger.info(`Duplicate email found: "${trimmedEmail}" matches existing user ${existingUserByEmail.id} (${existingUserByEmail.name})`);
-    }
-
-    // If either email or phone already exists, return error with student ID for editing
-    if (existingUserByEmail || existingUserByPhone) {
+    // If duplicate found, return error with existing user info
+    if (duplicateCheck.isDuplicate && duplicateCheck.existingUser && duplicateCheck.duplicateFields) {
       await transaction.rollback();
-      const existingUser = existingUserByEmail || existingUserByPhone;
-      const conflictType = existingUserByEmail && existingUserByPhone 
-        ? 'email and phone number' 
-        : existingUserByEmail 
-        ? 'email' 
-        : 'phone number';
+      const conflictType = duplicateCheck.duplicateFields.join(' and ');
       
-      logger.warn(`Enrollment blocked: Student "${trimmedStudentName}" tried to register with existing ${conflictType}. Existing student ID: ${existingUser?.id}`);
+      logger.warn(`Enrollment blocked: Student "${trimmedStudentName}" tried to register with existing ${conflictType}. Existing user ID: ${duplicateCheck.existingUser.id}`);
       
       res.status(409).json({
         status: 'error',
-        message: `A student with this ${conflictType} already exists. Please edit the existing profile instead of creating a new one.`,
-        existingStudentId: existingUser?.id || null,
-        existingStudentName: existingUser?.name || null,
+        message: `A user with this ${conflictType} already exists. Please edit the existing profile instead of creating a new one.`,
+        existingStudentId: duplicateCheck.existingUser.id,
+        existingStudentName: duplicateCheck.existingUser.name,
         conflictType: conflictType,
+        conflictFields: duplicateCheck.duplicateFields,
       });
       return;
     }
@@ -546,14 +595,14 @@ export const completeEnrollment = async (
 
       const profileData: any = {
         userId: user.id,
-        dob: dateOfAdmission ? new Date(dateOfAdmission) : null,
+        dob: req.body.dateOfBirth ? new Date(req.body.dateOfBirth) : null, // Use date of birth instead of admission date
         address: localAddress || permanentAddress || null,
         photoUrl: photoUrl, // Set photoUrl from extracted photo
         softwareList: softwaresIncluded && softwaresIncluded.trim() 
           ? softwaresIncluded.split(',').map((s: string) => s.trim()).filter((s: string) => s.length > 0) 
           : null,
         enrollmentDate: dateOfAdmission ? new Date(dateOfAdmission) : new Date(),
-        status: 'active',
+        status: 'active', // Initially set to active, will be updated based on payment and completion status
         finishedBatches: req.body.finishedBatches ? parseBatchList(req.body.finishedBatches) : null,
         currentBatches: req.body.currentBatches ? parseBatchList(req.body.currentBatches) : null,
         pendingBatches: req.body.pendingBatches ? parseBatchList(req.body.pendingBatches) : null,
@@ -570,6 +619,7 @@ export const completeEnrollment = async (
         };
       }
       if (courseName) enrollmentMetadata.courseName = courseName;
+      if (softwaresIncluded) enrollmentMetadata.softwareList = softwaresIncluded; // Add software list to metadata
       if (totalDeal !== undefined) enrollmentMetadata.totalDeal = totalDeal;
       if (bookingAmount !== undefined) enrollmentMetadata.bookingAmount = bookingAmount;
       if (balanceAmount !== undefined) enrollmentMetadata.balanceAmount = balanceAmount;
@@ -577,6 +627,12 @@ export const completeEnrollment = async (
       if (emiPlanDate) enrollmentMetadata.emiPlanDate = emiPlanDate;
       if (emiInstallments && Array.isArray(emiInstallments) && emiInstallments.length > 0) {
         enrollmentMetadata.emiInstallments = emiInstallments;
+      }
+      if (lumpSumPayment !== undefined) enrollmentMetadata.lumpSumPayment = lumpSumPayment;
+      if (lumpSumPayments && Array.isArray(lumpSumPayments) && lumpSumPayments.length > 0) {
+        enrollmentMetadata.lumpSumPayments = lumpSumPayments;
+      } else {
+        if (nextPayDate) enrollmentMetadata.nextPayDate = nextPayDate;
       }
       if (complimentarySoftware) enrollmentMetadata.complimentarySoftware = complimentarySoftware;
       if (complimentaryGift) enrollmentMetadata.complimentaryGift = complimentaryGift;
@@ -589,6 +645,7 @@ export const completeEnrollment = async (
       if (permanentAddress) enrollmentMetadata.permanentAddress = permanentAddress;
       if (localAddress) enrollmentMetadata.localAddress = localAddress;
       if (dateOfAdmission) enrollmentMetadata.dateOfAdmission = dateOfAdmission;
+      if (req.body.dateOfBirth) enrollmentMetadata.dateOfBirth = req.body.dateOfBirth; // Add date of birth to metadata
       if (enrollmentDocuments && Array.isArray(enrollmentDocuments) && enrollmentDocuments.length > 0) {
         enrollmentMetadata.enrollmentDocuments = enrollmentDocuments;
       }
@@ -650,6 +707,12 @@ export const completeEnrollment = async (
         if (emiInstallments && Array.isArray(emiInstallments) && emiInstallments.length > 0) {
           paymentPlan.emiInstallments = emiInstallments;
         }
+        if (lumpSumPayment !== undefined) paymentPlan.lumpSumPayment = lumpSumPayment;
+        if (lumpSumPayments && Array.isArray(lumpSumPayments) && lumpSumPayments.length > 0) {
+          paymentPlan.lumpSumPayments = lumpSumPayments;
+        } else {
+          if (nextPayDate) paymentPlan.nextPayDate = nextPayDate;
+        }
 
         enrollment = await db.Enrollment.create(
           {
@@ -663,9 +726,9 @@ export const completeEnrollment = async (
         );
 
         // Create payment transactions based on enrollment payment details
-        if (enrollment && (bookingAmount || (emiPlan && emiInstallments && emiInstallments.length > 0))) {
-          // Create payment for booking amount (if provided)
-          if (bookingAmount && bookingAmount > 0) {
+        if (enrollment) {
+          // Create payment for booking amount (if provided) - this is always required
+          if (bookingAmount !== undefined && bookingAmount !== null && bookingAmount >= 0) {
             try {
               await db.PaymentTransaction.create(
                 {
@@ -674,7 +737,7 @@ export const completeEnrollment = async (
                   amount: bookingAmount,
                   paidAmount: bookingAmount, // Booking amount is considered as paid
                   dueDate: dateOfAdmission ? new Date(dateOfAdmission) : new Date(),
-                  status: PaymentStatus.PAID,
+                  status: bookingAmount > 0 ? PaymentStatus.PAID : PaymentStatus.UNPAID, // If booking amount is 0, mark as unpaid
                   notes: 'Initial booking amount from enrollment',
                 },
                 { transaction }
@@ -686,7 +749,7 @@ export const completeEnrollment = async (
             }
           }
 
-          // Create payment transactions for EMI installments (if EMI plan is enabled)
+          // For EMI plan - create payment transactions for installments
           if (emiPlan && emiInstallments && Array.isArray(emiInstallments) && emiInstallments.length > 0) {
             for (const installment of emiInstallments) {
               if (installment.amount && installment.amount > 0) {
@@ -702,7 +765,7 @@ export const completeEnrollment = async (
                       amount: installment.amount,
                       paidAmount: 0,
                       dueDate: dueDate,
-                      status: PaymentStatus.PENDING,
+                      status: PaymentStatus.UNPAID,
                       notes: `EMI Installment - Month ${installment.month || 'N/A'}`,
                     },
                     { transaction }
@@ -713,6 +776,83 @@ export const completeEnrollment = async (
                   // Continue creating other installments even if one fails
                 }
               }
+            }
+          }
+          
+          // For Lump Sum payment - create payment transactions for the balance
+          else if (lumpSumPayment && balanceAmount && balanceAmount > 0) {
+            try {
+              // If multiple lump sum payments are provided, create each one
+              if (lumpSumPayments && Array.isArray(lumpSumPayments) && lumpSumPayments.length > 0) {
+                let totalLumpSumAmount = 0;
+                
+                for (const payment of lumpSumPayments) {
+                  if (payment.amount && payment.date) {
+                    totalLumpSumAmount += payment.amount;
+                    
+                    await db.PaymentTransaction.create(
+                      {
+                        studentId: user.id,
+                        enrollmentId: enrollment.id,
+                        amount: payment.amount,
+                        paidAmount: 0, // Lump sum amount is initially unpaid
+                        dueDate: new Date(payment.date),
+                        status: PaymentStatus.UNPAID,
+                        notes: `Lump Sum payment - Date: ${payment.date}, Amount: ${payment.amount}`,
+                      },
+                      { transaction }
+                    );
+                    logger.info(`Created lump sum payment: studentId=${user.id}, enrollmentId=${enrollment.id}, amount=${payment.amount}, dueDate=${payment.date}`);
+                  }
+                }
+                
+                // Validate that the total lump sum payments match the balance amount
+                if (Math.abs(totalLumpSumAmount - balanceAmount) > 0.01) {
+                  logger.warn(`Lump sum payment total (${totalLumpSumAmount}) does not match balance amount (${balanceAmount}) for student ${user.id}`);
+                }
+              } else {
+                // Create single lump sum payment (backward compatibility)
+                const dueDate = nextPayDate ? new Date(nextPayDate) : new Date();
+                
+                await db.PaymentTransaction.create(
+                  {
+                    studentId: user.id,
+                    enrollmentId: enrollment.id,
+                    amount: balanceAmount,
+                    paidAmount: 0, // Lump sum amount is initially unpaid
+                    dueDate: dueDate,
+                    status: PaymentStatus.UNPAID,
+                    notes: 'Lump Sum payment with next payment date',
+                  },
+                  { transaction }
+                );
+                logger.info(`Created lump sum payment: studentId=${user.id}, enrollmentId=${enrollment.id}, amount=${balanceAmount}, dueDate=${dueDate.toISOString()}`);
+              }
+            } catch (paymentError: any) {
+              logger.error('Error creating lump sum payment:', paymentError);
+              // Don't fail enrollment if payment creation fails, but log it
+            }
+          }
+          
+          // If neither EMI nor Lump Sum is selected, create a single payment for the remaining balance
+          else if (balanceAmount && balanceAmount > 0) {
+            try {
+              await db.PaymentTransaction.create(
+                {
+                  studentId: user.id,
+                  enrollmentId: enrollment.id,
+                  amount: balanceAmount,
+                  paidAmount: 0, // Balance amount is initially unpaid
+                  dueDate: dateOfAdmission ? new Date(dateOfAdmission) : new Date(),
+                  status: PaymentStatus.UNPAID,
+                  notes: 'Balance amount from enrollment',
+                },
+                { transaction }
+              );
+              logger.info(`Created balance payment: studentId=${user.id}, enrollmentId=${enrollment.id}, amount=${balanceAmount}`);
+            } catch (paymentError: any) {
+              logger.error('Error creating balance payment:', paymentError);
+              // Don't fail enrollment if payment creation fails, but log it
             }
           }
         }
@@ -1214,7 +1354,7 @@ export const unifiedStudentImport = async (req: AuthRequest, res: Response): Pro
     const normalizePhone = (phone: any): string => {
       if (!phone) return '';
       let normalized = String(phone).trim();
-      normalized = normalized.replace(/[\s\-\(\)\.\/\+]/g, '');
+      normalized = normalized.replace(/[\s\-()./+]/g, '');
       if (normalized.length > 10 && normalized.startsWith('0')) {
         normalized = normalized.substring(1);
       }
@@ -1299,6 +1439,19 @@ export const unifiedStudentImport = async (req: AuthRequest, res: Response): Pro
           const finalName = studentName || `Student_${normalizedPhone || email?.split('@')[0] || 'Unknown'}`;
           const finalEmail = email || `student_${normalizedPhone || Date.now()}@primeacademy.local`;
           const finalPhone = normalizedPhone || null;
+
+          // Check for duplicate email or phone across all users
+          const duplicateCheck = await checkDuplicateEmailOrPhone(finalEmail, finalPhone);
+          
+          if (duplicateCheck.isDuplicate && duplicateCheck.existingUser && duplicateCheck.duplicateFields) {
+            await transaction.rollback();
+            result.failed++;
+            result.errors.push({
+              row: rowNumber,
+              error: `A user with this ${duplicateCheck.duplicateFields.join(' and ')} already exists.`
+            });
+            continue;
+          }
 
           // Generate default password
           const defaultPassword = `${finalEmail.split('@')[0]}123`;
@@ -1407,7 +1560,7 @@ export const unifiedStudentImport = async (req: AuthRequest, res: Response): Pro
 
         // Create or update student profile
         if (db.StudentProfile) {
-          let studentProfile = await db.StudentProfile.findOne({
+          const studentProfile = await db.StudentProfile.findOne({
             where: { userId: student.id },
             attributes: { exclude: ['serialNo'] }, // Exclude serialNo column
             transaction
@@ -1906,7 +2059,7 @@ export const bulkEnrollStudents = async (req: AuthRequest, res: Response): Promi
         }
 
         // Parse DOB if provided - check multiple possible column names
-        let dobValue = getColumnValue(row, ['dob', 'DOB', 'dateOfBirth', 'Date of Birth', 'date_of_birth', 'DateOfBirth']);
+        const dobValue = getColumnValue(row, ['dob', 'DOB', 'dateOfBirth', 'Date of Birth', 'date_of_birth', 'DateOfBirth']);
         const parsedDob = dobValue ? parseExcelDate(dobValue) : null;
         
         if (dobValue && !parsedDob) {
@@ -2746,9 +2899,8 @@ export const downloadUnifiedTemplate = async (req: AuthRequest, res: Response): 
     }
   }
 };
-
-// GET /students/check-duplicate → Check for duplicate email or phone
-export const checkDuplicate = async (req: AuthRequest, res: Response): Promise<void> => {
+// PUT /students/:id/profile - Update student profile including schedule
+export const updateStudentProfile = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     if (!req.user) {
       res.status(401).json({
@@ -2758,134 +2910,119 @@ export const checkDuplicate = async (req: AuthRequest, res: Response): Promise<v
       return;
     }
 
-    const { email, phone, excludeStudentId } = req.query;
-    
-    // Validation
-    if (!email && !phone) {
+    const studentId = parseInt(req.params.id, 10);
+    if (isNaN(studentId)) {
       res.status(400).json({
         status: 'error',
-        message: 'Either email or phone number is required',
+        message: 'Invalid student ID',
       });
       return;
     }
 
-    const emailStr = email ? String(email).trim().toLowerCase() : null;
-    const phoneStr = phone ? String(phone).trim() : null;
-    
-    // Normalize phone number (remove all non-digit characters)
-    const normalizedPhone = phoneStr ? phoneStr.replace(/\D/g, '') : null;
-    
-    // Build query conditions
-    const whereConditions: any[] = [];
-    
-    if (emailStr) {
-      // Case-insensitive email check using LOWER function
-      whereConditions.push(db.sequelize.where(
-        db.sequelize.fn('LOWER', db.sequelize.col('email')),
-        emailStr
-      ));
-    }
-    
-    if (normalizedPhone && normalizedPhone.length >= 10) {
-      // Phone check using REPLACE to remove non-digits
-      whereConditions.push(db.sequelize.where(
-        db.sequelize.fn('REPLACE', 
-          db.sequelize.fn('REPLACE', 
-            db.sequelize.fn('REPLACE', 
-              db.sequelize.fn('REPLACE', db.sequelize.col('phone'), '-', ''), 
-              ' ', ''), 
-            '+', ''), 
-          ')', ''),
-        normalizedPhone
-      ));
-    }
-    
-    // Exclude current student if editing
-    if (excludeStudentId) {
-      whereConditions.push({ id: { [Op.ne]: Number(excludeStudentId) } });
-    }
-    
-    // Combine conditions with OR for email/phone, AND for exclusion
-    let finalWhere;
-    if (whereConditions.length === 1) {
-      finalWhere = whereConditions[0];
-    } else if (whereConditions.length === 2) {
-      // Email OR Phone condition
-      const emailOrPhoneCondition = {
-        [Op.or]: [whereConditions[0], whereConditions[1]]
-      };
-      
-      if (excludeStudentId) {
-        // Email OR Phone AND NOT excludeStudentId
-        finalWhere = {
-          [Op.and]: [
-            emailOrPhoneCondition,
-            whereConditions[2] // exclusion condition
-          ]
-        };
-      } else {
-        finalWhere = emailOrPhoneCondition;
-      }
-    } else if (whereConditions.length === 3) {
-      // Email OR Phone AND NOT excludeStudentId
-      finalWhere = {
-        [Op.and]: [
-          {
-            [Op.or]: [whereConditions[0], whereConditions[1]]
-          },
-          whereConditions[2]
-        ]
-      };
-    }
-    
-    // Query database
-    const existingStudent = await db.User.findOne({
-      where: finalWhere,
-      attributes: ['id', 'name', 'email', 'phone'],
-    });
-    
-    if (existingStudent) {
-      let conflictMessage = '';
-      let conflictType = '';
-      
-      // Determine which field caused the conflict
-      const existingEmail = existingStudent.email ? existingStudent.email.toLowerCase() : '';
-      const existingPhone = existingStudent.phone ? existingStudent.phone.replace(/\D/g, '') : '';
-      
-      if (emailStr && existingEmail === emailStr) {
-        conflictType = 'email';
-        conflictMessage = `A student with email "${email}" already exists.`;
-      } else if (normalizedPhone && existingPhone === normalizedPhone) {
-        conflictType = 'phone';
-        conflictMessage = `A student with phone number "${phone}" already exists.`;
-      } else if (emailStr && normalizedPhone && existingEmail === emailStr && existingPhone === normalizedPhone) {
-        conflictType = 'both';
-        conflictMessage = `A student with both email "${email}" and phone number "${phone}" already exists.`;
-      }
-      
-      res.status(409).json({
+    // Check if user has permission to update this student
+    const student = await db.User.findByPk(studentId);
+    if (!student) {
+      res.status(404).json({
         status: 'error',
-        message: conflictMessage,
-        conflictType: conflictType,
-        existingStudentId: existingStudent.id,
-        existingStudentName: existingStudent.name,
+        message: 'Student not found',
       });
       return;
     }
-    
-    // No duplicates found
+
+    // Only admin/superadmin can update student profile
+    if (req.user.role !== UserRole.ADMIN && req.user.role !== UserRole.SUPERADMIN) {
+      res.status(403).json({
+        status: 'error',
+        message: 'Permission denied',
+      });
+      return;
+    }
+
+    const { schedule, email, phone } = req.body;
+
+    // Check if email or phone is being updated and validate for duplicates
+    if (email !== undefined || phone !== undefined) {
+      // Get the current user to compare with new values
+      const currentUser = await db.User.findByPk(studentId);
+      if (!currentUser) {
+        res.status(404).json({
+          status: 'error',
+          message: 'Student not found',
+        });
+        return;
+      }
+      
+      const newEmail = email !== undefined ? email : currentUser.email;
+      const newPhone = phone !== undefined ? phone : currentUser.phone;
+      
+      const duplicateCheck = await checkDuplicateEmailOrPhone(
+        newEmail,
+        newPhone,
+        studentId // Exclude current user from duplicate check
+      );
+      
+      if (duplicateCheck.isDuplicate && duplicateCheck.existingUser && duplicateCheck.duplicateFields) {
+        const conflictFields = duplicateCheck.duplicateFields.join(' and ');
+        res.status(409).json({
+          status: 'error',
+          message: `A user with this ${conflictFields} already exists.`,
+          existingUser: {
+            id: duplicateCheck.existingUser.id,
+            name: duplicateCheck.existingUser.name,
+            email: duplicateCheck.existingUser.email,
+            phone: duplicateCheck.existingUser.phone,
+            role: duplicateCheck.existingUser.role,
+          },
+          conflictFields: duplicateCheck.duplicateFields,
+        });
+        return;
+      }
+      
+      // Update the user's email and phone if they are provided
+      if (email !== undefined) {
+        currentUser.email = email;
+      }
+      if (phone !== undefined) {
+        currentUser.phone = phone;
+      }
+      
+      await currentUser.save();
+    }
+
+    // Find or create student profile
+    let studentProfile = await db.StudentProfile.findOne({
+      where: { userId: studentId },
+    });
+
+    if (!studentProfile) {
+      // Create profile if it doesn't exist
+      studentProfile = await db.StudentProfile.create({
+        userId: studentId,
+        schedule: schedule || null,
+      });
+    } else {
+      // Update existing profile
+      await studentProfile.update({
+        schedule: schedule || null,
+      });
+    }
+
     res.status(200).json({
       status: 'success',
-      message: 'No duplicates found',
-      isDuplicate: false,
+      message: 'Student profile updated successfully',
+      data: {
+        studentId,
+        schedule: studentProfile.schedule,
+      },
     });
   } catch (error: any) {
-    logger.error('Check duplicate error:', error);
+    logger.error('Update student profile error:', error);
     res.status(500).json({
       status: 'error',
-      message: 'Internal server error while checking for duplicates',
+      message: 'Internal server error',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined,
     });
   }
 };
+
 

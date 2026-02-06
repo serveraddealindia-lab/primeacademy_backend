@@ -1,0 +1,47 @@
+===========================================
+NEW PHOTO UPLOAD SYSTEM - FILES TO UPLOAD
+===========================================
+
+NEW FILE (Create this):
+===========================================
+
+1. frontend/src/hooks/usePhotoUpload.ts
+   → VPS: /var/www/primeacademy_frontend/src/hooks/usePhotoUpload.ts
+   → CREATE hooks directory first: mkdir -p /var/www/primeacademy_frontend/src/hooks
+
+UPDATED FILES:
+===========================================
+
+2. frontend/src/pages/FacultyEdit.tsx
+   → VPS: /var/www/primeacademy_frontend/src/pages/FacultyEdit.tsx
+
+3. frontend/src/pages/EmployeeEdit.tsx
+   → VPS: /var/www/primeacademy_frontend/src/pages/EmployeeEdit.tsx
+
+4. frontend/src/pages/StudentEdit.tsx
+   → VPS: /var/www/primeacademy_frontend/src/pages/StudentEdit.tsx
+
+===========================================
+AFTER UPLOADING:
+===========================================
+
+# On VPS:
+cd /var/www/primeacademy_frontend
+
+# Create hooks directory if needed
+mkdir -p src/hooks
+
+# Rebuild frontend
+npm run build
+
+# Clear browser cache
+# Press Ctrl+Shift+Delete
+
+# Test
+# - Upload photo for faculty/employee/student
+# - Should work perfectly!
+
+===========================================
+TOTAL: 4 FILES (1 new + 3 updated)
+===========================================
+

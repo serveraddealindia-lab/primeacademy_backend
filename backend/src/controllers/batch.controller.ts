@@ -461,6 +461,181 @@ export const createBatch = async (req: AuthRequest, res: Response): Promise<void
   }
 };
 
+// Helper function to check for time conflicts between student schedule and batch schedule
+function checkTimeConflicts(studentSchedule: Array<{day: string, startTime: string, endTime: string}>, batchSchedule: any): { conflict: boolean; reason: string | null } {
+  if (!studentSchedule || !Array.isArray(studentSchedule) || studentSchedule.length === 0) {
+    return { conflict: false, reason: null }; // No student schedule, no conflict
+  }
+  
+  // If batch has no schedule or schedule is not defined, assume no time conflict
+  if (!batchSchedule) {
+    return { conflict: false, reason: null };
+  }
+  
+  // If batch schedule is a string, parse it
+  let parsedBatchSchedule: any = batchSchedule;
+  if (typeof batchSchedule === 'string') {
+    try {
+      parsedBatchSchedule = JSON.parse(batchSchedule);
+    } catch (e) {
+      // If parsing fails, return no conflict
+      return { conflict: false, reason: null };
+    }
+  }
+  
+  // If parsedBatchSchedule is an array of schedule objects
+  if (Array.isArray(parsedBatchSchedule)) {
+    for (const batchSlot of parsedBatchSchedule) {
+      for (const studentSlot of studentSchedule) {
+        // Check if days match
+        if (studentSlot.day.toLowerCase() === batchSlot.day.toLowerCase()) {
+          // Convert time strings to comparable format (minutes from midnight)
+          const studentStart = timeToMinutes(studentSlot.startTime);
+          const studentEnd = timeToMinutes(studentSlot.endTime);
+          const batchStart = timeToMinutes(batchSlot.startTime);
+          const batchEnd = timeToMinutes(batchSlot.endTime);
+          
+          // Check for time overlap: (start1 < end2) && (end1 > start2)
+          if (studentStart < batchEnd && studentEnd > batchStart) {
+            return {
+              conflict: true,
+              reason: `Time conflict on ${studentSlot.day}: Student scheduled ${formatTime(studentSlot.startTime)}-${formatTime(studentSlot.endTime)}, Batch scheduled ${formatTime(batchSlot.startTime)}-${formatTime(batchSlot.endTime)}`
+            };
+          }
+        }
+      }
+    }
+  } else if (typeof parsedBatchSchedule === 'object' && parsedBatchSchedule !== null) {
+    // If batch schedule is an object with day/time properties
+    for (const studentSlot of studentSchedule) {
+      // Check if days match (for various possible day property names)
+      const batchDay = parsedBatchSchedule.day || parsedBatchSchedule.Day || parsedBatchSchedule.Days || parsedBatchSchedule.days || parsedBatchSchedule.weekday;
+      
+      if (batchDay && studentSlot.day.toLowerCase() === batchDay.toLowerCase()) {
+        const studentStart = timeToMinutes(studentSlot.startTime);
+        const studentEnd = timeToMinutes(studentSlot.endTime);
+        
+        // Check various possible time property names
+        const batchStartStr = parsedBatchSchedule.startTime || parsedBatchSchedule.start_time || parsedBatchSchedule.StartTime || parsedBatchSchedule.from || parsedBatchSchedule.From;
+        const batchEndStr = parsedBatchSchedule.endTime || parsedBatchSchedule.end_time || parsedBatchSchedule.EndTime || parsedBatchSchedule.to || parsedBatchSchedule.To;
+        
+        if (batchStartStr && batchEndStr) {
+          const batchStart = timeToMinutes(batchStartStr);
+          const batchEnd = timeToMinutes(batchEndStr);
+          
+          if (studentStart < batchEnd && studentEnd > batchStart) {
+            return {
+              conflict: true,
+              reason: `Time conflict on ${studentSlot.day}: Student scheduled ${formatTime(studentSlot.startTime)}-${formatTime(studentSlot.endTime)}, Batch scheduled ${formatTime(batchStartStr)}-${formatTime(batchEndStr)}`
+            };
+          }
+        }
+      }
+    }
+  }
+  
+  return { conflict: false, reason: null };
+}
+
+// Helper function to check if student schedule has at least one day matching batch schedule
+function checkDayMatching(studentSchedule: Array<{day: string, startTime: string, endTime: string}>, batchSchedule: any): boolean {
+  if (!studentSchedule || !Array.isArray(studentSchedule) || studentSchedule.length === 0) {
+    return false; // No student schedule, no match
+  }
+  
+  // If batch has no schedule or schedule is not defined, assume no day match needed
+  if (!batchSchedule) {
+    return true; // No batch schedule, assume match
+  }
+  
+  // If batch schedule is a string, parse it
+  let parsedBatchSchedule: any = batchSchedule;
+  if (typeof batchSchedule === 'string') {
+    try {
+      parsedBatchSchedule = JSON.parse(batchSchedule);
+    } catch (e) {
+      // If parsing fails, return false (no match)
+      return false;
+    }
+  }
+  
+  // Extract day values from batch schedule
+  const batchDays: string[] = [];
+  
+  // If parsedBatchSchedule is an array of schedule objects
+  if (Array.isArray(parsedBatchSchedule)) {
+    for (const batchSlot of parsedBatchSchedule) {
+      if (batchSlot.day) {
+        batchDays.push(batchSlot.day.toLowerCase());
+      }
+    }
+  } else if (typeof parsedBatchSchedule === 'object' && parsedBatchSchedule !== null) {
+    // If batch schedule is an object with day property
+    const batchDay = parsedBatchSchedule.day || parsedBatchSchedule.Day || parsedBatchSchedule.Days || parsedBatchSchedule.days || parsedBatchSchedule.weekday;
+    if (batchDay) {
+      batchDays.push(batchDay.toLowerCase());
+    }
+  }
+  
+  // If no batch days found, assume match
+  if (batchDays.length === 0) {
+    return true;
+  }
+  
+  // Check if any student schedule day matches any batch day
+  for (const studentSlot of studentSchedule) {
+    if (studentSlot.day && batchDays.includes(studentSlot.day.toLowerCase())) {
+      return true;
+    }
+  }
+  
+  return false;
+}
+
+// Helper function to convert time string (HH:MM) to minutes from midnight
+function timeToMinutes(timeStr: string): number {
+  if (!timeStr || typeof timeStr !== 'string') return 0;
+  
+  // Handle various time formats (HH:MM, H:MM, HH:MM AM/PM, etc.)
+  const timeParts = timeStr.split(':');
+  if (timeParts.length < 2) return 0;
+  
+  let hours = parseInt(timeParts[0], 10);
+  const minutes = parseInt(timeParts[1].split(' ')[0], 10); // In case of AM/PM format
+  
+  // Handle AM/PM format
+  if (timeStr.toLowerCase().includes('pm') && hours !== 12) {
+    hours += 12;
+  } else if (timeStr.toLowerCase().includes('am') && hours === 12) {
+    hours = 0;
+  }
+  
+  return hours * 60 + minutes;
+}
+
+// Helper function to format time for display
+function formatTime(timeStr: string): string {
+  if (!timeStr) return 'N/A';
+  
+  // Convert HH:MM format to HH:MM AM/PM if needed
+  if (timeStr.includes(':')) {
+    const [hours, minutes] = timeStr.split(':');
+    const hour = parseInt(hours, 10);
+    const min = minutes.split(' ')[0]; // In case it already has AM/PM
+    
+    if (hour === 0) {
+      return `12:${min} AM`;
+    } else if (hour < 12) {
+      return `${hour}:${min} AM`;
+    } else if (hour === 12) {
+      return `12:${min} PM`;
+    } else {
+      return `${hour - 12}:${min} PM`;
+    }
+  }
+  return timeStr;
+}
+
 // GET /batches/:id/candidates/suggest → Suggest eligible students for batch
 export const suggestCandidates = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
@@ -526,6 +701,9 @@ export const suggestCandidates = async (req: AuthRequest, res: Response): Promis
     today.setHours(0, 0, 0, 0);
 
     // Get all active students with matching software
+    // By default, only show 'active' students unless specified otherwise
+    const includeStatuses = req.query.includeStatuses ? req.query.includeStatuses.toString().split(',') : ['active'];
+    
     let allStudents: any[] = [];
     try {
       allStudents = await db.User.findAll({
@@ -538,11 +716,21 @@ export const suggestCandidates = async (req: AuthRequest, res: Response): Promis
             model: db.StudentProfile,
             as: 'studentProfile',
             required: false, // Changed to false to include students without profiles
-            attributes: ['id', 'softwareList', 'pendingBatches', 'currentBatches', 'finishedBatches'],
+            attributes: ['id', 'softwareList', 'pendingBatches', 'currentBatches', 'finishedBatches', 'status'],
           },
         ],
         attributes: ['id', 'name', 'email', 'phone'],
       });
+      
+      // Filter students based on their profile status if includeStatuses is specified
+      if (includeStatuses.length > 0 && !includeStatuses.includes('all')) {
+        allStudents = allStudents.filter(student => {
+          const studentStatus = (student.studentProfile?.status || 'active').toLowerCase();
+          // Normalize the status to match what's expected
+          const normalizedStatus = studentStatus === 'activeplus' ? 'active plus' : studentStatus;
+          return includeStatuses.includes(normalizedStatus);
+        });
+      }
     } catch (studentsError: any) {
       logger.error('Error fetching students:', studentsError);
       // Try without the new columns in case migration hasn't been run
@@ -557,11 +745,22 @@ export const suggestCandidates = async (req: AuthRequest, res: Response): Promis
               model: db.StudentProfile,
               as: 'studentProfile',
               required: false,
-              attributes: ['id', 'softwareList'], // Only include softwareList if new columns don't exist
+              attributes: ['id', 'softwareList', 'status'], // Include status if available
             },
           ],
           attributes: ['id', 'name', 'email', 'phone'],
         });
+        
+        // Filter students based on their profile status if includeStatuses is specified
+        if (includeStatuses.length > 0 && !includeStatuses.includes('all')) {
+          allStudents = allStudents.filter(student => {
+            const studentStatus = (student.studentProfile?.status || 'active').toLowerCase();
+            // Normalize the status to match what's expected
+            const normalizedStatus = studentStatus === 'activeplus' ? 'active plus' : studentStatus;
+            return includeStatuses.includes(normalizedStatus);
+          });
+        }
+        
         logger.info('Fetched students without new batch status columns (migration may not be run)');
       } catch (fallbackError: any) {
         logger.error('Error fetching students even with fallback:', fallbackError);
@@ -839,11 +1038,21 @@ export const suggestCandidates = async (req: AuthRequest, res: Response): Promis
             model: db.StudentProfile,
             as: 'studentProfile',
             required: false,
-            attributes: ['id', 'softwareList', 'pendingBatches', 'currentBatches', 'finishedBatches'],
+            attributes: ['id', 'softwareList', 'pendingBatches', 'currentBatches', 'finishedBatches', 'status'],
           },
         ],
         attributes: ['id', 'name', 'email', 'phone'],
       });
+      
+      // Filter candidate students based on their profile status if includeStatuses is specified
+      if (includeStatuses.length > 0 && !includeStatuses.includes('all')) {
+        allCandidateStudents = allCandidateStudents.filter(student => {
+          const studentStatus = (student.studentProfile?.status || 'active').toLowerCase();
+          // Normalize the status to match what's expected
+          const normalizedStatus = studentStatus === 'activeplus' ? 'active plus' : studentStatus;
+          return includeStatuses.includes(normalizedStatus);
+        });
+      }
     } catch (queryError: any) {
       logger.error('Error fetching candidate students with new columns:', queryError);
       // Try without the new columns in case migration hasn't been run
@@ -859,11 +1068,22 @@ export const suggestCandidates = async (req: AuthRequest, res: Response): Promis
               model: db.StudentProfile,
               as: 'studentProfile',
               required: false,
-              attributes: ['id', 'softwareList'], // Only include softwareList if new columns don't exist
+              attributes: ['id', 'softwareList', 'status'], // Include status if available
             },
           ],
           attributes: ['id', 'name', 'email', 'phone'],
         });
+        
+        // Filter candidate students based on their profile status if includeStatuses is specified
+        if (includeStatuses.length > 0 && !includeStatuses.includes('all')) {
+          allCandidateStudents = allCandidateStudents.filter(student => {
+            const studentStatus = (student.studentProfile?.status || 'active').toLowerCase();
+            // Normalize the status to match what's expected
+            const normalizedStatus = studentStatus === 'activeplus' ? 'active plus' : studentStatus;
+            return includeStatuses.includes(normalizedStatus);
+          });
+        }
+        
         logger.info('Fetched candidate students without new batch status columns (migration may not be run)');
       } catch (fallbackError: any) {
         logger.error('Error fetching candidate students even with fallback:', fallbackError);
@@ -882,7 +1102,7 @@ export const suggestCandidates = async (req: AuthRequest, res: Response): Promis
           where: {
             studentId: { [Op.in]: studentIds },
             status: {
-              [Op.in]: [PaymentStatus.PENDING, PaymentStatus.PARTIAL, PaymentStatus.OVERDUE],
+              [Op.in]: [PaymentStatus.UNPAID, PaymentStatus.PARTIAL],
             },
           },
           attributes: ['studentId', 'dueDate', 'amount', 'status'],
@@ -1001,6 +1221,98 @@ export const suggestCandidates = async (req: AuthRequest, res: Response): Promis
         const studentData = (student as any).toJSON ? (student as any).toJSON() : student;
         logger.debug(`Processing candidate student ${studentId}: name="${studentData?.name || student.name || 'MISSING'}", email="${studentData?.email || student.email || 'MISSING'}"`);
 
+        // Get student's schedule from their enrolled batches (not from profile)
+        // Get student's schedule from both their profile and enrolled batches
+        let studentSchedule: Array<{day: string, startTime: string, endTime: string}> = [];
+        
+        // First, get schedule from student profile if available
+        if (student.studentProfile && student.studentProfile.schedule) {
+          // If schedule is a string, parse it
+          if (typeof student.studentProfile.schedule === 'string') {
+            try {
+              const profileSchedule = JSON.parse(student.studentProfile.schedule);
+              if (Array.isArray(profileSchedule)) {
+                studentSchedule = studentSchedule.concat(profileSchedule);
+              } else if (typeof profileSchedule === 'object' && profileSchedule !== null) {
+                // If it's an object with day/time properties, convert to array format
+                const profileScheduleArray = [];
+                for (const day in profileSchedule) {
+                  if (profileSchedule[day].startTime && profileSchedule[day].endTime) {
+                    profileScheduleArray.push({
+                      day: day,
+                      startTime: profileSchedule[day].startTime,
+                      endTime: profileSchedule[day].endTime,
+                    });
+                  }
+                }
+                studentSchedule = studentSchedule.concat(profileScheduleArray);
+              }
+            } catch (e) {
+              logger.warn(`Failed to parse student ${studentId} profile schedule:`, e);
+            }
+          } else {
+            if (Array.isArray(student.studentProfile.schedule)) {
+              studentSchedule = studentSchedule.concat(student.studentProfile.schedule);
+            } else if (typeof student.studentProfile.schedule === 'object' && student.studentProfile.schedule !== null) {
+              // If it's an object with day/time properties, convert to array format
+              const profileScheduleArray = [];
+              for (const day in student.studentProfile.schedule) {
+                if (student.studentProfile.schedule[day].startTime && student.studentProfile.schedule[day].endTime) {
+                  profileScheduleArray.push({
+                    day: day,
+                    startTime: student.studentProfile.schedule[day].startTime,
+                    endTime: student.studentProfile.schedule[day].endTime,
+                  });
+                }
+              }
+              studentSchedule = studentSchedule.concat(profileScheduleArray);
+            }
+          }
+        }
+        
+        // Then, get schedules from enrolled batches
+        const studentEnrollments = existingEnrollments.filter((enrollment) => enrollment.studentId === studentId);
+        
+        for (const enrollment of studentEnrollments) {
+          const enrolledBatch = (enrollment as any).batch;
+          if (enrolledBatch && enrolledBatch.schedule) {
+            // If batch schedule is a string, parse it
+            let batchSchedule = enrolledBatch.schedule;
+            if (typeof enrolledBatch.schedule === 'string') {
+              try {
+                batchSchedule = JSON.parse(enrolledBatch.schedule);
+              } catch (e) {
+                logger.warn(`Failed to parse batch ${enrolledBatch.id} schedule for student ${studentId}:`, e);
+                continue;
+              }
+            }
+            
+            // Add batch schedule to student's overall schedule
+            if (Array.isArray(batchSchedule)) {
+              studentSchedule = studentSchedule.concat(batchSchedule);
+            } else if (typeof batchSchedule === 'object' && batchSchedule !== null) {
+              // If it's an object with day/time properties, convert to array format
+              const batchScheduleArray = [];
+              for (const day in batchSchedule) {
+                if (batchSchedule[day].startTime && batchSchedule[day].endTime) {
+                  batchScheduleArray.push({
+                    day: day,
+                    startTime: batchSchedule[day].startTime,
+                    endTime: batchSchedule[day].endTime,
+                  });
+                }
+              }
+              studentSchedule = studentSchedule.concat(batchScheduleArray);
+            }
+          }
+        }
+        
+        // Check for time conflicts between student schedule and batch schedule
+        const timeConflictResult = checkTimeConflicts(studentSchedule, batch.schedule);
+        
+        // Check for day matching - student must have at least one day that matches batch days
+        const hasDayMatch = checkDayMatching(studentSchedule, batch.schedule);
+        
         // Check for overdue payments
         const overduePayments = payments
           .filter((payment: any) => {
@@ -1065,6 +1377,23 @@ export const suggestCandidates = async (req: AuthRequest, res: Response): Promis
         });
 
         const isBusy = conflictingEnrollments.length > 0 || conflictingSessions.length > 0;
+        const hasTimeConflict = timeConflictResult.conflict;
+        
+        // Check for time conflicts with already enrolled batches
+        let enrolledBatchConflict = null;
+        for (const enrollment of conflictingEnrollments) {
+          const enrolledBatch = (enrollment as any).batch;
+          if (enrolledBatch && enrolledBatch.schedule) {
+            const enrolledBatchConflictResult = checkTimeConflicts(enrolledBatch.schedule, batch.schedule);
+            if (enrolledBatchConflictResult.conflict) {
+              enrolledBatchConflict = enrolledBatchConflictResult;
+              break;
+            }
+          }
+        }
+        
+        const hasEnrolledBatchConflict = enrolledBatchConflict !== null;
+        
         const hasOrientation = eligibleStudentIds.has(studentId);
 
         // Determine candidate status
@@ -1075,6 +1404,15 @@ export const suggestCandidates = async (req: AuthRequest, res: Response): Promis
         if (!hasOrientation) {
           status = 'no_orientation';
           statusMessage = 'Orientation not accepted';
+        } else if (hasTimeConflict) {
+          status = 'time_conflict';
+          statusMessage = timeConflictResult.reason || 'Time conflict with student schedule';
+        } else if (hasEnrolledBatchConflict) {
+          status = 'time_conflict';
+          statusMessage = enrolledBatchConflict?.reason || 'Time conflict with already enrolled batch';
+        } else if (!hasDayMatch) {
+          status = 'day_mismatch';
+          statusMessage = 'Student schedule days do not match batch days';
         } else if (hasOverdueFees) {
           status = 'fees_overdue';
           statusMessage = `Fees overdue (₹${totalOverdueAmount.toFixed(2)})`;
@@ -1082,6 +1420,80 @@ export const suggestCandidates = async (req: AuthRequest, res: Response): Promis
           // Mark as pending fees (needs exception)
           status = 'pending_fees';
           statusMessage = `Pending fees/EMI (₹${totalPendingAmount.toFixed(2)})`;
+        } else if (hasDayMatch && studentEnrollments.length > 0) {
+          // Check if student has any enrolled batches on the same days as the new batch
+          // This prevents suggesting students who already have an allocated batch on those days
+          // even if there's no direct time conflict (e.g., 10AM-1PM and 2PM-3PM on same days)
+          
+          // Extract days from the new batch schedule
+          const batchDays: string[] = [];
+          if (batch.schedule) {
+            let parsedBatchSchedule = batch.schedule;
+            if (typeof batch.schedule === 'string') {
+              try {
+                parsedBatchSchedule = JSON.parse(batch.schedule);
+              } catch (e) {
+                logger.warn(`Failed to parse batch schedule:`, e);
+              }
+            }
+            
+            if (Array.isArray(parsedBatchSchedule)) {
+              for (const batchSlot of parsedBatchSchedule) {
+                if (batchSlot.day) {
+                  batchDays.push(batchSlot.day.toLowerCase());
+                }
+              }
+            } else if (typeof parsedBatchSchedule === 'object' && parsedBatchSchedule !== null) {
+              const batchDay = parsedBatchSchedule.day || parsedBatchSchedule.Day || parsedBatchSchedule.Days || parsedBatchSchedule.days || parsedBatchSchedule.weekday;
+              if (batchDay) {
+                batchDays.push(batchDay.toLowerCase());
+              }
+            }
+          }
+          
+          // Check if student has any enrolled batch schedule on the same days
+          let hasEnrolledBatchOnSameDays = false;
+          for (const enrollment of studentEnrollments) {
+            const enrolledBatch = (enrollment as any).batch;
+            if (enrolledBatch && enrolledBatch.schedule) {
+              // If batch schedule is a string, parse it
+              let enrolledBatchSchedule = enrolledBatch.schedule;
+              if (typeof enrolledBatch.schedule === 'string') {
+                try {
+                  enrolledBatchSchedule = JSON.parse(enrolledBatch.schedule);
+                } catch (e) {
+                  logger.warn(`Failed to parse enrolled batch ${enrolledBatch.id} schedule for student ${studentId}:`, e);
+                  continue;
+                }
+              }
+              
+              // Check if this enrolled batch has any schedule on the same days
+              if (Array.isArray(enrolledBatchSchedule)) {
+                for (const scheduleSlot of enrolledBatchSchedule) {
+                  if (scheduleSlot.day && batchDays.includes(scheduleSlot.day.toLowerCase())) {
+                    hasEnrolledBatchOnSameDays = true;
+                    break;
+                  }
+                }
+              } else if (typeof enrolledBatchSchedule === 'object' && enrolledBatchSchedule !== null) {
+                // Check if it has day properties that match
+                const enrolledBatchDay = enrolledBatchSchedule.day || enrolledBatchSchedule.Day || enrolledBatchSchedule.Days || enrolledBatchSchedule.days || enrolledBatchSchedule.weekday;
+                if (enrolledBatchDay && batchDays.includes(enrolledBatchDay.toLowerCase())) {
+                  hasEnrolledBatchOnSameDays = true;
+                  break;
+                }
+              }
+              
+              if (hasEnrolledBatchOnSameDays) {
+                break;
+              }
+            }
+          }
+          
+          if (hasEnrolledBatchOnSameDays) {
+            status = 'busy';
+            statusMessage = 'Student already has an enrolled batch on the same day(s)';
+          }
         } else if (isBusy) {
           status = 'busy';
           const conflictDetails: string[] = [];
@@ -1140,13 +1552,15 @@ export const suggestCandidates = async (req: AuthRequest, res: Response): Promis
       }
     }).filter((candidate) => candidate !== null && candidate !== undefined);
 
-    // Sort candidates: available first, then no_orientation, then busy, then pending_fees, then fees_overdue
+    // Sort candidates: available first, then time_conflict, then day_mismatch, then no_orientation, then busy, then pending_fees, then fees_overdue
     const statusOrder: { [key: string]: number } = { 
       available: 1, 
-      no_orientation: 2, 
-      busy: 3, 
-      pending_fees: 4,
-      fees_overdue: 5 
+      time_conflict: 2,
+      day_mismatch: 3,
+      no_orientation: 4, 
+      busy: 5, 
+      pending_fees: 6,
+      fees_overdue: 7 
     };
     candidates.sort((a, b) => {
       return (statusOrder[a.status] || 99) - (statusOrder[b.status] || 99);
@@ -1169,10 +1583,14 @@ export const suggestCandidates = async (req: AuthRequest, res: Response): Promis
         totalCount: candidates.length,
         summary: {
           available: candidates.filter((c) => c.status === 'available').length,
+          dayMismatch: candidates.filter((c) => c.status === 'day_mismatch').length,
           noOrientation: candidates.filter((c) => c.status === 'no_orientation').length,
           busy: candidates.filter((c) => c.status === 'busy').length,
           pendingFees: candidates.filter((c) => c.status === 'pending_fees').length,
           feesOverdue: candidates.filter((c) => c.status === 'fees_overdue').length,
+        },
+        settings: {
+          includeStatuses,
         },
       },
     });
@@ -2041,6 +2459,179 @@ export const deleteBatch = async (req: AuthRequest, res: Response): Promise<void
     res.status(500).json({
       status: 'error',
       message: 'Internal server error while deleting batch',
+    });
+  }
+};
+
+// PUT /batches/:id/faculty → Assign faculty to batch
+export const checkFacultyAvailability = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    if (!req.user) {
+      res.status(401).json({
+        status: 'error',
+        message: 'Authentication required',
+      });
+      return;
+    }
+
+    const { facultyIds, startDate, endDate, schedule } = req.body;
+    
+    if (!facultyIds || !Array.isArray(facultyIds) || facultyIds.length === 0) {
+      res.status(400).json({
+        status: 'error',
+        message: 'facultyIds array is required',
+      });
+      return;
+    }
+
+    if (!startDate || !endDate) {
+      res.status(400).json({
+        status: 'error',
+        message: 'startDate and endDate are required',
+      });
+      return;
+    }
+
+    const facultyIdNumbers = facultyIds.map(id => Number(id)).filter(id => !isNaN(id));
+    
+    // Get all active batches with their faculty assignments and schedules
+    const batches = await db.Batch.findAll({
+      where: {
+        status: 'active',
+        endDate: {
+          [Op.gte]: new Date(startDate)
+        }
+      },
+      include: [
+        {
+          model: db.User,
+          as: 'assignedFaculty',
+          attributes: ['id', 'name', 'email'],
+          through: { attributes: [] }
+        }
+      ]
+    });
+
+    const availabilityResults: Array<{
+      facultyId: number;
+      isAvailable: boolean;
+      conflicts: Array<{
+        batchId: number;
+        batchTitle: string;
+        conflictDays: string[];
+        conflictTimes: Array<{ day: string; time: string }>;
+      }>;
+    }> = [];
+
+    for (const facultyId of facultyIdNumbers) {
+      const conflicts: Array<{
+        batchId: number;
+        batchTitle: string;
+        conflictDays: string[];
+        conflictTimes: Array<{ day: string; time: string }>;
+      }> = [];
+      
+      // Check each batch for conflicts
+      for (const batch of batches) {
+        // Skip if this faculty is not assigned to this batch
+        const assignedFacultyIds = batch.assignedFaculty?.map(f => f.id) || [];
+        if (!assignedFacultyIds.includes(facultyId)) {
+          continue;
+        }
+
+        // Check date overlap
+        const batchStart = new Date(batch.startDate);
+        const batchEnd = new Date(batch.endDate);
+        const newStart = new Date(startDate);
+        const newEnd = new Date(endDate);
+        
+        const hasDateOverlap = batchStart <= newEnd && batchEnd >= newStart;
+        if (!hasDateOverlap) {
+          continue;
+        }
+
+        // Check schedule overlap if both have schedules
+        const batchSchedule = batch.schedule;
+        const newSchedule = schedule;
+        
+        if (batchSchedule && newSchedule) {
+          const conflictDays: string[] = [];
+          const conflictTimes: Array<{ day: string; time: string }> = [];
+          
+          // Check each day in the new schedule
+          for (const [day, newTimeSlot] of Object.entries(newSchedule)) {
+            if (batchSchedule[day]) {
+              const batchTimeSlot = batchSchedule[day];
+              
+              // Check time overlap
+              if (newTimeSlot.startTime && newTimeSlot.endTime && 
+                  batchTimeSlot.startTime && batchTimeSlot.endTime) {
+                
+                const newSlot = newTimeSlot as { startTime: string; endTime: string };
+                const newStartHour = parseInt(newSlot.startTime.split(':')[0]);
+                const newStartMin = parseInt(newSlot.startTime.split(':')[1]);
+                const newEndHour = parseInt(newSlot.endTime.split(':')[0]);
+                const newEndMin = parseInt(newSlot.endTime.split(':')[1]);
+                
+                const batchStartHour = parseInt(batchTimeSlot.startTime.split(':')[0]);
+                const batchStartMin = parseInt(batchTimeSlot.startTime.split(':')[1]);
+                const batchEndHour = parseInt(batchTimeSlot.endTime.split(':')[0]);
+                const batchEndMin = parseInt(batchTimeSlot.endTime.split(':')[1]);
+                
+                // Check if time slots overlap
+                const newStartTotal = newStartHour * 60 + newStartMin;
+                const newEndTotal = newEndHour * 60 + newEndMin;
+                const batchStartTotal = batchStartHour * 60 + batchStartMin;
+                const batchEndTotal = batchEndHour * 60 + batchEndMin;
+                
+                if (newStartTotal < batchEndTotal && newEndTotal > batchStartTotal) {
+                  conflictDays.push(day);
+                  conflictTimes.push({
+                    day,
+                    time: `${batchTimeSlot.startTime}-${batchTimeSlot.endTime} conflicts with ${newSlot.startTime}-${newSlot.endTime}`
+                  });
+                }
+              }
+            }
+          }
+          
+          if (conflictDays.length > 0) {
+            conflicts.push({
+              batchId: batch.id,
+              batchTitle: batch.title,
+              conflictDays,
+              conflictTimes
+            });
+          }
+        } else {
+          // If either batch has no schedule, consider it a conflict for the same days
+          conflicts.push({
+            batchId: batch.id,
+            batchTitle: batch.title,
+            conflictDays: ['Schedule overlap - no detailed schedule available'],
+            conflictTimes: []
+          });
+        }
+      }
+      
+      availabilityResults.push({
+        facultyId,
+        isAvailable: conflicts.length === 0,
+        conflicts
+      });
+    }
+
+    res.status(200).json({
+      status: 'success',
+      data: {
+        availabilityResults
+      }
+    });
+  } catch (error) {
+    logger.error('Check faculty availability error:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Internal server error while checking faculty availability',
     });
   }
 };

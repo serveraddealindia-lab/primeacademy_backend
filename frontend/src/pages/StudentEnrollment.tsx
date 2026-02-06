@@ -711,24 +711,24 @@ const { data: employeesData } = useQuery({
     
     // Combine form data with software list, ensuring required fields are present
     const data: CompleteEnrollmentRequest = {
-      studentName: formData.studentName!.trim(),
-      email: formData.email!.trim(),
-      phone: formData.phone!.trim(),
+      studentName: formData.studentName?.trim() || '',
+      email: formData.email?.trim() || '',
+      phone: formData.phone?.trim() || '',
       whatsappNumber: formData.whatsappNumber?.trim() 
         ? `${whatsappCountryCode}${formData.whatsappNumber.trim()}` 
         : undefined,
       dateOfAdmission: dateOfAdmission,
-      localAddress: formData.localAddress!.trim(),
-      permanentAddress: formData.permanentAddress!.trim(),
-      emergencyContactNumber: formData.emergencyContactNumber!.trim(),
-      emergencyName: formData.emergencyName!.trim(),
-      emergencyRelation: formData.emergencyRelation!.trim(),
-      courseName: formData.courseName!.trim(),
+      localAddress: formData.localAddress?.trim() || '',
+      permanentAddress: formData.permanentAddress?.trim() || '',
+      emergencyContactNumber: formData.emergencyContactNumber?.trim() || '',
+      emergencyName: formData.emergencyName?.trim() || '',
+      emergencyRelation: formData.emergencyRelation?.trim() || '',
+      courseName: formData.courseName?.trim() || '',
       batchId: formData.batchId || undefined,
       softwaresIncluded: softwaresIncluded || undefined,
-      totalDeal: formData.totalDeal!, // Required - validated above, cannot be 0 or undefined
-      bookingAmount: formData.bookingAmount!,
-      balanceAmount: formData.balanceAmount || undefined,
+      totalDeal: formData.totalDeal || 0, // Required - validated above, cannot be 0 or undefined
+      bookingAmount: formData.bookingAmount || 0,
+      balanceAmount: formData.balanceAmount !== undefined && formData.balanceAmount !== null ? formData.balanceAmount : undefined,
       emiPlan: formData.emiPlan || false,
       emiPlanDate: emiPlanDate,
       emiInstallments: emiInstallments,
@@ -739,10 +739,10 @@ const { data: employeesData } = useQuery({
       complimentaryGift: formData.complimentaryGift?.trim() || undefined,
       hasReference: formData.hasReference || false,
       referenceDetails: formData.referenceDetails?.trim() || undefined,
-      counselorName: formData.counselorName!.trim(),
-      leadSource: formData.leadSource!,
+      counselorName: formData.counselorName?.trim() || '',
+      leadSource: formData.leadSource || '',
       walkinDate: walkinDate,
-      masterFaculty: formData.masterFaculty!.trim(),
+      masterFaculty: formData.masterFaculty?.trim() || '',
       enrollmentDocuments: [
         ...(photo ? [photo.url] : []),
         ...(panCard ? [panCard.url] : []),
@@ -838,10 +838,10 @@ const { data: employeesData } = useQuery({
         errors.emergencyRelation = 'Emergency Contact Relation is required';
       }
     } else if (currentStep === 3) {
-      // Course name is now optional to allow direct software selection
-      // if (!formData.courseName || !formData.courseName.trim()) {
-      //   errors.courseName = 'Course Name is required';
-      // }
+      // Course name is now required
+      if (!formData.courseName || !formData.courseName.trim()) {
+        errors.courseName = 'Course Name is required';
+      }
       if (selectedSoftwares.length === 0 && !otherSoftware.trim()) {
         errors.softwaresIncluded = 'At least one software must be selected';
       }
@@ -852,13 +852,19 @@ const { data: employeesData } = useQuery({
         errors.bookingAmount = 'Booking Amount is required';
       }
       if (formData.totalDeal && formData.bookingAmount) {
-        if (formData.bookingAmount > formData.totalDeal) {
-          errors.bookingAmount = 'Booking Amount cannot be greater than Total Deal Amount';
-        }
-        // Auto-calculate balance for validation
+        // Auto-calculate balance
         const calculatedBalance = formData.totalDeal - formData.bookingAmount;
+        // Balance Amount is required and must be 0 or greater
         if (calculatedBalance < 0) {
-          errors.balanceAmount = 'Balance cannot be negative';
+          errors.balanceAmount = 'Balance Amount is required and must be 0 or greater';
+        }
+      } else {
+        // If totalDeal or bookingAmount are not set properly, show appropriate error
+        if (formData.totalDeal !== undefined && formData.bookingAmount !== undefined) {
+          const calculatedBalance = formData.totalDeal - formData.bookingAmount;
+          if (calculatedBalance < 0) {
+            errors.balanceAmount = 'Balance Amount is required and must be 0 or greater';
+          }
         }
       }
       if (formData.emiPlan) {
@@ -1807,7 +1813,35 @@ const { data: employeesData } = useQuery({
                                     value={slot.day}
                                     onChange={(e) => {
                                       const newSchedule = [...(formData.schedule || [])];
-                                      newSchedule[index].day = e.target.value;
+                                                                      
+                                      // Handle special schedule patterns
+                                      if (e.target.value === 'MWF') {
+                                        // Add Monday, Wednesday, Friday slots with the same time
+                                        const startTime = slot.startTime;
+                                        const endTime = slot.endTime;
+                                                                        
+                                        // Remove the current slot and add MWF slots
+                                        newSchedule.splice(index, 1);
+                                                                        
+                                        newSchedule.push({ day: 'Monday', startTime, endTime });
+                                        newSchedule.push({ day: 'Wednesday', startTime, endTime });
+                                        newSchedule.push({ day: 'Friday', startTime, endTime });
+                                      } else if (e.target.value === 'TTS') {
+                                        // Add Tuesday, Thursday, Saturday slots with the same time
+                                        const startTime = slot.startTime;
+                                        const endTime = slot.endTime;
+                                                                        
+                                        // Remove the current slot and add TTS slots
+                                        newSchedule.splice(index, 1);
+                                                                        
+                                        newSchedule.push({ day: 'Tuesday', startTime, endTime });
+                                        newSchedule.push({ day: 'Thursday', startTime, endTime });
+                                        newSchedule.push({ day: 'Saturday', startTime, endTime });
+                                      } else {
+                                        // Regular day selection
+                                        newSchedule[index].day = e.target.value;
+                                      }
+                                                                      
                                       handleInputChange('schedule', newSchedule);
                                     }}
                                     className="w-full px-2 py-1 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
@@ -1820,6 +1854,8 @@ const { data: employeesData } = useQuery({
                                     <option value="Friday">Friday</option>
                                     <option value="Saturday">Saturday</option>
                                     <option value="Sunday">Sunday</option>
+                                    <option value="MWF">MWF (Mon, Wed, Fri)</option>
+                                    <option value="TTS">TTS (Tue, Thu, Sat)</option>
                                   </select>
                                 </div>
                                 <div>
@@ -1865,17 +1901,49 @@ const { data: employeesData } = useQuery({
                         </div>
                         
                         {/* Add Schedule Button */}
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const newSlot = { day: '', startTime: '', endTime: '' };
-                            const newSchedule = [...(formData.schedule || []), newSlot];
-                            handleInputChange('schedule', newSchedule);
-                          }}
-                          className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm hover:bg-blue-700"
-                        >
-                          + Add Time Slot
-                        </button>
+                        <div className="flex flex-col sm:flex-row gap-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const newSlot = { day: '', startTime: '', endTime: '' };
+                              const newSchedule = [...(formData.schedule || []), newSlot];
+                              handleInputChange('schedule', newSchedule);
+                            }}
+                            className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm hover:bg-blue-700"
+                          >
+                            + Add Time Slot
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const mwfSlots = [
+                                { day: 'Monday', startTime: '', endTime: '' },
+                                { day: 'Wednesday', startTime: '', endTime: '' },
+                                { day: 'Friday', startTime: '', endTime: '' }
+                              ];
+                              const newSchedule = [...(formData.schedule || []), ...mwfSlots];
+                              handleInputChange('schedule', newSchedule);
+                            }}
+                            className="px-4 py-2 bg-purple-600 text-white rounded-md text-sm hover:bg-purple-700"
+                          >
+                            + Add MWF
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const ttsSlots = [
+                                { day: 'Tuesday', startTime: '', endTime: '' },
+                                { day: 'Thursday', startTime: '', endTime: '' },
+                                { day: 'Saturday', startTime: '', endTime: '' }
+                              ];
+                              const newSchedule = [...(formData.schedule || []), ...ttsSlots];
+                              handleInputChange('schedule', newSchedule);
+                            }}
+                            className="px-4 py-2 bg-indigo-600 text-white rounded-md text-sm hover:bg-indigo-700"
+                          >
+                            + Add TTS
+                          </button>
+                        </div>
                       </div>
                     </div>
                     

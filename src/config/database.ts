@@ -1,17 +1,26 @@
 import { Sequelize } from 'sequelize';
-import * as dotenv from 'dotenv';
+import path from 'path';
 
-dotenv.config();
+// Load environment variables
+require('dotenv').config();
 
+// Determine environment
+const env = process.env.NODE_ENV || 'development';
+
+// Load database configuration from config.json
+const configPath = path.resolve(__dirname, 'config.json');
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const config = require(configPath)[env];
+
+// Create Sequelize instance
 const sequelize = new Sequelize(
-  process.env.DB_NAME || 'primeacademy_db',
-  process.env.DB_USER || 'root',
-  process.env.DB_PASSWORD || '',
+  config.database,
+  config.username,
+  config.password,
   {
-    host: process.env.DB_HOST || 'localhost',
-    port: parseInt(process.env.DB_PORT || '3306', 10),
-    dialect: 'mysql',
-    logging: process.env.NODE_ENV === 'development' ? console.log : false,
+    host: config.host,
+    dialect: config.dialect,
+    logging: console.log, // Set to false to disable SQL logging
     pool: {
       max: 5,
       min: 0,
@@ -19,20 +28,10 @@ const sequelize = new Sequelize(
       idle: 10000,
     },
     dialectOptions: {
-      // For MySQL 8+ with authentication issues
-      // connectTimeout: 60000,
+      // Use connection timeout
+      connectTimeout: 60000,
     },
   }
 );
 
 export default sequelize;
-
-
-
-
-
-
-
-
-
-

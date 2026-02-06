@@ -1,37 +1,34 @@
-# QUICK FIX COMMANDS - Copy and paste these on your VPS
-# Run these commands one by one on your VPS server
+# QUICK FIX COMMANDS - Copy and paste these on your VPS one by one
 
-# 1. Navigate to backend
 cd /var/www/primeacademy_backend
 
-# 2. Install dependencies (if needed)
-npm install
+# 1. Fix .env - Remove PORT=3000 and duplicates
+cp .env .env.backup
+grep -v "^PORT=" .env > .env.tmp
+grep -v "^NODE_ENV=" .env.tmp > .env.tmp2
+echo "NODE_ENV=production" >> .env.tmp2
+echo "PORT=3001" >> .env.tmp2
+mv .env.tmp2 .env
+rm -f .env.tmp
+cat .env | grep -E "^PORT=|^NODE_ENV="
 
-# 3. Build the backend
+# 2. Fix import in index.ts (if it's wrong)
+sed -i 's/import runPendingMigrations from/import { runPendingMigrations } from/g' src/index.ts
+grep "runPendingMigrations" src/index.ts
+
+# 3. Rebuild
 npm run build
 
-# 4. Check if .env exists and has PORT
-cat .env | grep PORT || echo "PORT=3001" >> .env
-
-# 5. Stop old PM2 processes
-pm2 delete backend-api 2>/dev/null
-pm2 delete all 2>/dev/null
-
-# 6. Start backend
+# 4. Restart
+pm2 delete backend-api
 pm2 start dist/index.js --name backend-api
 pm2 save
 
-# 7. Check status
+# 5. Wait and check
+sleep 5
 pm2 list
 pm2 logs backend-api --lines 20
 
-# 8. Test backend directly
+# 6. Test
 curl http://localhost:3001/api/health
-
-# 9. Test through nginx
 curl https://api.prashantthakar.com/api/health
-
-# 10. If still failing, check logs
-pm2 logs backend-api --err
-sudo tail -20 /var/log/nginx/api.prashantthakar.com.error.log
-

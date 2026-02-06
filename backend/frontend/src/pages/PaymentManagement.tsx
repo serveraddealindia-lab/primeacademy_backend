@@ -147,7 +147,12 @@ export const PaymentManagement: React.FC = () => {
     onError: (error: any) => {
       const errorMessage = error.response?.data?.message || error.message || 'Failed to create payment';
       console.error('Payment creation error:', error);
-      alert(`Error: ${errorMessage}\n\nPlease check:\n1. All required fields are filled\n2. Database migrations are up to date\n3. Backend server logs for details`);
+      alert(`Error: ${errorMessage}
+
+Please check:
+1. All required fields are filled
+2. Database migrations are up to date
+3. Backend server logs for details`);
     },
   });
 
@@ -178,6 +183,20 @@ export const PaymentManagement: React.FC = () => {
     },
     onError: (error: any) => {
       alert(error.response?.data?.message || 'Failed to generate receipt');
+    },
+  });
+
+  const deletePaymentMutation = useMutation({
+    mutationFn: (id: number) => paymentAPI.deletePayment(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['payments'] });
+      queryClient.invalidateQueries({ queryKey: ['student-payments'] });
+      queryClient.invalidateQueries({ queryKey: ['enrollments'] });
+      queryClient.invalidateQueries({ queryKey: ['student-profile'] });
+      alert('Payment deleted successfully!');
+    },
+    onError: (error: any) => {
+      alert(error.response?.data?.message || 'Failed to delete payment');
     },
   });
 
@@ -393,6 +412,16 @@ export const PaymentManagement: React.FC = () => {
       const paidAmount = (payment.paidAmount !== undefined && payment.paidAmount !== null) ? Number(payment.paidAmount) : 0;
       const balance = payment.amount - paidAmount;
       
+      // Debug logging
+      console.log('Payment CSV debug:', {
+        id: payment.id,
+        amount: payment.amount,
+        paidAmount: paidAmount,
+        balance: balance,
+        dueDate: payment.dueDate,
+        isOverdue: payment.dueDate && new Date(payment.dueDate).setHours(0,0,0,0) < new Date().setHours(0,0,0,0)
+      });
+      
       return [
         payment.student?.name || `Student ${payment.studentId}`,
         payment.student?.email || '-',
@@ -436,6 +465,8 @@ export const PaymentManagement: React.FC = () => {
     const dueDate = formData.get('dueDate') as string;
     const paymentMethod = formData.get('paymentMethod') as string | null;
     const transactionId = formData.get('transactionId') as string | null;
+    const bankName = formData.get('bankName') as string | null;
+    const bankAccount = formData.get('bankAccount') as string | null;
     
     // Validation
     if (!studentId || isNaN(studentId)) {
@@ -459,6 +490,8 @@ export const PaymentManagement: React.FC = () => {
       notes: formData.get('notes') as string || undefined,
       paymentMethod: paymentMethod || undefined,
       transactionId: transactionId || undefined,
+      bankName: bankName || undefined,
+      bankAccount: bankAccount || undefined,
     };
     
     console.log('Creating payment with data:', data);
@@ -536,7 +569,7 @@ export const PaymentManagement: React.FC = () => {
     const paidAmountValue = paidAmountInput && paidAmountInput.trim() !== ''
       ? parseFloat(paidAmountInput)
       : undefined;
-    const statusValue = formData.get('status') as 'pending' | 'partial' | 'paid' | 'overdue' | 'cancelled' || undefined;
+    const statusValue = formData.get('status') as 'unpaid' | 'partial' | 'paid' || undefined;
     
     // Auto-set status based on paidAmount if status is not explicitly set
     let finalStatus = statusValue;
@@ -579,6 +612,8 @@ export const PaymentManagement: React.FC = () => {
       paidDate: formData.get('paidDate') as string || undefined,
       paymentMethod: formData.get('paymentMethod') as string || undefined,
       transactionId: formData.get('transactionId') as string || undefined,
+      bankName: formData.get('bankName') as string || undefined,
+      bankAccount: formData.get('bankAccount') as string || undefined,
       notes: formData.get('notes') as string || undefined,
       paidAmount: finalPaidAmount,
     };
@@ -1095,13 +1130,30 @@ export const PaymentManagement: React.FC = () => {
                                               Paid: ₹{((payment.paidAmount !== undefined && payment.paidAmount !== null) ? Number(payment.paidAmount) : 0).toFixed(2)}
                                             </div>
                                             <div className="text-red-600 font-medium">
-                                              Balance: ₹{(payment.amount - ((payment.paidAmount !== undefined && payment.paidAmount !== null) ? Number(payment.paidAmount) : 0)).toFixed(2)}
+                                              Due Amount: ₹{(payment.amount - ((payment.paidAmount !== undefined && payment.paidAmount !== null) ? Number(payment.paidAmount) : 0)).toFixed(2)}
                                             </div>
+                                            {/* Overdue calculation */}
+                                            {payment.dueDate && new Date(payment.dueDate).setHours(0,0,0,0) < new Date().setHours(0,0,0,0) && (
+                                              <div className="text-red-700 font-bold bg-red-50 px-2 py-1 rounded">
+                                                Overdue: ₹{(payment.amount - ((payment.paidAmount !== undefined && payment.paidAmount !== null) ? Number(payment.paidAmount) : 0)).toFixed(2)}
+                                              </div>
+                                            )}
                                           </div>
                                         ) : payment.status === 'paid' ? (
                                           <div className="text-xs sm:text-sm text-gray-900 font-semibold">₹{payment.amount.toFixed(2)}</div>
                                         ) : (
-                                          <div className="text-xs sm:text-sm text-gray-900">₹{payment.amount.toFixed(2)}</div>
+                                          <div className="text-xs sm:text-sm space-y-1">
+                                            <div className="text-gray-900 font-semibold">Total: ₹{payment.amount.toFixed(2)}</div>
+                                            <div className="text-blue-600 font-medium">
+                                              Due Amount: ₹{payment.amount.toFixed(2)}
+                                            </div>
+                                            {/* Overdue calculation for unpaid payments */}
+                                            {payment.dueDate && new Date(payment.dueDate).setHours(0,0,0,0) < new Date().setHours(0,0,0,0) && (
+                                              <div className="text-red-700 font-bold bg-red-50 px-2 py-1 rounded">
+                                                Overdue: ₹{payment.amount.toFixed(2)}
+                                              </div>
+                                            )}
+                                          </div>
                                         )}
                                         <div className="text-xs text-gray-500 lg:hidden mt-1">
                                           Due: {formatDateDDMMYYYY(payment.dueDate)}
@@ -1123,11 +1175,9 @@ export const PaymentManagement: React.FC = () => {
                                             ? 'bg-green-100 text-green-800'
                                             : payment.status === 'partial'
                                             ? 'bg-blue-100 text-blue-800'
-                                            : payment.status === 'overdue'
-                                            ? 'bg-red-100 text-red-800'
-                                            : payment.status === 'cancelled'
-                                            ? 'bg-gray-100 text-gray-800'
-                                            : 'bg-yellow-100 text-yellow-800'
+                                            : payment.status === 'unpaid'
+                                            ? 'bg-yellow-100 text-yellow-800'
+                                            : 'bg-gray-100 text-gray-800'
                                         }`}>
                                           {payment.status}
                                         </span>
@@ -1197,6 +1247,19 @@ export const PaymentManagement: React.FC = () => {
                                               Update
                                             </button>
                                           )}
+                                          {user?.role === 'superadmin' && (
+                                            <button
+                                              onClick={() => {
+                                                if (confirm(`Are you sure you want to delete this payment of ₹${payment.amount.toFixed(2)} for ${payment.student?.name || 'Student'}? This action cannot be undone.`)) {
+                                                  deletePaymentMutation.mutate(payment.id);
+                                                }
+                                              }}
+                                              disabled={deletePaymentMutation.isPending}
+                                              className="text-red-600 hover:text-red-900 text-xs sm:text-sm disabled:opacity-50"
+                                            >
+                                              {deletePaymentMutation.isPending ? 'Deleting...' : '🗑️ Delete'}
+                                            </button>
+                                          )}
                                         </div>
                                       </td>
                                     </tr>
@@ -1253,13 +1316,30 @@ export const PaymentManagement: React.FC = () => {
                                   Paid: ₹{((payment.paidAmount !== undefined && payment.paidAmount !== null) ? Number(payment.paidAmount) : 0).toFixed(2)}
                                 </div>
                                 <div className="text-red-600 font-medium">
-                                  Balance: ₹{(payment.amount - ((payment.paidAmount !== undefined && payment.paidAmount !== null) ? Number(payment.paidAmount) : 0)).toFixed(2)}
+                                  Due Amount: ₹{(payment.amount - ((payment.paidAmount !== undefined && payment.paidAmount !== null) ? Number(payment.paidAmount) : 0)).toFixed(2)}
                                 </div>
+                                {/* Overdue calculation */}
+                                {payment.dueDate && new Date(payment.dueDate).setHours(0,0,0,0) < new Date().setHours(0,0,0,0) && (
+                                  <div className="text-red-700 font-bold bg-red-50 px-2 py-1 rounded">
+                                    Overdue: ₹{(payment.amount - ((payment.paidAmount !== undefined && payment.paidAmount !== null) ? Number(payment.paidAmount) : 0)).toFixed(2)}
+                                  </div>
+                                )}
                               </div>
                             ) : payment.status === 'paid' ? (
                               <div className="text-xs sm:text-sm text-gray-900 font-semibold">₹{payment.amount.toFixed(2)}</div>
                             ) : (
-                              <div className="text-xs sm:text-sm text-gray-900">₹{payment.amount.toFixed(2)}</div>
+                              <div className="text-xs sm:text-sm space-y-1">
+                                <div className="text-gray-900 font-semibold">Total: ₹{payment.amount.toFixed(2)}</div>
+                                <div className="text-blue-600 font-medium">
+                                  Due Amount: ₹{payment.amount.toFixed(2)}
+                                </div>
+                                {/* Overdue calculation for unpaid payments */}
+                                {payment.dueDate && new Date(payment.dueDate) < new Date() && (
+                                  <div className="text-red-700 font-bold bg-red-50 px-2 py-1 rounded">
+                                    Overdue: ₹{payment.amount.toFixed(2)}
+                                  </div>
+                                )}
+                              </div>
                             )}
                             <div className="text-xs text-gray-500 lg:hidden mt-1">
                               Due: {formatDateDDMMYYYY(payment.dueDate)}
@@ -1281,11 +1361,9 @@ export const PaymentManagement: React.FC = () => {
                                 ? 'bg-green-100 text-green-800'
                                 : payment.status === 'partial'
                                 ? 'bg-blue-100 text-blue-800'
-                                : payment.status === 'overdue'
-                                ? 'bg-red-100 text-red-800'
-                                : payment.status === 'cancelled'
-                                ? 'bg-gray-100 text-gray-800'
-                                : 'bg-yellow-100 text-yellow-800'
+                                : payment.status === 'unpaid'
+                                ? 'bg-yellow-100 text-yellow-800'
+                                : 'bg-gray-100 text-gray-800'
                             }`}>
                               {payment.status}
                             </span>
@@ -1354,6 +1432,19 @@ export const PaymentManagement: React.FC = () => {
                                   className="text-orange-600 hover:text-orange-900 text-xs sm:text-sm"
                                 >
                                   Update
+                                </button>
+                              )}
+                              {user?.role === 'superadmin' && (
+                                <button
+                                  onClick={() => {
+                                    if (confirm(`Are you sure you want to delete this payment of ₹${payment.amount.toFixed(2)} for ${payment.student?.name || 'Student'}? This action cannot be undone.`)) {
+                                      deletePaymentMutation.mutate(payment.id);
+                                    }
+                                  }}
+                                  disabled={deletePaymentMutation.isPending}
+                                  className="text-red-600 hover:text-red-900 text-xs sm:text-sm disabled:opacity-50"
+                                >
+                                  {deletePaymentMutation.isPending ? 'Deleting...' : '🗑️ Delete'}
                                 </button>
                               )}
                             </div>
@@ -1669,11 +1760,9 @@ export const PaymentManagement: React.FC = () => {
                   defaultValue={selectedPayment.status}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
                 >
-                  <option value="pending">Pending</option>
+                  <option value="unpaid">Unpaid</option>
                   <option value="partial">Partial</option>
                   <option value="paid">Paid</option>
-                  <option value="overdue">Overdue</option>
-                  <option value="cancelled">Cancelled</option>
                 </select>
               </div>
               <div className="mb-4">

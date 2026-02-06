@@ -1,9 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { Layout } from '../components/Layout';
 import api from '../api/axios';
 import { facultyAPI, CreateFacultyRequest } from '../api/faculty.api';
+import { uploadAPI } from '../api/upload.api';
+import { getImageUrl } from '../utils/imageUtils';
 
 interface RegisterUserRequest {
   name: string;
@@ -14,6 +16,9 @@ interface RegisterUserRequest {
 }
 
 interface FacultyFormData {
+  name: string;
+  email: string;
+  phone: string;
   gender: string;
   dateOfBirth: string;
   nationality: string;
@@ -52,8 +57,19 @@ export const FacultyRegistration: React.FC = () => {
   const [showOtherSoftware, setShowOtherSoftware] = useState(false);
   const [otherSoftware, setOtherSoftware] = useState('');
   
+  // State for Step 1 form fields
+  const [step1Data, setStep1Data] = useState({
+    fullName: '',
+    email: '',
+    contactNumber: '',
+    password: '',
+  });
+  
   // State to persist form data across steps
   const [formData, setFormData] = useState<FacultyFormData>({
+    name: '',
+    email: '',
+    phone: '',
     gender: '',
     dateOfBirth: '',
     nationality: '',
@@ -82,6 +98,223 @@ export const FacultyRegistration: React.FC = () => {
     softwareProficiency: [],
     documents: [],
   });
+  
+  // Document upload states
+  const [photo, setPhoto] = useState<{ name: string; url: string; size?: number } | null>(null);
+  const [panCard, setPanCard] = useState<{ name: string; url: string; size?: number } | null>(null);
+  const [aadharCard, setAadharCard] = useState<{ name: string; url: string; size?: number } | null>(null);
+  const [otherDocuments, setOtherDocuments] = useState<Array<{ name: string; url: string; size?: number }>>([]);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [uploadingPanCard, setUploadingPanCard] = useState(false);
+  const [uploadingAadharCard, setUploadingAadharCard] = useState(false);
+  const [uploadingOtherDocs, setUploadingOtherDocs] = useState(false);
+  const [photoUploadError, setPhotoUploadError] = useState('');
+  
+  // Handle Photo upload
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) {
+      console.log('No file selected');
+      e.target.value = '';
+      return;
+    }
+
+    console.log('Photo upload initiated:', { fileName: file.name, fileType: file.type, fileSize: file.size });
+
+    // Validate file type
+    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif'];
+    if (!allowedTypes.includes(file.type)) {
+      alert('Please select a valid image file (JPG, PNG, WebP, or GIF)');
+      e.target.value = '';
+      return;
+    }
+    
+    // Validate file size (max 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      alert('File size should be less than 5MB');
+      e.target.value = '';
+      return;
+    }
+
+    setUploadingPhoto(true);
+    setPhotoUploadError('');
+    
+    try {
+      const uploadResponse = await uploadAPI.uploadFile(file);
+      if (uploadResponse.data && uploadResponse.data.files && uploadResponse.data.files.length > 0) {
+        const uploadedFile = uploadResponse.data.files[0];
+        // Clean the URL before saving to remove any duplicate domain issues
+        const cleanedUrl = getImageUrl(uploadedFile.url) || uploadedFile.url;
+        setPhoto({
+          name: uploadedFile.originalName,
+          url: cleanedUrl,
+          size: uploadedFile.size,
+        });
+        alert('Photo uploaded successfully!');
+      }
+    } catch (error: any) {
+      console.error('Photo upload error:', error);
+      const errorMsg = error.response?.data?.message || error.message || 'Failed to upload photo';
+      setPhotoUploadError(errorMsg);
+      alert(errorMsg);
+    } finally {
+      setUploadingPhoto(false);
+      e.target.value = '';
+    }
+  };
+
+  // Handle PAN Card upload
+  const handlePanCardUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'application/pdf'];
+    if (!allowedTypes.includes(file.type)) {
+      alert('Please select a valid file (JPG, PNG, or PDF)');
+      e.target.value = '';
+      return;
+    }
+    
+    // Validate file size (max 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      alert('File size should be less than 5MB');
+      e.target.value = '';
+      return;
+    }
+
+    setUploadingPanCard(true);
+    try {
+      const uploadResponse = await uploadAPI.uploadFile(file);
+      if (uploadResponse.data && uploadResponse.data.files && uploadResponse.data.files.length > 0) {
+        const uploadedFile = uploadResponse.data.files[0];
+        // Clean the URL before saving to remove any duplicate domain issues
+        const cleanedUrl = getImageUrl(uploadedFile.url) || uploadedFile.url;
+        setPanCard({
+          name: uploadedFile.originalName,
+          url: cleanedUrl,
+          size: uploadedFile.size,
+        });
+        alert('PAN Card uploaded successfully!');
+      }
+    } catch (error: any) {
+      console.error('PAN Card upload error:', error);
+      alert(error.response?.data?.message || error.message || 'Failed to upload PAN Card');
+    } finally {
+      setUploadingPanCard(false);
+      e.target.value = '';
+    }
+  };
+
+  // Handle Aadhar Card upload
+  const handleAadharCardUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'application/pdf'];
+    if (!allowedTypes.includes(file.type)) {
+      alert('Please select a valid file (JPG, PNG, or PDF)');
+      e.target.value = '';
+      return;
+    }
+    
+    // Validate file size (max 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      alert('File size should be less than 5MB');
+      e.target.value = '';
+      return;
+    }
+
+    setUploadingAadharCard(true);
+    try {
+      const uploadResponse = await uploadAPI.uploadFile(file);
+      if (uploadResponse.data && uploadResponse.data.files && uploadResponse.data.files.length > 0) {
+        const uploadedFile = uploadResponse.data.files[0];
+        // Clean the URL before saving to remove any duplicate domain issues
+        const cleanedUrl = getImageUrl(uploadedFile.url) || uploadedFile.url;
+        setAadharCard({
+          name: uploadedFile.originalName,
+          url: cleanedUrl,
+          size: uploadedFile.size,
+        });
+        alert('Aadhar Card uploaded successfully!');
+      }
+    } catch (error: any) {
+      console.error('Aadhar Card upload error:', error);
+      alert(error.response?.data?.message || error.message || 'Failed to upload Aadhar Card');
+    } finally {
+      setUploadingAadharCard(false);
+      e.target.value = '';
+    }
+  };
+
+  // Handle Other Documents upload
+  const handleOtherDocumentsUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'application/pdf'];
+    const validFiles: File[] = [];
+    
+    for (let i = 0; i < files.length; i++) {
+      if (allowedTypes.includes(files[i].type)) {
+        // Validate file size (max 5MB)
+        if (files[i].size <= 5 * 1024 * 1024) {
+          validFiles.push(files[i]);
+        } else {
+          alert(`File ${files[i].name} is too large. File size should be less than 5MB`);
+        }
+      }
+    }
+
+    if (validFiles.length === 0) {
+      alert('Please select valid files (JPG, PNG, or PDF) with size less than 5MB');
+      e.target.value = '';
+      return;
+    }
+
+    setUploadingOtherDocs(true);
+    try {
+      const uploadPromises = validFiles.map((file: File) => uploadAPI.uploadFile(file));
+      const uploadResponses = await Promise.all(uploadPromises);
+      
+      const newDocuments = uploadResponses
+        .filter(response => response.data && response.data.files && response.data.files.length > 0)
+        .map(response => {
+          // Clean the URL before saving to remove any duplicate domain issues
+          const cleanedUrl = getImageUrl(response.data.files[0].url) || response.data.files[0].url;
+          return {
+            name: response.data.files[0].originalName,
+            url: cleanedUrl,
+            size: response.data.files[0].size,
+          };
+        });
+
+      setOtherDocuments(prev => [...prev, ...newDocuments]);
+      alert(`${newDocuments.length} document(s) uploaded successfully!`);
+    } catch (error: any) {
+      console.error('Other documents upload error:', error);
+      alert(error.response?.data?.message || error.message || 'Failed to upload documents');
+    } finally {
+      setUploadingOtherDocs(false);
+      e.target.value = '';
+    }
+  };
+
+  const handleRemoveOtherDocument = (index: number) => {
+    setOtherDocuments(prev => prev.filter((_, i) => i !== index));
+  };
+  
+  // Initialize step1Data with formData values when createdUserId is set
+  useEffect(() => {
+    if (createdUserId && formData.name && formData.email && formData.phone) {
+      setStep1Data(prev => ({
+        ...prev,
+        fullName: formData.name,
+        email: formData.email,
+        contactNumber: formData.phone,
+      }));
+    }
+  }, [createdUserId, formData.name, formData.email, formData.phone]);
 
   // Register user first
   const registerUserMutation = useMutation({
@@ -92,11 +325,60 @@ export const FacultyRegistration: React.FC = () => {
     onSuccess: (data) => {
       setCreatedUserId(data.data.user.id);
       setCurrentStep(2); // Move to next step after user creation
+      // Initialize formData with step1Data values for consistency
+      setFormData(prev => ({
+        ...prev,
+        name: step1Data.fullName,
+        email: step1Data.email,
+        phone: step1Data.contactNumber,
+      }));
     },
     onError: (error: any) => {
-      alert(error.response?.data?.message || 'Failed to create user account');
+      // Check if the error is due to duplicate email
+      if (error.response?.data?.message?.includes('already exists') || 
+          error.response?.data?.message?.includes('duplicate')) {
+        // If email exists, try to find the existing user
+        handleExistingUser();
+      } else {
+        alert(error.response?.data?.message || 'Failed to create user account');
+      }
     },
   });
+      
+  // Function to handle existing users
+  const handleExistingUser = async () => {
+    try {
+      const userResponse = await api.get(`/users?email=${encodeURIComponent(step1Data.email)}`);
+      if (userResponse.data && userResponse.data.length > 0) {
+        const existingUser = userResponse.data[0];
+            
+        // Set the createdUserId to the existing user's ID
+        setCreatedUserId(existingUser.id);
+            
+        // Update formData with existing user details
+        setFormData(prev => ({
+          ...prev,
+          name: existingUser.name,
+          email: existingUser.email,
+          phone: existingUser.phone,
+        }));
+            
+        // Update step1Data with existing user details
+        setStep1Data(prev => ({
+          ...prev,
+          fullName: existingUser.name,
+          email: existingUser.email,
+          contactNumber: existingUser.phone,
+        }));
+            
+        // Move to next step
+        setCurrentStep(2);
+      }
+    } catch (error) {
+      console.error('Error getting existing user:', error);
+      alert('User with this email already exists, but could not retrieve user details. Please contact support.');
+    }
+  };
 
   // Create faculty profile
   const createFacultyMutation = useMutation({
@@ -117,19 +399,45 @@ export const FacultyRegistration: React.FC = () => {
     },
   });
 
-  const handleUserRegistration = (e: React.FormEvent<HTMLFormElement>) => {
+  const handleUserRegistration = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    const formData = new FormData(e.currentTarget);
     
-    const userData: RegisterUserRequest = {
-      name: formData.get('fullName') as string,
-      email: formData.get('email') as string,
-      phone: formData.get('contactNumber') as string,
-      password: formData.get('password') as string,
-      role: 'faculty',
-    };
-
-    registerUserMutation.mutate(userData);
+    // If a user has already been created (createdUserId is set), just move to Step 2
+    if (createdUserId) {
+      setCurrentStep(2);
+      return;
+    }
+    
+    // First validate that the email and phone don't already exist
+    try {
+      // Check if email already exists
+      const emailResponse = await api.get(`/users?email=${encodeURIComponent(step1Data.email)}`);
+      if (emailResponse.data && emailResponse.data.length > 0) {
+        alert('A user with this email already exists. Please use a different email address.');
+        return;
+      }
+      
+      // Check if phone already exists
+      const phoneResponse = await api.get(`/users?phone=${encodeURIComponent(step1Data.contactNumber)}`);
+      if (phoneResponse.data && phoneResponse.data.length > 0) {
+        alert('A user with this phone number already exists. Please use a different phone number.');
+        return;
+      }
+      
+      // If both email and phone are unique, proceed with registration
+      const userData: RegisterUserRequest = {
+        name: step1Data.fullName,
+        email: step1Data.email,
+        phone: step1Data.contactNumber,
+        password: step1Data.password,
+        role: 'faculty',
+      };
+      
+      registerUserMutation.mutate(userData);
+    } catch (error) {
+      console.error('Error checking existing user:', error);
+      alert('Error checking existing users. Please try again.');
+    }
   };
 
   const validateAllFields = (formData: FormData): { isValid: boolean; errors: Record<string, string> } => {
@@ -256,12 +564,10 @@ export const FacultyRegistration: React.FC = () => {
       errors.availability = 'Availability is required';
     }
 
-    // Validate Step 7: Software Proficiency (at least one required)
+    // Validate Step 4: Software Proficiency (at least one required)
+    // For this validation, we check the form data as it's used during final submission
     const selectedSoftware = formData.getAll('softwareProficiency') as string[];
-    let softwareList = selectedSoftware.filter(s => s !== 'Other');
-    if (showOtherSoftware && otherSoftware.trim()) {
-      softwareList.push(otherSoftware.trim());
-    }
+    const softwareList = [...selectedSoftware.filter(s => s !== 'Other'), ...(showOtherSoftware && otherSoftware.trim() ? [otherSoftware.trim()] : [])];
     if (softwareList.length === 0) {
       errors.softwareProficiency = 'At least one software proficiency must be selected';
     }
@@ -272,13 +578,41 @@ export const FacultyRegistration: React.FC = () => {
     };
   };
 
-  const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     
     // Only allow submission on the last step
     if (currentStep !== totalSteps) {
       // If not on last step, validate only current step's fields and move to next step
       const currentFormData = new FormData(e.currentTarget);
+      
+      // Special validation for Step 1 (when moving from Step 1 to Step 2)
+      // Only validate if we don't already have a createdUserId (meaning no user has been created yet)
+      if (currentStep === 1 && !createdUserId) {
+        try {
+          // Check if email already exists
+          const emailResponse = await api.get(`/users?email=${encodeURIComponent(step1Data.email)}`);
+          if (emailResponse.data && emailResponse.data.length > 0) {
+            alert('A user with this email already exists. Please use a different email address.');
+            return;
+          }
+          
+          // Check if phone already exists
+          const phoneResponse = await api.get(`/users?phone=${encodeURIComponent(step1Data.contactNumber)}`);
+          if (phoneResponse.data && phoneResponse.data.length > 0) {
+            alert('A user with this phone number already exists. Please use a different phone number.');
+            return;
+          }
+        } catch (error) {
+          console.error('Error checking existing users:', error);
+          alert('Error checking existing users. Please try again.');
+          return;
+        }
+      } else if (currentStep === 1 && createdUserId) {
+        // If user is already created and on Step 1, just move to Step 2
+        setCurrentStep(2);
+        return;
+      }
       
       // Validate only current step's required fields
       let hasErrors = false;
@@ -444,6 +778,7 @@ export const FacultyRegistration: React.FC = () => {
       return;
     }
     
+    // Final submission logic (only executed when on the last step)
     // Create FormData from state (which has all steps) and current form
     const currentFormData = new FormData(e.currentTarget);
     const combinedFormData = new FormData();
@@ -485,15 +820,15 @@ export const FacultyRegistration: React.FC = () => {
       } else if (validation.errors.department || validation.errors.designation || validation.errors.dateOfJoining || 
                  validation.errors.employmentType || validation.errors.workLocation) {
         errorStep = 3;
+      } else if (validation.errors.expertise || validation.errors.availability) {
+        errorStep = 4;
+      } else if (validation.errors.softwareProficiency) {
+        errorStep = 5;
       } else if (validation.errors.bankName || validation.errors.accountNumber || validation.errors.ifscCode || 
                  validation.errors.branch || validation.errors.panNumber) {
-        errorStep = 4;
+        errorStep = 6;
       } else if (validation.errors.emergencyContactName || validation.errors.emergencyRelationship || 
                  validation.errors.emergencyPhoneNumber) {
-        errorStep = 5;
-      } else if (validation.errors.expertise || validation.errors.availability) {
-        errorStep = 6;
-      } else if (validation.errors.softwareProficiency) {
         errorStep = 7;
       }
       setCurrentStep(errorStep);
@@ -504,10 +839,7 @@ export const FacultyRegistration: React.FC = () => {
 
     // Get selected software from state or form
     const selectedSoftware = combinedFormData.getAll('softwareProficiency') as string[];
-    let softwareList = selectedSoftware.filter(s => s !== 'Other');
-    if (showOtherSoftware && otherSoftware.trim()) {
-      softwareList.push(otherSoftware.trim());
-    }
+    const softwareList = [...selectedSoftware.filter(s => s !== 'Other'), ...(showOtherSoftware && otherSoftware.trim() ? [otherSoftware.trim()] : [])];
     const softwareProficiency = softwareList.length > 0 ? softwareList.join(', ') : undefined;
 
     // Get selected documents from state or form
@@ -562,20 +894,101 @@ export const FacultyRegistration: React.FC = () => {
       employmentInfo,
       bankInfo,
       emergencyInfo,
-      documentsSubmitted: documentsSubmitted.length > 0 ? documentsSubmitted : undefined,
+      documents: documentsSubmitted.length > 0 ? documentsSubmitted : undefined,
     };
     
+    // Include uploaded documents in the documents object
+    const finalDocuments = {
+      ...documents,
+      photo,
+      panCard,
+      aadharCard,
+      otherDocuments,
+    };
+
     const data: CreateFacultyRequest = {
       userId: createdUserId,
       expertise: (combinedFormData.get('expertise') as string) || formData.expertise,
       availability: (combinedFormData.get('availability') as string) || formData.availability,
-      documents,
+      documents: finalDocuments,
       softwareProficiency,
     };
 
     createFacultyMutation.mutate(data);
   };
 
+  
+
+  const prevStep = () => {
+    if (currentStep > 1) {
+      // Save current step data before moving backward
+      const form = document.querySelector('form');
+      if (form) {
+        const currentFormData = new FormData(form);
+        
+        // Update formData state with current step's data
+        setFormData(prev => {
+          const updated = { ...prev };
+          
+          // Map form fields to the appropriate step
+          if (currentStep === 2) {
+            // Step 2: Personal Information
+            updated.gender = (currentFormData.get('gender') as string) || prev.gender;
+            updated.dateOfBirth = (currentFormData.get('dateOfBirth') as string) || prev.dateOfBirth;
+            updated.nationality = (currentFormData.get('nationality') as string) || prev.nationality;
+            updated.maritalStatus = (currentFormData.get('maritalStatus') as string) || prev.maritalStatus;
+            updated.address = (currentFormData.get('address') as string) || prev.address;
+            updated.city = (currentFormData.get('city') as string) || prev.city;
+            updated.state = (currentFormData.get('state') as string) || prev.state;
+            updated.postalCode = (currentFormData.get('postalCode') as string) || prev.postalCode;
+          } else if (currentStep === 3) {
+            // Step 3: Employment Information
+            updated.department = (currentFormData.get('department') as string) || prev.department;
+            updated.designation = (currentFormData.get('designation') as string) || prev.designation;
+            updated.dateOfJoining = (currentFormData.get('dateOfJoining') as string) || prev.dateOfJoining;
+            updated.employmentType = (currentFormData.get('employmentType') as string) || prev.employmentType;
+            updated.reportingManager = (currentFormData.get('reportingManager') as string) || prev.reportingManager;
+            updated.workLocation = (currentFormData.get('workLocation') as string) || prev.workLocation;
+            updated.expertise = (currentFormData.get('expertise') as string) || prev.expertise;
+            updated.availability = (currentFormData.get('availability') as string) || prev.availability;
+          } else if (currentStep === 4) {
+            // Step 4: Software Proficiency
+            const selectedSoftware = currentFormData.getAll('softwareProficiency') as string[];
+            const softwareList = [...selectedSoftware.filter(s => s !== 'Other'), ...(showOtherSoftware && otherSoftware.trim() ? [otherSoftware.trim()] : [])];
+            updated.softwareProficiency = softwareList;
+          } else if (currentStep === 5) {
+            // Step 5: Bank Details
+            updated.bankName = (currentFormData.get('bankName') as string) || prev.bankName;
+            updated.accountNumber = (currentFormData.get('accountNumber') as string) || prev.accountNumber;
+            updated.ifscCode = (currentFormData.get('ifscCode') as string) || prev.ifscCode;
+            updated.branch = (currentFormData.get('branch') as string) || prev.branch;
+            updated.panNumber = (currentFormData.get('panNumber') as string) || prev.panNumber;
+          } else if (currentStep === 6) {
+            // Step 6: Emergency Contact
+            updated.emergencyContactName = (currentFormData.get('emergencyContactName') as string) || prev.emergencyContactName;
+            updated.emergencyRelationship = (currentFormData.get('emergencyRelationship') as string) || prev.emergencyRelationship;
+            updated.emergencyPhoneNumber = (currentFormData.get('emergencyPhoneNumber') as string) || prev.emergencyPhoneNumber;
+            updated.emergencyAlternatePhone = (currentFormData.get('emergencyAlternatePhone') as string) || prev.emergencyAlternatePhone;
+          }
+          
+          return updated;
+        });
+      }
+      
+      // If going back to Step 1, update step1Data with the formData values
+      if (currentStep === 2) {
+        setStep1Data(prev => ({
+          ...prev,
+          fullName: formData.name,
+          email: formData.email,
+          contactNumber: formData.phone,
+        }));
+      }
+      
+      setCurrentStep(currentStep - 1);
+    }
+  };
+  
   const nextStep = (e?: React.FormEvent<HTMLFormElement>) => {
     if (currentStep < totalSteps) {
       // Save current form data to state before moving to next step
@@ -586,30 +999,53 @@ export const FacultyRegistration: React.FC = () => {
         // Update formData state with current step's data
         setFormData(prev => {
           const updated = { ...prev };
-          // Save all form fields from current step to state
-          for (const [key, value] of currentFormData.entries()) {
-            if (key === 'softwareProficiency' || key === 'documents') {
-              // Handle arrays separately
-              const existing = prev[key as keyof FacultyFormData] as string[];
-              if (Array.isArray(existing)) {
-                (updated[key as keyof FacultyFormData] as string[]) = [...existing, value as string];
-              } else {
-                (updated[key as keyof FacultyFormData] as string[]) = [value as string];
-              }
-            } else {
-              (updated[key as keyof FacultyFormData] as string) = value as string;
-            }
+          
+          // Map form fields to the appropriate step
+          if (currentStep === 2) {
+            // Step 2: Personal Information
+            updated.gender = (currentFormData.get('gender') as string) || prev.gender;
+            updated.dateOfBirth = (currentFormData.get('dateOfBirth') as string) || prev.dateOfBirth;
+            updated.nationality = (currentFormData.get('nationality') as string) || prev.nationality;
+            updated.maritalStatus = (currentFormData.get('maritalStatus') as string) || prev.maritalStatus;
+            updated.address = (currentFormData.get('address') as string) || prev.address;
+            updated.city = (currentFormData.get('city') as string) || prev.city;
+            updated.state = (currentFormData.get('state') as string) || prev.state;
+            updated.postalCode = (currentFormData.get('postalCode') as string) || prev.postalCode;
+          } else if (currentStep === 3) {
+            // Step 3: Employment Information
+            updated.department = (currentFormData.get('department') as string) || prev.department;
+            updated.designation = (currentFormData.get('designation') as string) || prev.designation;
+            updated.dateOfJoining = (currentFormData.get('dateOfJoining') as string) || prev.dateOfJoining;
+            updated.employmentType = (currentFormData.get('employmentType') as string) || prev.employmentType;
+            updated.reportingManager = (currentFormData.get('reportingManager') as string) || prev.reportingManager;
+            updated.workLocation = (currentFormData.get('workLocation') as string) || prev.workLocation;
+            updated.expertise = (currentFormData.get('expertise') as string) || prev.expertise;
+            updated.availability = (currentFormData.get('availability') as string) || prev.availability;
+          } else if (currentStep === 4) {
+            // Step 4: Software Proficiency
+            const selectedSoftware = currentFormData.getAll('softwareProficiency') as string[];
+            const softwareList = [...selectedSoftware.filter(s => s !== 'Other'), ...(showOtherSoftware && otherSoftware.trim() ? [otherSoftware.trim()] : [])];
+            updated.softwareProficiency = softwareList;
+          } else if (currentStep === 5) {
+            // Step 5: Bank Details
+            updated.bankName = (currentFormData.get('bankName') as string) || prev.bankName;
+            updated.accountNumber = (currentFormData.get('accountNumber') as string) || prev.accountNumber;
+            updated.ifscCode = (currentFormData.get('ifscCode') as string) || prev.ifscCode;
+            updated.branch = (currentFormData.get('branch') as string) || prev.branch;
+            updated.panNumber = (currentFormData.get('panNumber') as string) || prev.panNumber;
+          } else if (currentStep === 6) {
+            // Step 6: Emergency Contact
+            updated.emergencyContactName = (currentFormData.get('emergencyContactName') as string) || prev.emergencyContactName;
+            updated.emergencyRelationship = (currentFormData.get('emergencyRelationship') as string) || prev.emergencyRelationship;
+            updated.emergencyPhoneNumber = (currentFormData.get('emergencyPhoneNumber') as string) || prev.emergencyPhoneNumber;
+            updated.emergencyAlternatePhone = (currentFormData.get('emergencyAlternatePhone') as string) || prev.emergencyAlternatePhone;
           }
+          
           return updated;
         });
       }
+      
       setCurrentStep(currentStep + 1);
-    }
-  };
-
-  const prevStep = () => {
-    if (currentStep > 1) {
-      setCurrentStep(currentStep - 1);
     }
   };
 
@@ -677,6 +1113,8 @@ export const FacultyRegistration: React.FC = () => {
                     type="text"
                     name="fullName"
                     required
+                    value={step1Data.fullName}
+                    onChange={(e) => setStep1Data(prev => ({ ...prev, fullName: e.target.value }))}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
                   />
                 </div>
@@ -689,6 +1127,8 @@ export const FacultyRegistration: React.FC = () => {
                     type="email"
                     name="email"
                     required
+                    value={step1Data.email}
+                    onChange={(e) => setStep1Data(prev => ({ ...prev, email: e.target.value }))}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
                   />
                 </div>
@@ -703,6 +1143,8 @@ export const FacultyRegistration: React.FC = () => {
                     required
                     pattern="[0-9]{10}"
                     title="Phone number should be 10 digits"
+                    value={step1Data.contactNumber}
+                    onChange={(e) => setStep1Data(prev => ({ ...prev, contactNumber: e.target.value }))}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
                   />
                 </div>
@@ -716,6 +1158,8 @@ export const FacultyRegistration: React.FC = () => {
                     name="password"
                     required
                     minLength={6}
+                    value={step1Data.password}
+                    onChange={(e) => setStep1Data(prev => ({ ...prev, password: e.target.value }))}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
                   />
                   <p className="text-xs text-gray-500 mt-1">Minimum 6 characters</p>
@@ -814,6 +1258,8 @@ export const FacultyRegistration: React.FC = () => {
                           type="text"
                           name="nationality"
                           required
+                          value={formData.nationality}
+                          onChange={(e) => setFormData(prev => ({ ...prev, nationality: e.target.value }))}
                           className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
                         />
                       </div>
@@ -824,15 +1270,39 @@ export const FacultyRegistration: React.FC = () => {
                         </label>
                         <div className="flex gap-4 mt-2">
                           <label className="flex items-center">
-                            <input type="radio" name="maritalStatus" value="single" required className="mr-2" />
+                            <input 
+                              type="radio" 
+                              name="maritalStatus" 
+                              value="single" 
+                              required 
+                              checked={formData.maritalStatus === 'single'}
+                              onChange={(e) => setFormData(prev => ({ ...prev, maritalStatus: e.target.value }))}
+                              className="mr-2" 
+                            />
                             <span>Single</span>
                           </label>
                           <label className="flex items-center">
-                            <input type="radio" name="maritalStatus" value="married" required className="mr-2" />
+                            <input 
+                              type="radio" 
+                              name="maritalStatus" 
+                              value="married" 
+                              required 
+                              checked={formData.maritalStatus === 'married'}
+                              onChange={(e) => setFormData(prev => ({ ...prev, maritalStatus: e.target.value }))}
+                              className="mr-2" 
+                            />
                             <span>Married</span>
                           </label>
                           <label className="flex items-center">
-                            <input type="radio" name="maritalStatus" value="other" required className="mr-2" />
+                            <input 
+                              type="radio" 
+                              name="maritalStatus" 
+                              value="other" 
+                              required 
+                              checked={formData.maritalStatus === 'other'}
+                              onChange={(e) => setFormData(prev => ({ ...prev, maritalStatus: e.target.value }))}
+                              className="mr-2" 
+                            />
                             <span>Other</span>
                           </label>
                         </div>
@@ -847,6 +1317,8 @@ export const FacultyRegistration: React.FC = () => {
                         name="address"
                         rows={3}
                         required
+                        value={formData.address}
+                        onChange={(e) => setFormData(prev => ({ ...prev, address: e.target.value }))}
                         className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
                       />
                     </div>
@@ -860,6 +1332,8 @@ export const FacultyRegistration: React.FC = () => {
                           type="text"
                           name="city"
                           required
+                          value={formData.city}
+                          onChange={(e) => setFormData(prev => ({ ...prev, city: e.target.value }))}
                           className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
                         />
                       </div>
@@ -872,6 +1346,8 @@ export const FacultyRegistration: React.FC = () => {
                           type="text"
                           name="state"
                           required
+                          value={formData.state}
+                          onChange={(e) => setFormData(prev => ({ ...prev, state: e.target.value }))}
                           className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
                         />
                       </div>
@@ -886,6 +1362,8 @@ export const FacultyRegistration: React.FC = () => {
                           required
                           pattern="[0-9]{5,6}"
                           title="Postal code should be 5-6 digits"
+                          value={formData.postalCode}
+                          onChange={(e) => setFormData(prev => ({ ...prev, postalCode: e.target.value }))}
                           className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
                         />
                       </div>
@@ -906,6 +1384,8 @@ export const FacultyRegistration: React.FC = () => {
                         type="text"
                         name="department"
                         required
+                        value={formData.department}
+                        onChange={(e) => setFormData(prev => ({ ...prev, department: e.target.value }))}
                         className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
                       />
                     </div>
@@ -918,6 +1398,8 @@ export const FacultyRegistration: React.FC = () => {
                         type="text"
                         name="designation"
                         required
+                        value={formData.designation}
+                        onChange={(e) => setFormData(prev => ({ ...prev, designation: e.target.value }))}
                         className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
                       />
                     </div>
@@ -930,6 +1412,8 @@ export const FacultyRegistration: React.FC = () => {
                         type="date"
                         name="dateOfJoining"
                         required
+                        value={formData.dateOfJoining}
+                        onChange={(e) => setFormData(prev => ({ ...prev, dateOfJoining: e.target.value }))}
                         max={new Date().toISOString().split('T')[0]}
                         className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
                       />
@@ -941,19 +1425,51 @@ export const FacultyRegistration: React.FC = () => {
                       </label>
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-2">
                         <label className="flex items-center">
-                          <input type="radio" name="employmentType" value="full-time" required className="mr-2" />
+                          <input 
+                            type="radio" 
+                            name="employmentType" 
+                            value="full-time" 
+                            required 
+                            checked={formData.employmentType === 'full-time'}
+                            onChange={(e) => setFormData(prev => ({ ...prev, employmentType: e.target.value }))}
+                            className="mr-2" 
+                          />
                           <span>Full-Time</span>
                         </label>
                         <label className="flex items-center">
-                          <input type="radio" name="employmentType" value="part-time" required className="mr-2" />
+                          <input 
+                            type="radio" 
+                            name="employmentType" 
+                            value="part-time" 
+                            required 
+                            checked={formData.employmentType === 'part-time'}
+                            onChange={(e) => setFormData(prev => ({ ...prev, employmentType: e.target.value }))}
+                            className="mr-2" 
+                          />
                           <span>Part-Time</span>
                         </label>
                         <label className="flex items-center">
-                          <input type="radio" name="employmentType" value="contract" required className="mr-2" />
+                          <input 
+                            type="radio" 
+                            name="employmentType" 
+                            value="contract" 
+                            required 
+                            checked={formData.employmentType === 'contract'}
+                            onChange={(e) => setFormData(prev => ({ ...prev, employmentType: e.target.value }))}
+                            className="mr-2" 
+                          />
                           <span>Contract</span>
                         </label>
                         <label className="flex items-center">
-                          <input type="radio" name="employmentType" value="intern" required className="mr-2" />
+                          <input 
+                            type="radio" 
+                            name="employmentType" 
+                            value="intern" 
+                            required 
+                            checked={formData.employmentType === 'intern'}
+                            onChange={(e) => setFormData(prev => ({ ...prev, employmentType: e.target.value }))}
+                            className="mr-2" 
+                          />
                           <span>Intern</span>
                         </label>
                       </div>
@@ -965,6 +1481,8 @@ export const FacultyRegistration: React.FC = () => {
                         <input
                           type="text"
                           name="reportingManager"
+                          value={formData.reportingManager}
+                          onChange={(e) => setFormData(prev => ({ ...prev, reportingManager: e.target.value }))}
                           className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
                         />
                       </div>
@@ -977,6 +1495,8 @@ export const FacultyRegistration: React.FC = () => {
                           type="text"
                           name="workLocation"
                           required
+                          value={formData.workLocation}
+                          onChange={(e) => setFormData(prev => ({ ...prev, workLocation: e.target.value }))}
                           className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
                         />
                       </div>
@@ -990,6 +1510,8 @@ export const FacultyRegistration: React.FC = () => {
                         name="expertise"
                         rows={3}
                         required
+                        value={formData.expertise}
+                        onChange={(e) => setFormData(prev => ({ ...prev, expertise: e.target.value }))}
                         placeholder="Describe your areas of expertise and specialization"
                         className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
                       />
@@ -1003,6 +1525,8 @@ export const FacultyRegistration: React.FC = () => {
                         name="availability"
                         rows={2}
                         required
+                        value={formData.availability}
+                        onChange={(e) => setFormData(prev => ({ ...prev, availability: e.target.value }))}
                         placeholder="e.g., Monday-Friday 9 AM - 5 PM"
                         className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
                       />
@@ -1057,9 +1581,18 @@ export const FacultyRegistration: React.FC = () => {
                                 type="checkbox"
                                 name="softwareProficiency"
                                 value={software}
+                                checked={formData.softwareProficiency.includes(software)}
                                 onChange={(e) => {
+                                  const isChecked = e.target.checked;
+                                  setFormData(prev => ({
+                                    ...prev,
+                                    softwareProficiency: isChecked
+                                      ? [...prev.softwareProficiency, software]
+                                      : prev.softwareProficiency.filter((s: string) => s !== software)
+                                  }));
+                                  
                                   if (software === 'Other') {
-                                    setShowOtherSoftware(e.target.checked);
+                                    setShowOtherSoftware(isChecked);
                                   }
                                 }}
                                 className="w-4 h-4 text-orange-600 border-gray-300 rounded focus:ring-orange-500"
@@ -1100,6 +1633,8 @@ export const FacultyRegistration: React.FC = () => {
                         type="text"
                         name="bankName"
                         required
+                        value={formData.bankName}
+                        onChange={(e) => setFormData(prev => ({ ...prev, bankName: e.target.value }))}
                         className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
                       />
                     </div>
@@ -1114,6 +1649,8 @@ export const FacultyRegistration: React.FC = () => {
                         required
                         pattern="[0-9]{9,18}"
                         title="Account number should be 9-18 digits"
+                        value={formData.accountNumber}
+                        onChange={(e) => setFormData(prev => ({ ...prev, accountNumber: e.target.value }))}
                         className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
                       />
                     </div>
@@ -1128,6 +1665,8 @@ export const FacultyRegistration: React.FC = () => {
                         required
                         pattern="[A-Z]{4}0[A-Z0-9]{6}"
                         title="IFSC code should be 11 characters (e.g., ABCD0123456)"
+                        value={formData.ifscCode}
+                        onChange={(e) => setFormData(prev => ({ ...prev, ifscCode: e.target.value }))}
                         className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500 uppercase"
                         style={{ textTransform: 'uppercase' }}
                       />
@@ -1141,6 +1680,8 @@ export const FacultyRegistration: React.FC = () => {
                         type="text"
                         name="branch"
                         required
+                        value={formData.branch}
+                        onChange={(e) => setFormData(prev => ({ ...prev, branch: e.target.value }))}
                         className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
                       />
                     </div>
@@ -1156,12 +1697,10 @@ export const FacultyRegistration: React.FC = () => {
                         maxLength={10}
                         pattern="[A-Za-z]{5}[0-9]{4}[A-Za-z]{1}"
                         title="PAN should be 10 characters (e.g., ABCDE1234F)"
+                        value={formData.panNumber}
+                        onChange={(e) => setFormData(prev => ({ ...prev, panNumber: e.target.value.toUpperCase() }))}
                         className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500 uppercase"
                         style={{ textTransform: 'uppercase' }}
-                        onChange={(e) => {
-                          // Force uppercase value so it matches PAN format while user types
-                          e.target.value = e.target.value.toUpperCase();
-                        }}
                       />
                     </div>
                   </div>
@@ -1180,6 +1719,8 @@ export const FacultyRegistration: React.FC = () => {
                         type="text"
                         name="emergencyContactName"
                         required
+                        value={formData.emergencyContactName}
+                        onChange={(e) => setFormData(prev => ({ ...prev, emergencyContactName: e.target.value }))}
                         className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
                       />
                     </div>
@@ -1192,6 +1733,8 @@ export const FacultyRegistration: React.FC = () => {
                         type="text"
                         name="emergencyRelationship"
                         required
+                        value={formData.emergencyRelationship}
+                        onChange={(e) => setFormData(prev => ({ ...prev, emergencyRelationship: e.target.value }))}
                         placeholder="e.g., Father, Mother, Spouse, Guardian"
                         className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
                       />
@@ -1208,6 +1751,8 @@ export const FacultyRegistration: React.FC = () => {
                           required
                           pattern="[0-9]{10}"
                           title="Phone number should be 10 digits"
+                          value={formData.emergencyPhoneNumber}
+                          onChange={(e) => setFormData(prev => ({ ...prev, emergencyPhoneNumber: e.target.value.replace(/\D/g, '').slice(0, 10) }))}
                           className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
                         />
                       </div>
@@ -1219,6 +1764,8 @@ export const FacultyRegistration: React.FC = () => {
                           name="emergencyAlternatePhone"
                           pattern="[0-9]{10}"
                           title="Phone number should be 10 digits"
+                          value={formData.emergencyAlternatePhone}
+                          onChange={(e) => setFormData(prev => ({ ...prev, emergencyAlternatePhone: e.target.value.replace(/\D/g, '').slice(0, 10) }))}
                           className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
                         />
                       </div>
@@ -1231,28 +1778,172 @@ export const FacultyRegistration: React.FC = () => {
                   <div className="space-y-6">
                     <h2 className="text-2xl font-bold text-gray-900 mb-6">Step 7: Documents & Declaration</h2>
                     
+                    {/* Photo */}
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-3">Documents Submitted</label>
-                      <div className="space-y-2 border border-gray-300 rounded-md p-4">
-                        {[
-                          'Resume',
-                          'ID Proof',
-                          'Previous Salary Payslip',
-                          'Educational Certificates',
-                          'Experience Certificates',
-                          'Relieving letter',
-                        ].map((doc) => (
-                          <label key={doc} className="flex items-center">
-                            <input
-                              type="checkbox"
-                              name="documents"
-                              value={doc}
-                              className="mr-2"
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Photo</label>
+                      <input
+                        type="file"
+                        accept="image/jpeg,image/jpg,image/png,image/webp,image/gif"
+                        onChange={handlePhotoUpload}
+                        disabled={uploadingPhoto}
+                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 disabled:opacity-50"
+                      />
+                      {uploadingPhoto && <p className="mt-2 text-sm text-gray-500">Uploading...</p>}
+                      {photo && photo.url && (
+                        <div className="mt-3 p-3 bg-gray-50 rounded-lg border border-gray-200 flex items-center space-x-4">
+                          <img
+                            src={photo.url}
+                            alt="Photo"
+                            className="h-16 w-16 object-cover rounded border border-gray-300"
+                            crossOrigin="anonymous"
+                          />
+                          <div className="flex-1">
+                            <p className="text-sm font-medium text-gray-900">{photo.name}</p>
+                            <p className="text-xs text-gray-500">Image File</p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setPhoto(null)}
+                            className="px-3 py-1.5 text-sm text-red-600 hover:text-red-800 border border-red-300 rounded hover:bg-red-50"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      )}
+                      {photoUploadError && (
+                        <p className="mt-2 text-sm text-red-600">{photoUploadError}</p>
+                      )}
+                    </div>
+
+                    {/* PAN Card */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">PAN Card</label>
+                      <input
+                        type="file"
+                        accept="image/jpeg,image/jpg,image/png,application/pdf"
+                        onChange={handlePanCardUpload}
+                        disabled={uploadingPanCard}
+                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 disabled:opacity-50"
+                      />
+                      {uploadingPanCard && <p className="mt-2 text-sm text-gray-500">Uploading...</p>}
+                      {panCard && panCard.url && (
+                        <div className="mt-3 p-3 bg-gray-50 rounded-lg border border-gray-200 flex items-center space-x-4">
+                          {panCard.url.endsWith('.pdf') ? (
+                            <div className="h-16 w-16 bg-gray-200 rounded border border-gray-300 flex items-center justify-center">
+                              <span className="text-2xl">📄</span>
+                            </div>
+                          ) : (
+                            <img
+                              src={panCard.url}
+                              alt="PAN Card"
+                              className="h-16 w-16 object-cover rounded border border-gray-300"
+                              crossOrigin="anonymous"
                             />
-                            <span>{doc}</span>
-                          </label>
-                        ))}
-                      </div>
+                          )}
+                          <div className="flex-1">
+                            <p className="text-sm font-medium text-gray-900">{panCard.name}</p>
+                            <p className="text-xs text-gray-500">{panCard.url.endsWith('.pdf') ? 'PDF Document' : 'Image File'}</p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setPanCard(null)}
+                            className="px-3 py-1.5 text-sm text-red-600 hover:text-red-800 border border-red-300 rounded hover:bg-red-50"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Aadhar Card */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Aadhar Card</label>
+                      <input
+                        type="file"
+                        accept="image/jpeg,image/jpg,image/png,application/pdf"
+                        onChange={handleAadharCardUpload}
+                        disabled={uploadingAadharCard}
+                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 disabled:opacity-50"
+                      />
+                      {uploadingAadharCard && <p className="mt-2 text-sm text-gray-500">Uploading...</p>}
+                      {aadharCard && aadharCard.url && (
+                        <div className="mt-3 p-3 bg-gray-50 rounded-lg border border-gray-200 flex items-center space-x-4">
+                          {aadharCard.url.endsWith('.pdf') ? (
+                            <div className="h-16 w-16 bg-gray-200 rounded border border-gray-300 flex items-center justify-center">
+                              <span className="text-2xl">📄</span>
+                            </div>
+                          ) : (
+                            <img
+                              src={aadharCard.url}
+                              alt="Aadhar Card"
+                              className="h-16 w-16 object-cover rounded border border-gray-300"
+                              crossOrigin="anonymous"
+                            />
+                          )}
+                          <div className="flex-1">
+                            <p className="text-sm font-medium text-gray-900">{aadharCard.name}</p>
+                            <p className="text-xs text-gray-500">{aadharCard.url.endsWith('.pdf') ? 'PDF Document' : 'Image File'}</p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setAadharCard(null)}
+                            className="px-3 py-1.5 text-sm text-red-600 hover:text-red-800 border border-red-300 rounded hover:bg-red-50"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Other Documents */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Other Documents (Multiple files allowed)</label>
+                      <input
+                        type="file"
+                        accept="image/jpeg,image/jpg,image/png,application/pdf"
+                        multiple
+                        onChange={handleOtherDocumentsUpload}
+                        disabled={uploadingOtherDocs}
+                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 disabled:opacity-50"
+                      />
+                      {uploadingOtherDocs && <p className="mt-2 text-sm text-gray-500">Uploading...</p>}
+                      {otherDocuments.length > 0 && (
+                        <div className="mt-3 space-y-2">
+                          {otherDocuments.map((doc, index) => {
+                            const isPdf = doc.url.endsWith('.pdf');
+                            const isImage = doc.url.match(/\.(jpg|jpeg|png|gif|webp)$/i);
+                            return (
+                              <div key={index} className="p-3 bg-gray-50 rounded-lg border border-gray-200 flex items-center space-x-4">
+                                {isImage ? (
+                                  <img
+                                    src={doc.url}
+                                    alt={doc.name}
+                                    className="h-16 w-16 object-cover rounded border border-gray-300"
+                                    crossOrigin="anonymous"
+                                  />
+                                ) : (
+                                  <div className="h-16 w-16 bg-gray-200 rounded border border-gray-300 flex items-center justify-center">
+                                    <span className="text-2xl">{isPdf ? '📄' : '📎'}</span>
+                                  </div>
+                                )}
+                                <div className="flex-1">
+                                  <p className="text-sm font-medium text-gray-900 truncate" title={doc.name}>{doc.name}</p>
+                                  <p className="text-xs text-gray-500">
+                                    {isPdf ? 'PDF Document' : isImage ? 'Image File' : 'Document'}
+                                  </p>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveOtherDocument(index)}
+                                  className="px-3 py-1.5 text-sm text-red-600 hover:text-red-800 border border-red-300 rounded hover:bg-red-50"
+                                >
+                                  Remove
+                                </button>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
 
                     <div className="border-t pt-6">
@@ -1286,7 +1977,7 @@ export const FacultyRegistration: React.FC = () => {
                   <button
                     type="button"
                     onClick={prevStep}
-                    disabled={currentStep === 2}
+                    disabled={currentStep === 1}
                     className="px-6 py-2 bg-gray-200 text-gray-700 rounded-lg font-semibold hover:bg-gray-300 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     Previous

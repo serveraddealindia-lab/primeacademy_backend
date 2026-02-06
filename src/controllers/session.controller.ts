@@ -319,6 +319,22 @@ export const startSession = async (req: AuthRequest, res: Response): Promise<voi
       return;
     }
 
+    // Validate that session date is not before batch start date
+    const sessionDate = todayDate(); // Today's date for the session
+    const batchStartDate = new Date(batch.startDate);
+    
+    // Set both dates to midnight for comparison
+    batchStartDate.setHours(0, 0, 0, 0);
+    sessionDate.setHours(0, 0, 0, 0);
+    
+    if (sessionDate < batchStartDate) {
+      res.status(400).json({
+        status: 'error',
+        message: `Cannot start session before batch start date. Batch starts on ${batchStartDate.toISOString().split('T')[0]}, but session is being created for ${sessionDate.toISOString().split('T')[0]}.`,
+      });
+      return;
+    }
+
     const now = new Date();
     const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
     const todaySchedule =

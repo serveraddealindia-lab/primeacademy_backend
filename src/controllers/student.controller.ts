@@ -308,8 +308,14 @@ export const completeEnrollment = async (
       }
     }
     
-    if (isEmptyString(softwaresIncluded)) {
-      validationErrors.push('At least one software must be selected');
+    // If course name is provided but doesn't exist in the system, we need to handle that case
+    if (!isEmptyString(courseName)) {
+      // We'll validate the course exists later when fetching the software list
+      logger.info(`Course name provided (${courseName}), software list will be fetched from course definition if course exists`);
+    }
+    // If no course name provided, software list must be specified directly
+    else if (isEmptyString(courseName) && isEmptyString(softwaresIncluded)) {
+      validationErrors.push('At least one software must be selected when no course is specified');
     }
     
     // Handle number fields - they might come as strings or numbers
@@ -579,14 +585,29 @@ export const completeEnrollment = async (
         return null;
       };
 
+      // If course name is provided but no software list, fetch software list from the course
+      let finalSoftwareList = null;
+      if (courseName && (!softwaresIncluded || String(softwaresIncluded).trim() === '')) {
+        // Fetch course from database to get its software list
+        const course = await db.Course.findOne({ where: { name: courseName } });
+        if (course) {
+          finalSoftwareList = Array.isArray(course.software) ? course.software : [];
+          logger.info(`Fetched software list from course ${courseName}: ${finalSoftwareList.join(', ')}`);
+        } else {
+          // If course doesn't exist, we'll still allow enrollment but log a warning
+          logger.warn(`Course '${courseName}' not found in database. Proceeding with empty software list.`);
+          finalSoftwareList = [];
+        }
+      } else if (softwaresIncluded && String(softwaresIncluded).trim()) {
+        finalSoftwareList = softwaresIncluded.split(',').map((s: string) => s.trim()).filter((s: string) => s.length > 0);
+      }
+      
       const profileData: any = {
         userId: user.id,
         dob: req.body.dateOfBirth ? new Date(req.body.dateOfBirth) : null, // Use date of birth instead of admission date
         address: localAddress || permanentAddress || null,
         photoUrl: photoUrl, // Set photoUrl from extracted photo
-        softwareList: softwaresIncluded && softwaresIncluded.trim() 
-          ? softwaresIncluded.split(',').map((s: string) => s.trim()).filter((s: string) => s.length > 0) 
-          : null,
+        softwareList: finalSoftwareList,
         enrollmentDate: dateOfAdmission ? new Date(dateOfAdmission) : new Date(),
         status: 'active', // Initially set to active, will be updated based on payment and completion status
         finishedBatches: req.body.finishedBatches ? parseBatchList(req.body.finishedBatches) : null,
@@ -605,7 +626,12 @@ export const completeEnrollment = async (
         };
       }
       if (courseName) enrollmentMetadata.courseName = courseName;
-      if (softwaresIncluded) enrollmentMetadata.softwareList = softwaresIncluded; // Add software list to metadata
+      // Add software list to metadata - use the final software list (either from request or from course)
+      if (finalSoftwareList && finalSoftwareList.length > 0) {
+        enrollmentMetadata.softwareList = finalSoftwareList.join(', ');
+      } else if (softwaresIncluded) {
+        enrollmentMetadata.softwareList = softwaresIncluded; // Fallback to original if no final list
+      }
       if (totalDeal !== undefined) enrollmentMetadata.totalDeal = totalDeal;
       if (bookingAmount !== undefined) enrollmentMetadata.bookingAmount = bookingAmount;
       if (balanceAmount !== undefined) enrollmentMetadata.balanceAmount = balanceAmount;
@@ -840,6 +866,10 @@ export const completeEnrollment = async (
               logger.error('Error creating balance payment:', paymentError);
               // Don't fail enrollment if payment creation fails, but log it
             }
+          }
+          // If balance amount is 0 and neither EMI nor Lump Sum is selected, no payment transaction is needed
+          else if (balanceAmount === 0 || balanceAmount === null || balanceAmount === undefined) {
+            logger.info(`No balance payment needed: studentId=${user.id}, enrollmentId=${enrollment.id}, balanceAmount=${balanceAmount}`);
           }
         }
       }
@@ -3011,4 +3041,146 @@ export const updateStudentProfile = async (req: AuthRequest, res: Response): Pro
   }
 };
 
+
+// GET /students/check-duplicate → Check for duplicate email or phone
+export const checkDuplicate = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    if (!req.user) {
+      res.status(401).json({
+        status: 'error',
+        message: 'Authentication required',
+      });
+      return;
+    }
+
+    const { email, phone, excludeStudentId } = req.query;
+    
+    // Validation
+    if (!email && !phone) {
+      res.status(400).json({
+        status: 'error',
+        message: 'Either email or phone number is required',
+      });
+      return;
+    }
+
+    const emailStr = email ? String(email).trim().toLowerCase() : null;
+    const phoneStr = phone ? String(phone).trim() : null;
+    
+    // Normalize phone number (remove all non-digit characters)
+    const normalizedPhone = phoneStr ? phoneStr.replace(/\D/g, '') : null;
+    
+    // Build query conditions
+    const whereConditions: any[] = [];
+    
+    if (emailStr) {
+      // Case-insensitive email check using LOWER function
+      whereConditions.push(db.sequelize.where(
+        db.sequelize.fn('LOWER', db.sequelize.col('email')),
+        emailStr
+      ));
+    }
+    
+    if (normalizedPhone && normalizedPhone.length >= 10) {
+      // Phone check using REPLACE to remove non-digits
+      whereConditions.push(db.sequelize.where(
+        db.sequelize.fn('REPLACE', 
+          db.sequelize.fn('REPLACE', 
+            db.sequelize.fn('REPLACE', 
+              db.sequelize.fn('REPLACE', db.sequelize.col('phone'), '-', ''), 
+              ' ', ''), 
+            '+', ''), 
+          ')', ''),
+        normalizedPhone
+      ));
+    }
+    
+    // Exclude current student if editing
+    if (excludeStudentId) {
+      whereConditions.push({ id: { [Op.ne]: Number(excludeStudentId) } });
+    }
+    
+    // Combine conditions with OR for email/phone, AND for exclusion
+    let finalWhere;
+    if (whereConditions.length === 1) {
+      finalWhere = whereConditions[0];
+    } else if (whereConditions.length === 2) {
+      // Email OR Phone condition
+      const emailOrPhoneCondition = {
+        [Op.or]: [whereConditions[0], whereConditions[1]]
+      };
+      
+      if (excludeStudentId) {
+        // Email OR Phone AND NOT excludeStudentId
+        finalWhere = {
+          [Op.and]: [
+            emailOrPhoneCondition,
+            whereConditions[2] // exclusion condition
+          ]
+        };
+      } else {
+        finalWhere = emailOrPhoneCondition;
+      }
+    } else if (whereConditions.length === 3) {
+      // Email OR Phone AND NOT excludeStudentId
+      finalWhere = {
+        [Op.and]: [
+          {
+            [Op.or]: [whereConditions[0], whereConditions[1]]
+          },
+          whereConditions[2]
+        ]
+      };
+    }
+    
+    // Query database
+    const existingStudent = await db.User.findOne({
+      where: finalWhere,
+      attributes: ['id', 'name', 'email', 'phone'],
+    });
+    
+    if (existingStudent) {
+      let conflictMessage = '';
+      let conflictType = '';
+      
+      // Determine which field caused the conflict
+      const existingEmail = existingStudent.email ? existingStudent.email.toLowerCase() : '';
+      const existingPhone = existingStudent.phone ? existingStudent.phone.replace(/\D/g, '') : '';
+      
+      if (emailStr && existingEmail === emailStr) {
+        conflictType = 'email';
+        conflictMessage = `A student with email "${email}" already exists.`;
+      } else if (normalizedPhone && existingPhone === normalizedPhone) {
+        conflictType = 'phone';
+        conflictMessage = `A student with phone number "${phone}" already exists.`;
+      } else if (emailStr && normalizedPhone && existingEmail === emailStr && existingPhone === normalizedPhone) {
+        conflictType = 'both';
+        conflictMessage = `A student with both email "${email}" and phone number "${phone}" already exists.`;
+      }
+      
+      res.status(409).json({
+        status: 'error',
+        message: conflictMessage,
+        conflictType: conflictType,
+        existingStudentId: existingStudent.id,
+        existingStudentName: existingStudent.name,
+      });
+      return;
+    }
+    
+    // No duplicates found
+    res.status(200).json({
+      status: 'success',
+      message: 'No duplicates found',
+      isDuplicate: false,
+    });
+  } catch (error: any) {
+    logger.error('Check duplicate error:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Internal server error while checking for duplicates',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+    });
+  }
+};
 

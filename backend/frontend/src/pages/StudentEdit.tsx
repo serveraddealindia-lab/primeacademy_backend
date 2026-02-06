@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../context/AuthContext';
@@ -57,6 +57,7 @@ export const StudentEdit: React.FC = () => {
   const [showOtherSoftwareInput, setShowOtherSoftwareInput] = useState(false);
   const [otherSoftware, setOtherSoftware] = useState('');
   const [availableSoftwares, setAvailableSoftwares] = useState<string[]>(ALL_SOFTWARES); // Software options based on selected course
+  const [customSoftwares, setCustomSoftwares] = useState<string[]>([]); // Custom software added by user
   const [isPhoneWhatsApp, setIsPhoneWhatsApp] = useState<boolean>(false); // Checkbox state for phone = WhatsApp
   const [uploadedDocuments, setUploadedDocuments] = useState<Array<{ name: string; url: string; size?: number }>>([]);
   const [photo, setPhoto] = useState<{ name: string; url: string; size?: number } | null>(null);
@@ -72,6 +73,16 @@ export const StudentEdit: React.FC = () => {
   const [editingLeadSource, setEditingLeadSource] = useState<string | null>(null);
   const [newLeadSourceName, setNewLeadSourceName] = useState('');
   const [leadSources, setLeadSources] = useState<string[]>(['Walk-in', 'Online', 'Reference', 'Social Media', 'Advertisement', 'Other']);
+  
+  const formContainerRef = useRef<HTMLDivElement>(null);
+  
+  // Scroll to top of form container when step changes
+  useEffect(() => {
+    if (formContainerRef.current) {
+      formContainerRef.current.scrollTop = 0;
+    }
+  }, [currentStep]);
+  
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
   const [newPayment, setNewPayment] = useState({
     amount: '',
@@ -84,6 +95,25 @@ export const StudentEdit: React.FC = () => {
   // Form data state
   const [customizedEmiIndices, setCustomizedEmiIndices] = useState<Set<number>>(new Set()); // Track which EMIs have been manually customized
   const [customDateEmiIndices, setCustomDateEmiIndices] = useState<Set<number>>(new Set()); // Track which EMIs have custom dates
+  // State to track if form data has changed
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+
+  // Effect to handle beforeunload event
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (hasUnsavedChanges) {
+        e.preventDefault();
+        e.returnValue = 'You have unsaved changes. Are you sure you want to leave?';
+        return 'You have unsaved changes. Are you sure you want to leave?';
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [hasUnsavedChanges]);
+
   const [formData, setFormData] = useState<{
     // Basic Info
     name?: string;
@@ -127,6 +157,24 @@ export const StudentEdit: React.FC = () => {
     status?: string;
     softwareList?: string[];
     enrollmentDocuments?: Array<{ name: string; url: string; size?: number }>;
+    
+    // Lump Sum Payment
+    lumpSumPayment?: boolean;
+    nextPayDate?: string;
+    lumpSumPayments?: Array<{
+      date: string;
+      amount: number;
+    }>;
+    
+    // Schedule Information
+    schedule?: Array<{
+      day: string;
+      startTime: string;
+      endTime: string;
+    }>;
+    totalDuration?: number | null;
+    startDate?: string;
+    endDate?: string;
   }>({});
 
   // Fetch student data
@@ -233,6 +281,17 @@ export const StudentEdit: React.FC = () => {
         enrollmentDate: profile?.enrollmentDate || '',
         status: profile?.status || 'active',
         softwareList: profile?.softwareList || [],
+        
+        // Lump Sum Payment
+        lumpSumPayment: enrollmentMetadata?.lumpSumPayment || false,
+        nextPayDate: enrollmentMetadata?.nextPayDate || '',
+        lumpSumPayments: enrollmentMetadata?.lumpSumPayments || [],
+        
+        // Schedule Information
+        schedule: enrollmentMetadata?.schedule || [],
+        totalDuration: enrollmentMetadata?.totalDuration || null,
+        startDate: enrollmentMetadata?.startDate || '',
+        endDate: enrollmentMetadata?.endDate || '',
       });
 
       // Load existing documents - check for structured documents first
@@ -349,12 +408,12 @@ export const StudentEdit: React.FC = () => {
       if (selectedCourse?.software && Array.isArray(selectedCourse.software) && selectedCourse.software.length > 0) {
         setAvailableSoftwares(selectedCourse.software);
       } else {
-        setAvailableSoftwares(ALL_SOFTWARES);
+        setAvailableSoftwares([...ALL_SOFTWARES, ...customSoftwares]);
       }
     } else if (!formData.courseName) {
-      setAvailableSoftwares(ALL_SOFTWARES);
+      setAvailableSoftwares([...ALL_SOFTWARES, ...customSoftwares]);
     }
-  }, [formData.courseName, coursesData]);
+  }, [formData.courseName, coursesData, customSoftwares]);
 
   // Fetch batches
   const { data: batchesData } = useQuery({
@@ -440,6 +499,17 @@ const { data: courseNamesData } = useQuery({
       });
     }
   }, [formData.totalDeal, formData.bookingAmount]);
+  
+  // Handle mutual exclusivity between EMI and Lump Sum Payment
+  useEffect(() => {
+    if (formData.emiPlan && formData.lumpSumPayment) {
+      // If both are selected, default to EMI (unselect lump sum)
+      setFormData(prev => ({
+        ...prev,
+        lumpSumPayment: false
+      }));
+    }
+  }, [formData.emiPlan, formData.lumpSumPayment]);
 
   // Auto-calculate EMI installments when EMI plan is enabled and balance is available
   useEffect(() => {
@@ -558,6 +628,18 @@ The payment will appear in the Payment History section below.`);
   const handleInputChange = (field: string, value: any) => {
     setFormData(prev => ({ ...prev, [field]: value }));
     
+    // Mark that there are unsaved changes
+    setHasUnsavedChanges(true);
+    
+    // Handle mutual exclusivity between EMI and Lump Sum Payment
+    if (field === 'emiPlan' && value === true) {
+      // When EMI is selected, unselect Lump Sum
+      setFormData(prev => ({ ...prev, lumpSumPayment: false }));
+    } else if (field === 'lumpSumPayment' && value === true) {
+      // When Lump Sum is selected, unselect EMI
+      setFormData(prev => ({ ...prev, emiPlan: false }));
+    }
+    
     // If phone number changes and checkbox is checked, update WhatsApp number
     if (field === 'phone' && isPhoneWhatsApp) {
       setFormData(prev => ({ ...prev, whatsappNumber: value }));
@@ -577,12 +659,12 @@ The payment will appear in the Payment History section below.`);
         setOtherSoftware('');
       } else {
         // If no course software found, reset to all software
-        setAvailableSoftwares(ALL_SOFTWARES);
+        setAvailableSoftwares([...ALL_SOFTWARES, ...customSoftwares]);
         setSelectedSoftwares([]);
       }
     } else if (field === 'courseName' && !value) {
       // Reset to all software when course is cleared - allow manual selection
-      setAvailableSoftwares(ALL_SOFTWARES);
+      setAvailableSoftwares([...ALL_SOFTWARES, ...customSoftwares]);
       setSelectedSoftwares([]);
       setShowOtherSoftwareInput(false);
       setOtherSoftware('');
@@ -625,8 +707,34 @@ The payment will appear in the Payment History section below.`);
   };
 
   const handleSoftwareChange = (software: string, checked: boolean) => {
+    // Check if student has enrollments (already enrolled)
+    const hasEnrollments = enrollmentsData?.data && Array.isArray(enrollmentsData.data) && enrollmentsData.data.length > 0;
+    
+    if (hasEnrollments && user?.role !== 'superadmin') {
+      // If student is enrolled and user is not superadmin, restrict software changes
+      const originallyOptedSoftware = studentData?.studentProfile?.softwareList || [];
+      const isOriginallyOpted = originallyOptedSoftware.includes(software);
+      
+      if (checked && !isOriginallyOpted) {
+        alert('Error: Cannot add new software. This student is already enrolled. Only superadmin can add additional software to enrolled students.');
+        return;
+      }
+      
+      if (!checked && isOriginallyOpted) {
+        alert('Error: Cannot remove originally opted software. This student is already enrolled. Only superadmin can modify software for enrolled students.');
+        return;
+      }
+    }
+    
     if (checked) {
       setSelectedSoftwares(prev => [...prev, software]);
+      // If it's a custom software not in available list, add it
+      if (!availableSoftwares.includes(software)) {
+        setAvailableSoftwares(prev => [...prev, software]);
+        if (!ALL_SOFTWARES.includes(software) && !customSoftwares.includes(software)) {
+          setCustomSoftwares(prev => [...prev, software]);
+        }
+      }
     } else {
       setSelectedSoftwares(prev => prev.filter(s => s !== software));
     }
@@ -867,26 +975,12 @@ The payment will appear in the Payment History section below.`);
       errors.push('Emergency Contact Relation is required');
     }
 
-    // Validate Date of Birth - must be at least 18 years old
+    // Validate Date of Birth - check if date is in the future
     if (formData.dob) {
       const dobDate = new Date(formData.dob);
       if (!isNaN(dobDate.getTime())) {
         if (dobDate > new Date()) {
           errors.push('Date of birth cannot be in the future');
-        } else {
-          const today = new Date();
-          let age = today.getFullYear() - dobDate.getFullYear();
-          const monthDiff = today.getMonth() - dobDate.getMonth();
-          const dayDiff = today.getDate() - dobDate.getDate();
-          
-          // Adjust age if birthday hasn't occurred this year
-          if (monthDiff < 0 || (monthDiff === 0 && dayDiff < 0)) {
-            age--;
-          }
-          
-          if (age < 18) {
-            errors.push('Student must be at least 18 years old');
-          }
         }
       }
     }
@@ -908,6 +1002,25 @@ The payment will appear in the Payment History section below.`);
     // Validate all required fields
     if (!validateAllFields()) {
       return;
+    }
+    
+    // Check for duplicate email or phone before submitting (excluding current student)
+    try {
+      const response = await studentAPI.checkDuplicate(formData.email, formData.phone, Number(id));
+      
+      if (response.data.exists && response.data.studentId) {
+        const conflictType = response.data.type;
+        const existingStudentName = response.data.studentName;
+        
+        const message = `A student with this ${conflictType} already exists: ${existingStudentName}. Please correct the ${conflictType} before proceeding.`;
+        alert(message);
+        return; // Block form submission if duplicate found
+      }
+      // If no duplicates found, continue with submission
+    } catch (error) {
+      // If there's an API error (not a duplicate found), log the error but allow form submission
+      console.error('Error checking for duplicates:', error);
+      // Allow form submission despite the API error - don't bother the user
     }
 
     // Combine all selected software
@@ -974,6 +1087,21 @@ The payment will appear in the Payment History section below.`);
     if (formData.walkinDate) enrollmentMetadata.walkinDate = formData.walkinDate;
     if (formData.masterFaculty) enrollmentMetadata.masterFaculty = formData.masterFaculty;
     if (formData.dateOfAdmission) enrollmentMetadata.dateOfAdmission = formData.dateOfAdmission;
+    
+    // Lump Sum Payment
+    if (formData.lumpSumPayment !== undefined) enrollmentMetadata.lumpSumPayment = formData.lumpSumPayment;
+    if (formData.nextPayDate) enrollmentMetadata.nextPayDate = formData.nextPayDate;
+    if (formData.lumpSumPayments && formData.lumpSumPayments.length > 0) {
+      enrollmentMetadata.lumpSumPayments = formData.lumpSumPayments;
+    }
+    
+    // Schedule Information
+    if (formData.schedule && formData.schedule.length > 0) {
+      enrollmentMetadata.schedule = formData.schedule;
+    }
+    if (formData.totalDuration !== undefined && formData.totalDuration !== null) enrollmentMetadata.totalDuration = formData.totalDuration;
+    if (formData.startDate) enrollmentMetadata.startDate = formData.startDate;
+    if (formData.endDate) enrollmentMetadata.endDate = formData.endDate;
 
     // Get photo URL - use uploaded photo URL if available, otherwise use existing photoUrl or avatarUrl
     let photoUrlToSave: string | undefined = undefined;
@@ -1015,6 +1143,8 @@ The payment will appear in the Payment History section below.`);
       await updateStudentProfileMutation.mutateAsync(profileData);
       // Reset uploaded photo URL after successful save
       setUploadedPhotoUrl(null);
+      // Reset unsaved changes flag after successful save
+      setHasUnsavedChanges(false);
       alert('Student updated successfully!');
       navigate('/students');
     } catch (error) {
@@ -1022,7 +1152,7 @@ The payment will appear in the Payment History section below.`);
     }
   };
 
-  const nextStep = () => {
+  const nextStep = async () => {
     if (currentStep === 1) {
       if (!formData.name || !formData.name.trim()) {
         alert('Student Name is required');
@@ -1031,6 +1161,25 @@ The payment will appear in the Payment History section below.`);
       if (!formData.phone || !formData.phone.trim()) {
         alert('Phone number is required');
         return;
+      }
+      
+      // Check for duplicate email or phone (excluding current student)
+      try {
+        const response = await studentAPI.checkDuplicate(formData.email, formData.phone, Number(id));
+        
+        if (response.data.exists && response.data.studentId) {
+          const conflictType = response.data.type;
+          const existingStudentName = response.data.studentName;
+          
+          const message = `A student with this ${conflictType} already exists: ${existingStudentName}. Please correct the ${conflictType} before proceeding.`;
+          alert(message);
+          return; // Block form progression if duplicate found
+        }
+        // If no duplicates found, continue to next step
+      } catch (error) {
+        // If there's an API error (not a duplicate found), log the error but allow form progression
+        console.error('Error checking for duplicates:', error);
+        // Allow form progression despite the API error - don't bother the user
       }
     }
     if (currentStep < totalSteps) {
@@ -1139,7 +1288,13 @@ The payment will appear in the Payment History section below.`);
                 <p className="mt-2 text-orange-100 text-sm md:text-base">Update student information</p>
               </div>
               <button
-                onClick={() => navigate('/students')}
+                onClick={async () => {
+                  if (hasUnsavedChanges) {
+                    const confirmed = window.confirm('You have unsaved changes. Are you sure you want to leave without saving?');
+                    if (!confirmed) return;
+                  }
+                  navigate('/students');
+                }}
                 className="px-4 py-2 bg-white text-orange-600 rounded-lg font-semibold hover:bg-orange-50 transition-colors text-sm md:text-base"
               >
                 ← Back
@@ -1203,7 +1358,7 @@ The payment will appear in the Payment History section below.`);
               e.stopPropagation();
             }
           }}>
-            <div className="p-4 md:p-8 max-h-[calc(100vh-12rem)] overflow-y-auto">
+            <div ref={formContainerRef} className="p-4 md:p-8 max-h-[calc(100vh-12rem)] overflow-y-auto">
               {/* Step 1: Basic Information */}
               {currentStep === 1 && (
                 <div className="space-y-6">
@@ -1362,7 +1517,7 @@ The payment will appear in the Payment History section below.`);
                         max={new Date().toISOString().split('T')[0]}
                         className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
                       />
-                      <p className="mt-1 text-xs text-gray-500">Must be at least 18 years old</p>
+                      <p className="mt-1 text-xs text-gray-500">Date of birth</p>
                     </div>
 
                     <div>
@@ -1402,10 +1557,10 @@ The payment will appear in the Payment History section below.`);
                         className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
                       >
                         <option value="active">Active</option>
-                        <option value="inactive">Inactive</option>
-                        <option value="completed">Completed</option>
-                        <option value="cancelled">Cancelled</option>
-                        <option value="on-hold">On Hold</option>
+                        <option value="active plus">Active Plus</option>
+                        <option value="dropped">Dropped</option>
+                        <option value="finished">Finished</option>
+                        <option value="deactive">Deactive</option>
                       </select>
                     </div>
                   </div>
@@ -1578,15 +1733,15 @@ The payment will appear in the Payment History section below.`);
                           </p>
                         </div>
                       )}
+                      {/* Show enrollment restriction message */}
+                      {enrollmentsData?.data && Array.isArray(enrollmentsData.data) && enrollmentsData.data.length > 0 && user?.role !== 'superadmin' && (
+                        <div className="mb-3 p-3 bg-yellow-50 border border-yellow-200 rounded-md">
+                          <p className="text-sm font-medium text-yellow-800">⚠️ Enrollment Restriction</p>
+                          <p className="text-xs text-yellow-700 mt-1">This student is already enrolled. Only originally opted software can be selected. Contact superadmin to add/remove software.</p>
+                        </div>
+                      )}
                       <div className={`border border-gray-300 rounded-md p-3 md:p-4 max-h-64 overflow-y-auto ${formData.courseName ? 'bg-gray-50' : ''}`}>
                         <div className="grid grid-cols-2 md:grid-cols-3 gap-2 md:gap-3">
-                          {/* Show enrollment restriction message */}
-                          {enrollmentsData?.data && Array.isArray(enrollmentsData.data) && enrollmentsData.data.length > 0 && user?.role !== 'superadmin' && (
-                            <div className="col-span-full mb-3 p-3 bg-yellow-50 border border-yellow-200 rounded-md">
-                              <p className="text-sm font-medium text-yellow-800">⚠️ Enrollment Restriction</p>
-                              <p className="text-xs text-yellow-700 mt-1">This student is already enrolled. Only originally opted software can be selected. Contact superadmin to add/remove software.</p>
-                            </div>
-                          )}
                           {availableSoftwares.map((software) => {
                             // Check if student is enrolled and user is not superadmin
                             const hasEnrollments = enrollmentsData?.data && Array.isArray(enrollmentsData.data) && enrollmentsData.data.length > 0;
@@ -1610,28 +1765,7 @@ The payment will appear in the Payment History section below.`);
                                   checked={selectedSoftwares.includes(software)}
                                   onChange={(e) => {
                                     if (!formData.courseName) {
-                                      // Check if student is enrolled and user is not superadmin
-                                      const hasEnrollments = enrollmentsData?.data && Array.isArray(enrollmentsData.data) && enrollmentsData.data.length > 0;
-                                      if (hasEnrollments && user?.role !== 'superadmin') {
-                                        const originallyOptedSoftware = studentData?.studentProfile?.softwareList || [];
-                                        const isOriginallyOpted = originallyOptedSoftware.includes(software);
-                                        
-                                        if (e.target.checked && !isOriginallyOpted) {
-                                          alert('Error: Cannot add new software. This student is already enrolled. Only superadmin can add additional software to enrolled students.');
-                                          return;
-                                        }
-                                        
-                                        if (!e.target.checked && isOriginallyOpted) {
-                                          alert('Error: Cannot remove originally opted software. This student is already enrolled. Only superadmin can modify software for enrolled students.');
-                                          return;
-                                        }
-                                      }
-                                      
-                                      if (e.target.checked) {
-                                        setSelectedSoftwares(prev => [...prev, software]);
-                                      } else {
-                                        setSelectedSoftwares(prev => prev.filter(s => s !== software));
-                                      }
+                                      handleSoftwareChange(software, e.target.checked);
                                     }
                                   }}
                                   disabled={!!formData.courseName || isRestricted}
@@ -1653,6 +1787,23 @@ The payment will appear in the Payment History section below.`);
                                     <span className="ml-1 text-xs text-red-500">(restricted)</span>
                                   )}
                                 </span>
+                                {ALL_SOFTWARES.includes(software) && !isRestricted && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      // Remove this standard software from custom list if it was added
+                                      setCustomSoftwares(prev => prev.filter(s => s !== software));
+                                      setAvailableSoftwares(prev => prev.filter(s => s !== software));
+                                      // Uncheck if it was selected
+                                      if (selectedSoftwares.includes(software)) {
+                                        handleSoftwareChange(software, false);
+                                      }
+                                    }}
+                                    className="ml-2 text-xs text-red-600 hover:text-red-800"
+                                  >
+                                    ×
+                                  </button>
+                                )}
                               </label>
                             );
                           })}
@@ -1706,8 +1857,27 @@ The payment will appear in the Payment History section below.`);
                               }
                               
                               setOtherSoftware(value);
-                              if (value.trim() && !selectedSoftwares.includes(value.trim())) {
-                                setSelectedSoftwares(prev => [...prev, value.trim()]);
+                              // Update selected softwares when other software is entered
+                              if (value.trim()) {
+                                const trimmed = value.trim();
+                                // Split by comma to allow multiple software entries
+                                const softwareList = trimmed.split(',').map(s => s.trim()).filter(s => s);
+                                
+                                // Add new software to custom list if not already there
+                                softwareList.forEach(software => {
+                                  if (!ALL_SOFTWARES.includes(software) && !customSoftwares.includes(software)) {
+                                    setCustomSoftwares(prev => [...prev, software]);
+                                    setAvailableSoftwares(prev => [...prev, software]);
+                                  }
+                                  
+                                  // Add to selected softwares if not already there
+                                  if (!selectedSoftwares.includes(software)) {
+                                    setSelectedSoftwares(prev => [...prev, software]);
+                                  }
+                                });
+                              } else {
+                                // If input is empty, remove from selected softwares but keep in available
+                                setSelectedSoftwares(prev => prev.filter(s => !customSoftwares.includes(s) || !value.includes(s)));
                               }
                             }}
                             placeholder="Enter software names (comma separated)"
@@ -1844,6 +2014,17 @@ The payment will appear in the Payment History section below.`);
                             const paidAmount = Number(payment.paidAmount) || 0;
                             const pending = amount - paidAmount;
                             
+                            // Debug logging
+                            console.log('Payment debug:', {
+                              id: payment.id,
+                              amount: amount,
+                              paidAmount: paidAmount,
+                              pending: pending,
+                              dueDate: payment.dueDate,
+                              currentDate: new Date().toISOString(),
+                              isOverdue: payment.dueDate && new Date(payment.dueDate).setHours(0,0,0,0) < new Date().setHours(0,0,0,0)
+                            });
+                            
                             const getStatusColor = (status: string) => {
                               switch (status?.toLowerCase()) {
                                 case 'paid':
@@ -1877,7 +2058,13 @@ The payment will appear in the Payment History section below.`);
                                     <p className="text-sm font-semibold text-green-600">
                                       ₹{paidAmount.toFixed(2)}
                                       {pending > 0 && (
-                                        <span className="text-xs text-orange-600 block">Pending: ₹{pending.toFixed(2)}</span>
+                                        <span className="text-xs text-orange-600 block">Due Amount: ₹{pending.toFixed(2)}</span>
+                                      )}
+                                      {/* Overdue calculation */}
+                                      {payment.dueDate && new Date(payment.dueDate).setHours(0,0,0,0) < new Date().setHours(0,0,0,0) && pending > 0 && (
+                                        <span className="text-xs text-red-700 font-bold block bg-red-50 px-2 py-1 rounded mt-1">
+                                          Overdue: ₹{pending.toFixed(2)}
+                                        </span>
                                       )}
                                     </p>
                                   </div>
@@ -1925,378 +2112,656 @@ The payment will appear in the Payment History section below.`);
                       )}
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          EMI Plan
-                        </label>
-                        <select
-                          value={formData.emiPlan ? 'yes' : 'no'}
-                          onChange={(e) => handleInputChange('emiPlan', e.target.value === 'yes')}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
-                        >
-                          <option value="no">No</option>
-                          <option value="yes">Yes</option>
-                        </select>
+                    {/* Payment Options - EMI vs Lump Sum */}
+                    <div className="mt-6 p-4 bg-gray-50 border border-gray-200 rounded-lg">
+                      <h3 className="text-lg font-semibold text-gray-800 mb-4">Payment Options</h3>
+                                        
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6 mb-6">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            EMI Plan
+                          </label>
+                          <select
+                            value={formData.emiPlan ? 'yes' : 'no'}
+                            onChange={(e) => handleInputChange('emiPlan', e.target.value === 'yes')}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
+                          >
+                            <option value="no">No</option>
+                            <option value="yes">Yes</option>
+                          </select>
+                        </div>
+                  
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            Lump Sum Payment
+                          </label>
+                          <select
+                            value={formData.lumpSumPayment ? 'yes' : 'no'}
+                            onChange={(e) => {
+                              const isLumpSum = e.target.value === 'yes';
+                              handleInputChange('lumpSumPayment', isLumpSum);
+                              // When lump sum is selected, unselect EMI
+                              if (isLumpSum) {
+                                handleInputChange('emiPlan', false);
+                              }
+                            }}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
+                          >
+                            <option value="no">No</option>
+                            <option value="yes">Yes</option>
+                          </select>
+                        </div>
                       </div>
-
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          EMI Plan Date
-                        </label>
-                        <input
-                          type="date"
-                          min={new Date().toISOString().split('T')[0]}
-                          value={formatDateForInput(formData.emiPlanDate)}
-                          onChange={(e) => handleInputChange('emiPlanDate', e.target.value)}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
-                        />
-                      </div>
-                    </div>
-
-                    {/* EMI Installments Table */}
-                    {formData.emiPlan && (
-                      <div className="mt-6">
-                        {/* Total EMI Amount Display */}
-                        {formData.balanceAmount && formData.balanceAmount > 0 && (
-                          <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-                            <div className="flex justify-between items-center">
-                              <div>
-                                <p className="text-sm font-medium text-blue-900">Balance Amount</p>
-                                <p className="text-lg font-bold text-blue-900">₹{formData.balanceAmount.toFixed(2)}</p>
-                              </div>
-                              <div className="text-right">
-                                <p className="text-sm font-medium text-blue-900">Total EMI Amount</p>
-                                <p className={`text-lg font-bold ${
-                                  formData.emiInstallments && formData.emiInstallments.length > 0 && 
-                                  formData.emiInstallments.reduce((sum, inst) => sum + (inst.amount || 0), 0) > formData.balanceAmount
-                                    ? 'text-red-600'
-                                    : 'text-blue-900'
-                                }`}>
-                                  ₹{formData.emiInstallments?.reduce((sum, inst) => sum + (inst.amount || 0), 0).toFixed(2) || '0.00'}
-                                </p>
-                                {formData.emiInstallments && formData.emiInstallments.length > 0 && 
-                                 formData.emiInstallments.reduce((sum, inst) => sum + (inst.amount || 0), 0) > formData.balanceAmount && (
-                                  <p className="text-xs text-red-600 font-semibold mt-1">⚠ Exceeds Balance!</p>
-                                )}
-                              </div>
+                                        
+                      {/* EMI Plan Details */}
+                      {formData.emiPlan && (
+                        <div className="mb-6">
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6 mb-4">
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700 mb-1">
+                                EMI Plan Date
+                              </label>
+                              <input
+                                type="date"
+                                min={new Date().toISOString().split('T')[0]}
+                                value={formatDateForInput(formData.emiPlanDate)}
+                                onChange={(e) => handleInputChange('emiPlanDate', e.target.value)}
+                                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
+                              />
                             </div>
                           </div>
-                        )}
-                        <div className="flex justify-between items-center mb-3">
-                          <div>
-                            <label className="block text-sm font-medium text-gray-700">
-                              EMI Installments (Month-wise)
-                            </label>
-                          </div>
-                          <div className="flex gap-2">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                if (!formData.balanceAmount || formData.balanceAmount <= 0) {
-                                  alert('Please enter Total Deal and Booking Amount first to calculate balance');
-                                  return;
-                                }
-                                if (!formData.emiPlanDate) {
-                                  alert('Please select EMI Plan Date first');
-                                  return;
-                                }
-                                const balance = Number(formData.balanceAmount);
-                                const numberOfInstallments = 10;
-                                const installmentAmount = balance / numberOfInstallments;
-                                const installments = [];
-                                
-                                // Get EMI plan date
-                                const emiPlanDate = new Date(formData.emiPlanDate);
-                                
-                                for (let i = 1; i <= numberOfInstallments; i++) {
-                                  // Calculate due date: EMI plan date + (i-1) months
-                                  const dueDate = new Date(emiPlanDate);
-                                  dueDate.setMonth(dueDate.getMonth() + (i - 1));
-                                  const dueDateStr = dueDate.toISOString().split('T')[0];
-                                  
-                                  installments.push({
-                                    month: i,
-                                    amount: Math.round(installmentAmount * 100) / 100,
-                                    dueDate: dueDateStr
-                                  });
-                                }
-                                
-                                // Adjust last installment to account for rounding
-                                const totalCalculated = installments.reduce((sum, inst) => sum + inst.amount, 0);
-                                if (totalCalculated !== balance) {
-                                  installments[installments.length - 1].amount = Math.round((balance - (totalCalculated - installments[installments.length - 1].amount)) * 100) / 100;
-                                }
-                                
-                                handleInputChange('emiInstallments', installments);
-                                
-                                // Clear customized indices when auto-calculating
-                                setCustomizedEmiIndices(new Set());
-                                // Clear custom date indices when auto-calculating
-                                setCustomDateEmiIndices(new Set());
-                              }}
-                              className="px-3 py-1 text-sm bg-green-600 text-white rounded-md hover:bg-green-700"
-                            >
-                              Auto-Calculate (10 EMIs)
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const installments = formData.emiInstallments || [];
-                                const nextMonth = installments.length > 0 
-                                  ? Math.max(...installments.map(i => i.month)) + 1 
-                                  : 1;
-                                handleInputChange('emiInstallments', [
-                                  ...installments,
-                                  { month: nextMonth, amount: 0, dueDate: '' }
-                                ]);
-                              }}
-                              className="px-3 py-1 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700"
-                            >
-                              + Add Installment
-                            </button>
-                          </div>
-                  </div>
-                        {formData.emiInstallments && formData.emiInstallments.length > 0 ? (
-                          <div className="overflow-x-auto">
-                            <table className="min-w-full divide-y divide-gray-200 border border-gray-300">
-                              <thead className="bg-gray-50">
-                                <tr>
-                                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-700 uppercase">Month</th>
-                                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-700 uppercase">Amount (₹)</th>
-                                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-700 uppercase">Due Date</th>
-                                  <th className="px-4 py-2 text-center text-xs font-medium text-gray-700 uppercase">Action</th>
-                                </tr>
-                              </thead>
-                              <tbody className="bg-white divide-y divide-gray-200">
-                                {formData.emiInstallments.map((installment, index) => (
-                                  <tr key={index}>
-                                    <td className="px-4 py-2">
-                                      <input
-                                        type="number"
-                                        min="1"
-                                        value={installment.month}
-                                        onChange={(e) => {
-                                          const installments = [...(formData.emiInstallments || [])];
-                                          installments[index].month = parseInt(e.target.value) || 1;
-                                          handleInputChange('emiInstallments', installments);
-                                        }}
-                                        className="w-20 px-2 py-1 border border-gray-300 rounded-md"
-                                      />
-                                    </td>
-                                    <td className="px-4 py-2">
-                                      <input
-                                        type="number"
-                                        step="0.01"
-                                        min="0"
-                                        value={installment.amount}
-                                        onChange={(e) => {
-                                          const installments = [...(formData.emiInstallments || [])];
-                                          const newAmount = parseFloat(e.target.value) || 0;
-                                          
-                                          // Mark this installment as customized
-                                          setCustomizedEmiIndices(prev => new Set(prev).add(index));
-                                          
-                                          // Update the customized installment
-                                          installments[index].amount = newAmount;
-                                          
-                                          // If balance amount is available, redistribute remaining balance across non-customized installments
-                                          if (formData.balanceAmount && installments.length > 1) {
-                                            const balance = Number(formData.balanceAmount);
                                             
-                                            // Calculate sum of all customized amounts (including the one just changed)
-                                            const customizedTotal = installments.reduce((sum, inst, idx) => {
-                                              if (customizedEmiIndices.has(idx) || idx === index) {
-                                                return sum + (inst.amount || 0);
-                                              }
-                                              return sum;
-                                            }, 0);
-                                            
-                                            // Get non-customized installments (excluding all customized ones)
-                                            const nonCustomizedIndices = installments
-                                              .map((_, idx) => idx)
-                                              .filter(idx => idx !== index && !customizedEmiIndices.has(idx));
-                                            
-                                            if (nonCustomizedIndices.length > 0) {
-                                              const remainingBalance = balance - customizedTotal;
-                                              
-                                              if (remainingBalance >= 0) {
-                                                // Distribute remaining balance equally across non-customized installments
-                                                const amountPerInstallment = remainingBalance / nonCustomizedIndices.length;
-                                                
-                                                // Update all non-customized installments with equal amounts
-                                                nonCustomizedIndices.forEach(idx => {
-                                                  installments[idx].amount = Math.round(amountPerInstallment * 100) / 100;
-                                                });
-                                                
-                                                // Adjust last non-customized installment to account for rounding
-                                                const totalCalculated = installments.reduce((sum, inst) => sum + (inst.amount || 0), 0);
-                                                if (totalCalculated !== balance && nonCustomizedIndices.length > 0) {
-                                                  const lastNonCustomizedIndex = nonCustomizedIndices[nonCustomizedIndices.length - 1];
-                                                  const adjustment = balance - (totalCalculated - installments[lastNonCustomizedIndex].amount);
-                                                  installments[lastNonCustomizedIndex].amount = Math.round(adjustment * 100) / 100;
-                                                }
-                                              }
-                                            }
-                                          }
-                                          
-                                          handleInputChange('emiInstallments', installments);
-                                        }}
-                                        className="w-32 px-2 py-1 border border-gray-300 rounded-md"
-                                      />
-                                    </td>
-                                    <td className="px-4 py-2">
-                                      <div className="flex items-center gap-2">
+                          {/* EMI Installments Table */}
+                          {/* Total EMI Amount Display */}
+                          {formData.balanceAmount && formData.balanceAmount > 0 && (
+                            <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                              <div className="flex justify-between items-center">
+                                <div>
+                                  <p className="text-sm font-medium text-blue-900">Balance Amount</p>
+                                  <p className="text-lg font-bold text-blue-900">₹{formData.balanceAmount.toFixed(2)}</p>
+                                </div>
+                                <div className="text-right">
+                                  <p className="text-sm font-medium text-blue-900">Total EMI Amount</p>
+                                  <p className={`text-lg font-bold ${
+                                    formData.emiInstallments && formData.emiInstallments.length > 0 && 
+                                    formData.emiInstallments.reduce((sum, inst) => sum + (inst.amount || 0), 0) > formData.balanceAmount
+                                      ? 'text-red-600'
+                                      : 'text-blue-900'
+                                  }`}>
+                                    ₹{formData.emiInstallments?.reduce((sum, inst) => sum + (inst.amount || 0), 0).toFixed(2) || '0.00'}
+                                  </p>
+                                  {formData.emiInstallments && formData.emiInstallments.length > 0 && 
+                                   formData.emiInstallments.reduce((sum, inst) => sum + (inst.amount || 0), 0) > formData.balanceAmount && (
+                                    <p className="text-xs text-red-600 font-semibold mt-1">⚠ Exceeds Balance!</p>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                          <div className="flex justify-between items-center mb-3">
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700">
+                                EMI Installments (Month-wise)
+                              </label>
+                            </div>
+                            <div className="flex gap-2">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (!formData.balanceAmount || formData.balanceAmount <= 0) {
+                                    alert('Please enter Total Deal and Booking Amount first to calculate balance');
+                                    return;
+                                  }
+                                  if (!formData.emiPlanDate) {
+                                    alert('Please select EMI Plan Date first');
+                                    return;
+                                  }
+                                  const balance = Number(formData.balanceAmount);
+                                  const numberOfInstallments = 10;
+                                  const installmentAmount = balance / numberOfInstallments;
+                                  const installments = [];
+                                                    
+                                  // Get EMI plan date
+                                  const emiPlanDate = new Date(formData.emiPlanDate);
+                                                    
+                                  for (let i = 1; i <= numberOfInstallments; i++) {
+                                    // Calculate due date: EMI plan date + (i-1) months
+                                    const dueDate = new Date(emiPlanDate);
+                                    dueDate.setMonth(dueDate.getMonth() + (i - 1));
+                                    const dueDateStr = dueDate.toISOString().split('T')[0];
+                                                      
+                                    installments.push({
+                                      month: i,
+                                      amount: Math.round(installmentAmount * 100) / 100,
+                                      dueDate: dueDateStr
+                                    });
+                                  }
+                                                    
+                                  // Adjust last installment to account for rounding
+                                  const totalCalculated = installments.reduce((sum, inst) => sum + inst.amount, 0);
+                                  if (totalCalculated !== balance) {
+                                    installments[installments.length - 1].amount = Math.round((balance - (totalCalculated - installments[installments.length - 1].amount)) * 100) / 100;
+                                  }
+                                                    
+                                  handleInputChange('emiInstallments', installments);
+                                                    
+                                  // Clear customized indices when auto-calculating
+                                  setCustomizedEmiIndices(new Set());
+                                  // Clear custom date indices when auto-calculating
+                                  setCustomDateEmiIndices(new Set());
+                                }}
+                                className="px-3 py-1 text-sm bg-green-600 text-white rounded-md hover:bg-green-700"
+                              >
+                                Auto-Calculate (10 EMIs)
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const installments = formData.emiInstallments || [];
+                                  const nextMonth = installments.length > 0 
+                                    ? Math.max(...installments.map(i => i.month)) + 1 
+                                    : 1;
+                                  handleInputChange('emiInstallments', [
+                                    ...installments,
+                                    { month: nextMonth, amount: 0, dueDate: '' }
+                                  ]);
+                                }}
+                                className="px-3 py-1 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                              >
+                                + Add Installment
+                              </button>
+                            </div>
+                    </div>
+                          {formData.emiInstallments && formData.emiInstallments.length > 0 ? (
+                            <div className="overflow-x-auto">
+                              <table className="min-w-full divide-y divide-gray-200 border border-gray-300">
+                                <thead className="bg-gray-50">
+                                  <tr>
+                                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-700 uppercase">Month</th>
+                                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-700 uppercase">Amount (₹)</th>
+                                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-700 uppercase">Due Date</th>
+                                    <th className="px-4 py-2 text-center text-xs font-medium text-gray-700 uppercase">Action</th>
+                                  </tr>
+                                </thead>
+                                <tbody className="bg-white divide-y divide-gray-200">
+                                  {formData.emiInstallments.map((installment, index) => (
+                                    <tr key={index}>
+                                      <td className="px-4 py-2">
                                         <input
-                                          type="date"
-                                          min={new Date().toISOString().split('T')[0]}
-                                          value={formatDateForInput(installment.dueDate)}
+                                          type="number"
+                                          min="1"
+                                          value={installment.month}
                                           onChange={(e) => {
                                             const installments = [...(formData.emiInstallments || [])];
-                                            const newDate = e.target.value;
-                                            installments[index].dueDate = newDate;
-                                            
-                                            // If not a custom date, update all subsequent dates
-                                            if (!customDateEmiIndices.has(index) && newDate) {
-                                              const baseDate = new Date(newDate);
-                                              for (let i = index + 1; i < installments.length; i++) {
-                                                // Skip if this installment has a custom date
-                                                if (!customDateEmiIndices.has(i)) {
-                                                  const nextDate = new Date(baseDate);
-                                                  nextDate.setMonth(nextDate.getMonth() + (i - index));
-                                                  installments[i].dueDate = nextDate.toISOString().split('T')[0];
-                                                }
-                                              }
-                                            }
-                                            
+                                            installments[index].month = parseInt(e.target.value) || 1;
                                             handleInputChange('emiInstallments', installments);
                                           }}
-                                          className="flex-1 px-2 py-1 border border-gray-300 rounded-md"
+                                          className="w-20 px-2 py-1 border border-gray-300 rounded-md"
                                         />
-                                        <label className="flex items-center gap-1 text-xs text-gray-600 whitespace-nowrap">
-                                          <input
-                                            type="checkbox"
-                                            checked={customDateEmiIndices.has(index)}
-                                            onChange={(e) => {
-                                              if (e.target.checked) {
-                                                setCustomDateEmiIndices(prev => new Set(prev).add(index));
-                                              } else {
-                                                setCustomDateEmiIndices(prev => {
-                                                  const newSet = new Set(prev);
-                                                  newSet.delete(index);
-                                                  return newSet;
-                                                });
-                                                // If unchecking custom, recalculate from previous installment
-                                                const installments = [...(formData.emiInstallments || [])];
-                                                if (index > 0 && installments[index - 1]?.dueDate) {
-                                                  const prevDate = new Date(installments[index - 1].dueDate as string);
-                                                  prevDate.setMonth(prevDate.getMonth() + 1);
-                                                  installments[index].dueDate = prevDate.toISOString().split('T')[0];
-                                                  
-                                                  // Update all subsequent non-custom dates
-                                                  for (let i = index + 1; i < installments.length; i++) {
-                                                    if (!customDateEmiIndices.has(i)) {
-                                                      const nextDate = new Date(prevDate);
-                                                      nextDate.setMonth(nextDate.getMonth() + (i - index));
-                                                      installments[i].dueDate = nextDate.toISOString().split('T')[0];
-                                                    }
+                                      </td>
+                                      <td className="px-4 py-2">
+                                        <input
+                                          type="number"
+                                          step="0.01"
+                                          min="0"
+                                          value={installment.amount}
+                                          onChange={(e) => {
+                                            const installments = [...(formData.emiInstallments || [])];
+                                            const newAmount = parseFloat(e.target.value) || 0;
+                                                              
+                                            // Mark this installment as customized
+                                            setCustomizedEmiIndices(prev => new Set(prev).add(index));
+                                                              
+                                            // Update the customized installment
+                                            installments[index].amount = newAmount;
+                                                              
+                                            // If balance amount is available, redistribute remaining balance across non-customized installments
+                                            if (formData.balanceAmount && installments.length > 1) {
+                                              const balance = Number(formData.balanceAmount);
+                                                                
+                                              // Calculate sum of all customized amounts (including the one just changed)
+                                              const customizedTotal = installments.reduce((sum, inst, idx) => {
+                                                if (customizedEmiIndices.has(idx) || idx === index) {
+                                                  return sum + (inst.amount || 0);
+                                                }
+                                                return sum;
+                                              }, 0);
+                                                                
+                                              // Get non-customized installments (excluding all customized ones)
+                                              const nonCustomizedIndices = installments
+                                                .map((_, idx) => idx)
+                                                .filter(idx => idx !== index && !customizedEmiIndices.has(idx));
+                                                                
+                                              if (nonCustomizedIndices.length > 0) {
+                                                const remainingBalance = balance - customizedTotal;
+                                                                  
+                                                if (remainingBalance >= 0) {
+                                                  // Distribute remaining balance equally across non-customized installments
+                                                  const amountPerInstallment = remainingBalance / nonCustomizedIndices.length;
+                                                                    
+                                                  // Update all non-customized installments with equal amounts
+                                                  nonCustomizedIndices.forEach(idx => {
+                                                    installments[idx].amount = Math.round(amountPerInstallment * 100) / 100;
+                                                  });
+                                                                    
+                                                  // Adjust last non-customized installment to account for rounding
+                                                  const totalCalculated = installments.reduce((sum, inst) => sum + (inst.amount || 0), 0);
+                                                  if (totalCalculated !== balance && nonCustomizedIndices.length > 0) {
+                                                    const lastNonCustomizedIndex = nonCustomizedIndices[nonCustomizedIndices.length - 1];
+                                                    const adjustment = balance - (totalCalculated - installments[lastNonCustomizedIndex].amount);
+                                                    installments[lastNonCustomizedIndex].amount = Math.round(adjustment * 100) / 100;
                                                   }
-                                                  handleInputChange('emiInstallments', installments);
                                                 }
                                               }
+                                            }
+                                                              
+                                            handleInputChange('emiInstallments', installments);
+                                          }}
+                                          className="w-32 px-2 py-1 border border-gray-300 rounded-md"
+                                        />
+                                      </td>
+                                      <td className="px-4 py-2">
+                                        <div className="flex items-center gap-2">
+                                          <input
+                                            type="date"
+                                            min={new Date().toISOString().split('T')[0]}
+                                            value={formatDateForInput(installment.dueDate)}
+                                            onChange={(e) => {
+                                              const installments = [...(formData.emiInstallments || [])];
+                                              const newDate = e.target.value;
+                                              installments[index].dueDate = newDate;
+                                                                
+                                              // If not a custom date, update all subsequent dates
+                                              if (!customDateEmiIndices.has(index) && newDate) {
+                                                const baseDate = new Date(newDate);
+                                                for (let i = index + 1; i < installments.length; i++) {
+                                                  // Skip if this installment has a custom date
+                                                  if (!customDateEmiIndices.has(i)) {
+                                                    const nextDate = new Date(baseDate);
+                                                    nextDate.setMonth(nextDate.getMonth() + (i - index));
+                                                    installments[i].dueDate = nextDate.toISOString().split('T')[0];
+                                                  }
+                                                }
+                                              }
+                                                                
+                                              handleInputChange('emiInstallments', installments);
                                             }}
-                                            className="w-4 h-4 text-orange-600 border-gray-300 rounded focus:ring-orange-500"
-                                            title="Mark as custom date (won't auto-update)"
+                                            className="flex-1 px-2 py-1 border border-gray-300 rounded-md"
                                           />
-                                          <span>Custom</span>
-                                        </label>
-                                      </div>
-                                    </td>
-                                    <td className="px-4 py-2 text-center">
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          const installments = [...(formData.emiInstallments || [])];
-                                          installments.splice(index, 1);
-                                          
-                                          // Remove this index from customized set and adjust other indices
-                                          setCustomDateEmiIndices(prev => {
-                                            const newSet = new Set<number>();
-                                            prev.forEach(customIdx => {
-                                              if (customIdx < index) {
-                                                newSet.add(customIdx); // Keep indices before removed one
-                                              } else if (customIdx > index) {
-                                                newSet.add(customIdx - 1); // Shift indices after removed one
-                                              }
-                                              // Skip the removed index
-                                            });
-                                            return newSet;
-                                          });
-                                          setCustomizedEmiIndices(prev => {
-                                            const newSet = new Set<number>();
-                                            prev.forEach(customIdx => {
-                                              if (customIdx < index) {
-                                                newSet.add(customIdx); // Keep indices before removed one
-                                              } else if (customIdx > index) {
-                                                newSet.add(customIdx - 1); // Shift indices after removed one
-                                              }
-                                              // Skip the removed index itself
-                                            });
-                                            return newSet;
-                                          });
-                                          
-                                          // Recalculate amounts equally across remaining installments
-                                          if (formData.balanceAmount && installments.length > 0) {
-                                            const balance = Number(formData.balanceAmount);
-                                            const numberOfInstallments = installments.length;
-                                            const installmentAmount = balance / numberOfInstallments;
-                                            
-                                            // Update all remaining installments with equal amounts
-                                            installments.forEach((inst) => {
-                                              inst.amount = Math.round(installmentAmount * 100) / 100;
-                                            });
-                                            
-                                            // Adjust last installment to account for rounding
-                                            const totalCalculated = installments.reduce((sum, inst) => sum + inst.amount, 0);
-                                            if (totalCalculated !== balance) {
-                                              const lastIndex = installments.length - 1;
-                                              const adjustment = balance - (totalCalculated - installments[lastIndex].amount);
-                                              installments[lastIndex].amount = Math.round(adjustment * 100) / 100;
-                                            }
-                                            
-                                            // Update month numbers sequentially
-                                            installments.forEach((inst, idx) => {
-                                              inst.month = idx + 1;
-                                            });
-                                            
-                                            // Update due dates if EMI plan date exists
-                                            if (formData.emiPlanDate) {
-                                              const emiPlanDate = new Date(formData.emiPlanDate);
-                                              installments.forEach((inst, idx) => {
-                                                const dueDate = new Date(emiPlanDate);
-                                                dueDate.setMonth(dueDate.getMonth() + idx);
-                                                inst.dueDate = dueDate.toISOString().split('T')[0];
+                                          <label className="flex items-center gap-1 text-xs text-gray-600 whitespace-nowrap">
+                                            <input
+                                              type="checkbox"
+                                              checked={customDateEmiIndices.has(index)}
+                                              onChange={(e) => {
+                                                if (e.target.checked) {
+                                                  setCustomDateEmiIndices(prev => new Set(prev).add(index));
+                                                } else {
+                                                  setCustomDateEmiIndices(prev => {
+                                                    const newSet = new Set(prev);
+                                                    newSet.delete(index);
+                                                    return newSet;
+                                                  });
+                                                  // If unchecking custom, recalculate from previous installment
+                                                  const installments = [...(formData.emiInstallments || [])];
+                                                  if (index > 0 && installments[index - 1]?.dueDate) {
+                                                    const prevDate = new Date(installments[index - 1].dueDate as string);
+                                                    prevDate.setMonth(prevDate.getMonth() + 1);
+                                                    installments[index].dueDate = prevDate.toISOString().split('T')[0];
+                                                                      
+                                                    // Update all subsequent non-custom dates
+                                                    for (let i = index + 1; i < installments.length; i++) {
+                                                      if (!customDateEmiIndices.has(i)) {
+                                                        const nextDate = new Date(prevDate);
+                                                        nextDate.setMonth(nextDate.getMonth() + (i - index));
+                                                        installments[i].dueDate = nextDate.toISOString().split('T')[0];
+                                                      }
+                                                    }
+                                                    handleInputChange('emiInstallments', installments);
+                                                  }
+                                                }
+                                              }}
+                                              className="w-4 h-4 text-orange-600 border-gray-300 rounded focus:ring-orange-500"
+                                              title="Mark as custom date (won't auto-update)"
+                                            />
+                                            <span>Custom</span>
+                                          </label>
+                                        </div>
+                                      </td>
+                                      <td className="px-4 py-2 text-center">
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            const installments = [...(formData.emiInstallments || [])];
+                                            installments.splice(index, 1);
+                                                              
+                                            // Remove this index from customized set and adjust other indices
+                                            setCustomDateEmiIndices(prev => {
+                                              const newSet = new Set<number>();
+                                              prev.forEach(customIdx => {
+                                                if (customIdx < index) {
+                                                  newSet.add(customIdx); // Keep indices before removed one
+                                                } else if (customIdx > index) {
+                                                  newSet.add(customIdx - 1); // Shift indices after removed one
+                                                }
+                                                // Skip the removed index
                                               });
+                                              return newSet;
+                                            });
+                                            setCustomizedEmiIndices(prev => {
+                                              const newSet = new Set<number>();
+                                              prev.forEach(customIdx => {
+                                                if (customIdx < index) {
+                                                  newSet.add(customIdx); // Keep indices before removed one
+                                                } else if (customIdx > index) {
+                                                  newSet.add(customIdx - 1); // Shift indices after removed one
+                                                }
+                                                // Skip the removed index itself
+                                              });
+                                              return newSet;
+                                            });
+                                                              
+                                            // Recalculate amounts equally across remaining installments
+                                            if (formData.balanceAmount && installments.length > 0) {
+                                              const balance = Number(formData.balanceAmount);
+                                              const numberOfInstallments = installments.length;
+                                              const installmentAmount = balance / numberOfInstallments;
+                                                                
+                                              // Update all remaining installments with equal amounts
+                                              installments.forEach((inst) => {
+                                                inst.amount = Math.round(installmentAmount * 100) / 100;
+                                              });
+                                                                
+                                              // Adjust last installment to account for rounding
+                                              const totalCalculated = installments.reduce((sum, inst) => sum + inst.amount, 0);
+                                              if (totalCalculated !== balance) {
+                                                const lastIndex = installments.length - 1;
+                                                const adjustment = balance - (totalCalculated - installments[lastIndex].amount);
+                                                installments[lastIndex].amount = Math.round(adjustment * 100) / 100;
+                                              }
+                                                                
+                                              // Update month numbers sequentially
+                                              installments.forEach((inst, idx) => {
+                                                inst.month = idx + 1;
+                                              });
+                                                                
+                                              // Update due dates if EMI plan date exists
+                                              if (formData.emiPlanDate) {
+                                                const emiPlanDate = new Date(formData.emiPlanDate);
+                                                installments.forEach((inst, idx) => {
+                                                  const dueDate = new Date(emiPlanDate);
+                                                  dueDate.setMonth(dueDate.getMonth() + idx);
+                                                  inst.dueDate = dueDate.toISOString().split('T')[0];
+                                                });
+                                              }
                                             }
-                                          }
-                                          
-                                          handleInputChange('emiInstallments', installments);
-                                        }}
-                                        className="px-2 py-1 text-sm text-red-600 hover:text-red-800"
-                                      >
-                                        Remove
-                                      </button>
-                                    </td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
+                                                              
+                                            handleInputChange('emiInstallments', installments);
+                                          }}
+                                          className="px-2 py-1 text-sm text-red-600 hover:text-red-800"
+                                        >
+                                          Remove
+                                        </button>
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          ) : (
+                            <p className="text-sm text-gray-500 italic">No installments added. Click "Add Installment" to add month-wise EMI details.</p>
+                          )}
+                        </div>
+                      )}
+                                        
+                      {/* Lump Sum Payment Details */}
+                      {formData.lumpSumPayment && (
+                        <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                          <h4 className="text-lg font-semibold text-gray-800 mb-4">Lump Sum Payment Details</h4>
+                                            
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6 mb-4">
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700 mb-1">
+                                Next Pay Date
+                              </label>
+                              <input
+                                type="date"
+                                value={formData.lumpSumPayment && (!formData.lumpSumPayments || formData.lumpSumPayments.length === 0) ? formData.nextPayDate || '' : ''}
+                                onChange={(e) => {
+                                  handleInputChange('nextPayDate', e.target.value);
+                                }}
+                                disabled={!formData.lumpSumPayment || (formData.lumpSumPayments && formData.lumpSumPayments.length > 0)}
+                                className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 border-gray-300 focus:ring-orange-500 ${!formData.lumpSumPayment || (formData.lumpSumPayments && formData.lumpSumPayments.length > 0) ? 'bg-gray-100 cursor-not-allowed' : ''}`}
+                              />
+                            </div>
                           </div>
-                        ) : (
-                          <p className="text-sm text-gray-500 italic">No installments added. Click "Add Installment" to add month-wise EMI details.</p>
-                        )}
+                                            
+                          <div className="mb-4">
+                            <div className="flex justify-between items-center mb-2">
+                              <label className="block text-sm font-medium text-gray-700">
+                                Payment Schedule
+                              </label>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const newPayment = {
+                                    date: '',
+                                    amount: 0
+                                  };
+                                  // Ensure we're working with a fresh array to avoid mutation issues
+                                  const currentPayments = formData.lumpSumPayments || [];
+                                  const updatedPayments = [...currentPayments, newPayment];
+                                  handleInputChange('lumpSumPayments', updatedPayments);
+                                }}
+                                className="px-3 py-1 bg-green-600 text-white text-sm rounded-md hover:bg-green-700 transition-colors"
+                              >
+                                + Add Payment
+                              </button>
+                            </div>
+                                              
+                            {formData.lumpSumPayments && formData.lumpSumPayments.length > 0 && (
+                              <div className="overflow-x-auto mt-4">
+                                <table className="min-w-full divide-y divide-gray-200 border border-gray-300 rounded">
+                                  <thead className="bg-gray-50">
+                                    <tr>
+                                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Date</th>
+                                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Amount (₹)</th>
+                                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Actions</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody className="bg-white divide-y divide-gray-200">
+                                    {(formData.lumpSumPayments || []).map((payment, index) => (
+                                      <tr key={index}>
+                                        <td className="px-4 py-2 whitespace-nowrap">
+                                          <input
+                                            type="date"
+                                            min={new Date().toISOString().split('T')[0]}
+                                            value={payment.date || ''}
+                                            onChange={(e) => {
+                                              const updatedPayments = [...(formData.lumpSumPayments || [])];
+                                              if (updatedPayments[index]) {
+                                                updatedPayments[index] = { ...updatedPayments[index], date: e.target.value };
+                                              }
+                                              handleInputChange('lumpSumPayments', updatedPayments);
+                                            }}
+                                            className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
+                                          />
+                                        </td>
+                                        <td className="px-4 py-2 whitespace-nowrap">
+                                          <input
+                                            type="number"
+                                            min="0"
+                                            step="0.01"
+                                            value={payment.amount || ''}
+                                            onChange={(e) => {
+                                              const updatedPayments = [...(formData.lumpSumPayments || [])];
+                                              if (updatedPayments[index]) {
+                                                updatedPayments[index] = { ...updatedPayments[index], amount: Number(e.target.value) };
+                                              }
+                                              handleInputChange('lumpSumPayments', updatedPayments);
+                                            }}
+                                            className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
+                                          />
+                                        </td>
+                                        <td className="px-4 py-2 whitespace-nowrap text-sm">
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              const updatedPayments = [...(formData.lumpSumPayments || [])];
+                                              updatedPayments.splice(index, 1);
+                                              handleInputChange('lumpSumPayments', updatedPayments);
+                                            }}
+                                            className="px-2 py-1 bg-red-600 text-white text-xs rounded hover:bg-red-700 transition-colors"
+                                          >
+                                            Remove
+                                          </button>
+                                        </td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                                
+                  {/* Schedule Information */}
+                  <div className="grid grid-cols-1 gap-6 mt-6">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Class Schedule
+                      </label>
+                      <p className="text-xs text-gray-500 mb-3">Add class timings for each day</p>
+                                    
+                      {/* Schedule List */}
+                      <div className="space-y-3 mb-4">
+                        {(formData.schedule || []).map((slot, index) => (
+                          <div key={index} className="flex flex-col sm:flex-row gap-2 items-end">
+                            <div className="flex-1 grid grid-cols-1 md:grid-cols-3 gap-2">
+                              <div>
+                                <label className="block text-xs text-gray-600 mb-1">Day</label>
+                                <select
+                                  value={slot.day}
+                                  onChange={(e) => {
+                                    const newSchedule = [...(formData.schedule || [])];
+                                    newSchedule[index].day = e.target.value;
+                                    handleInputChange('schedule', newSchedule);
+                                  }}
+                                  className="w-full px-2 py-1 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                                >
+                                  <option value="">Select Day</option>
+                                  <option value="Monday">Monday</option>
+                                  <option value="Tuesday">Tuesday</option>
+                                  <option value="Wednesday">Wednesday</option>
+                                  <option value="Thursday">Thursday</option>
+                                  <option value="Friday">Friday</option>
+                                  <option value="Saturday">Saturday</option>
+                                  <option value="Sunday">Sunday</option>
+                                </select>
+                              </div>
+                              <div>
+                                <label className="block text-xs text-gray-600 mb-1">Start Time</label>
+                                <input
+                                  type="time"
+                                  value={slot.startTime}
+                                  onChange={(e) => {
+                                    const newSchedule = [...(formData.schedule || [])];
+                                    newSchedule[index].startTime = e.target.value;
+                                    handleInputChange('schedule', newSchedule);
+                                  }}
+                                  className="w-full px-2 py-1 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-xs text-gray-600 mb-1">End Time</label>
+                                <input
+                                  type="time"
+                                  value={slot.endTime}
+                                  onChange={(e) => {
+                                    const newSchedule = [...(formData.schedule || [])];
+                                    newSchedule[index].endTime = e.target.value;
+                                    handleInputChange('schedule', newSchedule);
+                                  }}
+                                  className="w-full px-2 py-1 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                                />
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const newSchedule = [...(formData.schedule || [])];
+                                newSchedule.splice(index, 1);
+                                handleInputChange('schedule', newSchedule);
+                              }}
+                              className="px-3 py-2 bg-red-600 text-white rounded-md text-sm hover:bg-red-700"
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        ))}
                       </div>
-                    )}
+                                    
+                      {/* Add Schedule Button */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const newSlot = { day: '', startTime: '', endTime: '' };
+                          const newSchedule = [...(formData.schedule || []), newSlot];
+                          handleInputChange('schedule', newSchedule);
+                        }}
+                        className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm hover:bg-blue-700"
+                      >
+                        + Add Time Slot
+                      </button>
+                    </div>
+                  </div>
+                                
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-6">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Total Duration (days)
+                      </label>
+                      <input
+                        type="number"
+                        min="1"
+                        value={formData.totalDuration ?? ''}
+                        onChange={(e) => {
+                          const value = e.target.value ? parseInt(e.target.value) : null;
+                          handleInputChange('totalDuration', value);
+                        }}
+                        placeholder="e.g., 90 days"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
+                      />
+                      <p className="mt-1 text-xs text-gray-500">
+                        Total duration of the course in days
+                      </p>
+                    </div>
+                                  
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Start Date
+                      </label>
+                      <input
+                        type="date"
+                        value={formData.startDate || ''}
+                        onChange={(e) => handleInputChange('startDate', e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
+                      />
+                    </div>
+                                  
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        End Date
+                      </label>
+                      <input
+                        type="date"
+                        value={formData.endDate || ''}
+                        onChange={(e) => handleInputChange('endDate', e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
+                      />
+                    </div>
                   </div>
                 </div>
               )}

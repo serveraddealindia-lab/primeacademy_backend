@@ -40,6 +40,9 @@ router.post('/', verifyTokenMiddleware, checkRole(UserRole.ADMIN, UserRole.SUPER
 // PUT routes
 router.put('/:paymentId', verifyTokenMiddleware, checkRole(UserRole.ADMIN, UserRole.SUPERADMIN), paymentController.updatePayment);
 
+// DELETE routes - only superadmin can delete payments
+router.delete('/:paymentId', verifyTokenMiddleware, checkRole(UserRole.SUPERADMIN), paymentController.deletePayment);
+
 export default router;
 
 

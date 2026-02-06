@@ -179,7 +179,7 @@ export const FacultyAttendance: React.FC = () => {
                         <div>
                           <h3 className="text-xl font-semibold text-gray-900">{batchItem.batch.title}</h3>
                           <p className="text-sm text-gray-500 mt-1">
-                            Batch #{batchItem.batch.id}
+                            Batch #{batchItem.batch.id} • {batchItem.batch.mode || 'N/A'}
                           </p>
                         </div>
                         <span
@@ -191,19 +191,88 @@ export const FacultyAttendance: React.FC = () => {
                         </span>
                       </div>
 
-                      <div className="text-sm text-gray-600">
+                      {/* Batch Details Grid */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                        <div className="bg-gray-50 rounded-lg p-3">
+                          <div className="font-medium text-gray-700 mb-1">Duration</div>
+                          <div className="text-gray-600">
+                            {batchItem.batch.startDate ? new Date(batchItem.batch.startDate).toLocaleDateString() : 'N/A'} - 
+                            {batchItem.batch.endDate ? new Date(batchItem.batch.endDate).toLocaleDateString() : 'N/A'}
+                          </div>
+                        </div>
+                        
+                        <div className="bg-gray-50 rounded-lg p-3">
+                          <div className="font-medium text-gray-700 mb-1">Status</div>
+                          <div>
+                            <span className={`px-2 py-1 rounded text-xs font-semibold ${
+                              batchItem.batch.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
+                            }`}>
+                              {batchItem.batch.status || 'Unknown'}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Note: Detailed enrollment and faculty info not available in FacultyBatch interface */}
+                        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-sm">
+                          <div className="font-medium text-yellow-800 mb-1">ℹ️ Additional Information</div>
+                          <div className="text-yellow-700">
+                            For complete batch details including students and faculty assignments, 
+                            please visit the main Batches page.
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Schedule Information */}
+                      {batchItem.batch.schedule && Object.keys(batchItem.batch.schedule).length > 0 && (
+                        <div className="bg-blue-50 rounded-lg p-3">
+                          <div className="font-medium text-gray-700 mb-2">Schedule</div>
+                          <div className="space-y-1">
+                            {Object.entries(batchItem.batch.schedule)
+                              .filter(([_day, times]) => times && (times.startTime || times.endTime))
+                              .map(([day, times]) => (
+                                <div key={day} className="flex justify-between text-sm">
+                                  <span className="capitalize font-medium">{day}:</span>
+                                  <span className="text-gray-600">
+                                    {times.startTime || '-'} - {times.endTime || '-'}
+                                  </span>
+                                </div>
+                              ))
+                            }
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Session Information */}
+                      <div className="text-sm text-gray-600 bg-gray-50 rounded-lg p-3">
+                        <div className="font-medium text-gray-700 mb-2">Current Session</div>
                         {session ? (
                           <>
-                            <p>
-                              <span className="font-medium">Started:</span>{' '}
-                              {session.actualStartAt ? new Date(session.actualStartAt).toLocaleTimeString() : 'Not started'}
-                            </p>
-                            <p>
-                              <span className="font-medium">Topic:</span> {session.topic || 'N/A'}
-                            </p>
+                            <div className="space-y-1">
+                              <p>
+                                <span className="font-medium">Status:</span>{' '}
+                                <span className={`px-2 py-0.5 rounded text-xs ${
+                                  session.status === 'ongoing' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
+                                }`}>
+                                  {session.status}
+                                </span>
+                              </p>
+                              <p>
+                                <span className="font-medium">Started:</span>{' '}
+                                {session.actualStartAt ? new Date(session.actualStartAt).toLocaleString() : 'Not started'}
+                              </p>
+                              {session.actualEndAt && (
+                                <p>
+                                  <span className="font-medium">Ended:</span>{' '}
+                                  {new Date(session.actualEndAt).toLocaleString()}
+                                </p>
+                              )}
+                              <p>
+                                <span className="font-medium">Topic:</span> {session.topic || 'N/A'}
+                              </p>
+                            </div>
                           </>
                         ) : (
-                          <p className="text-gray-500">No session created today.</p>
+                          <p className="text-gray-500 italic">No active session</p>
                         )}
                       </div>
 

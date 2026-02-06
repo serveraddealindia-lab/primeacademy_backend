@@ -664,7 +664,9 @@ export const UnifiedAttendance: React.FC = () => {
                           <div className="flex items-center justify-between">
                             <div>
                               <h3 className="text-xl font-semibold text-gray-900">{batchItem.batch.title}</h3>
-                              <p className="text-sm text-gray-500 mt-1">Batch #{batchItem.batch.id}</p>
+                              <p className="text-sm text-gray-500 mt-1">
+                                Batch #{batchItem.batch.id} • {batchItem.batch.mode || 'N/A'}
+                              </p>
                             </div>
                             <span
                               className={`px-3 py-1 rounded-full text-xs font-semibold ${
@@ -675,12 +677,45 @@ export const UnifiedAttendance: React.FC = () => {
                             </span>
                           </div>
 
+                          {/* Batch Details Grid */}
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                            <div className="bg-gray-50 rounded-lg p-3">
+                              <div className="font-medium text-gray-700 mb-1">Duration</div>
+                              <div className="text-gray-600">
+                                {batchItem.batch.startDate ? new Date(batchItem.batch.startDate).toLocaleDateString() : 'N/A'} - 
+                                {batchItem.batch.endDate ? new Date(batchItem.batch.endDate).toLocaleDateString() : 'N/A'}
+                              </div>
+                            </div>
+                            
+                            <div className="bg-gray-50 rounded-lg p-3">
+                              <div className="font-medium text-gray-700 mb-1">Status</div>
+                              <div>
+                                <span className={`px-2 py-1 rounded text-xs font-semibold ${
+                                  batchItem.batch.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
+                                }`}>
+                                  {batchItem.batch.status || 'Unknown'}
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* Note: Detailed enrollment and faculty info not available in FacultyBatch interface */}
+                            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-sm">
+                              <div className="font-medium text-yellow-800 mb-1">ℹ️ Additional Information</div>
+                              <div className="text-yellow-700">
+                                For complete batch details including students and faculty assignments, 
+                                please visit the main Batches page.
+                              </div>
+                            </div>
+                          </div>
+
                           {/* Schedule Information */}
                           {todaySchedule && (
-                            <div className="bg-blue-50 p-3 rounded-lg border border-blue-200">
-                              <p className="text-sm font-medium text-blue-900">
-                                Today's Schedule: {todaySchedule.startTime} - {todaySchedule.endTime}
-                              </p>
+                            <div className="bg-blue-50 rounded-lg p-3">
+                              <div className="font-medium text-gray-700 mb-2">Today's Schedule</div>
+                              <div className="text-sm text-gray-600">
+                                <span className="font-medium">{dayNames[new Date().getDay()].charAt(0).toUpperCase() + dayNames[new Date().getDay()].slice(1)}:</span>{' '}
+                                {todaySchedule.startTime || '-'} - {todaySchedule.endTime || '-'}
+                              </div>
                             </div>
                           )}
 
@@ -723,18 +758,21 @@ export const UnifiedAttendance: React.FC = () => {
                             )}
                             {session && (
                               <>
-                                <button
-                                  onClick={() => loadStudents(batchItem)}
-                                  className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition-colors"
-                                >
-                                  Mark Attendance
-                                </button>
-                                <button
-                                  onClick={() => endSessionMutation.mutate(session.id)}
-                                  className="px-4 py-2 bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700 transition-colors"
-                                >
-                                  End Session
-                                </button>
+                                {session.status === 'completed' ? (
+                                  <button
+                                    onClick={() => loadStudents(batchItem)}
+                                    className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition-colors"
+                                  >
+                                    Mark Attendance
+                                  </button>
+                                ) : (
+                                  <button
+                                    onClick={() => endSessionMutation.mutate(session.id)}
+                                    className="w-full px-4 py-2 bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700 transition-colors"
+                                  >
+                                    End Session
+                                  </button>
+                                )}
                               </>
                             )}
                           </div>

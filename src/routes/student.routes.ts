@@ -99,6 +99,7 @@ router.get(
   studentController.getStudentAttendance
 );
 
+<<<<<<< HEAD
 // PUT /students/:id/profile → Update student profile (admin only)
 router.put(
   '/:id/profile',
@@ -113,6 +114,13 @@ router.post(
   verifyTokenMiddleware,
   checkRole(UserRole.ADMIN, UserRole.SUPERADMIN),
   paymentController.updateStudentStatusManually
+=======
+// GET /students/check-duplicate → Check for duplicate email or phone
+router.get(
+  '/check-duplicate',
+  verifyTokenMiddleware,
+  studentController.checkDuplicate
+>>>>>>> f687a808cdfc77e04ffd26bf69380ee46d896a7e
 );
 
 export default router;

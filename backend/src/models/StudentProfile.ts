@@ -10,6 +10,7 @@ export interface StudentProfileAttributes {
   address: string | null;
   documents: Record<string, unknown> | null;
   photoUrl: string | null;
+  schedule: any | null;
   softwareList: string[] | null;
   enrollmentDate: Date | null;
   status: string | null;
@@ -34,6 +35,7 @@ class StudentProfile extends Model<StudentProfileAttributes, StudentProfileCreat
   public address!: string | null;
   public documents!: Record<string, unknown> | null;
   public photoUrl!: string | null;
+  public schedule!: any | null;
   public softwareList!: string[] | null;
   public enrollmentDate!: Date | null;
   public status!: string | null;
@@ -86,6 +88,10 @@ StudentProfile.init(
     },
     photoUrl: {
       type: DataTypes.STRING,
+      allowNull: true,
+    },
+    schedule: {
+      type: DataTypes.JSON,
       allowNull: true,
     },
     softwareList: {

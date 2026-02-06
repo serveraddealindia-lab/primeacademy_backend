@@ -1,5 +1,5 @@
 import { Response } from 'express';
-// @ts-ignore - pdfmake doesn't have type definitions
+// @ts-expect-error - pdfmake doesn't have type definitions
 import PdfPrinter from 'pdfmake';
 import * as path from 'path';
 import * as fs from 'fs';
@@ -15,6 +15,104 @@ const receiptsDir = path.join(__dirname, '../../receipts');
 if (!fs.existsSync(receiptsDir)) {
   fs.mkdirSync(receiptsDir, { recursive: true });
 }
+
+// Helper function to update student status based on payment status and other factors
+const updateStudentStatus = async (studentId: number): Promise<void> => {
+  try {
+    // Get student profile to check for special statuses
+    const studentProfile = await db.StudentProfile.findOne({
+      where: { userId: studentId }
+    });
+    
+    if (!studentProfile) {
+      logger.warn(`Student profile not found for student ${studentId}`);
+      return;
+    }
+    
+    // Check if student has a specific status set manually (dropped, finished, deactive)
+    if (studentProfile.status && ['dropped', 'finished', 'deactive'].includes(studentProfile.status.toLowerCase())) {
+      // Keep the special status and don't update based on payment
+      logger.info(`Student ${studentId} has special status '${studentProfile.status}', not updating based on payment`);
+      return;
+    }
+    
+    // Get all payments for this student
+    const payments = await db.PaymentTransaction.findAll({
+      where: { studentId },
+      attributes: ['amount', 'paidAmount', 'status'],
+    });
+    
+    // Calculate payment status
+    const totalAmount = payments.reduce((sum, payment) => sum + payment.amount, 0);
+    const totalPaid = payments.reduce((sum, payment) => {
+      if (payment.status === PaymentStatus.PAID || payment.status === PaymentStatus.PARTIAL) {
+        return sum + (payment.paidAmount || 0);
+      }
+      return sum;
+    }, 0);
+    
+    // Get student's enrolled batches to determine completion status
+    const enrollments = await db.Enrollment.findAll({
+      where: { studentId },
+      include: [
+        {
+          model: db.Batch,
+          as: 'batch',
+          attributes: ['id', 'startDate', 'endDate'],
+        },
+      ],
+    }) as any[];
+    
+    // Check if all enrolled batches are completed
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    const hasActiveEnrollments = enrollments.some(enrollment => {
+      const batch = (enrollment as any).batch;
+      if (!batch) return false;
+      const batchEndDate = new Date(batch.endDate);
+      batchEndDate.setHours(0, 0, 0, 0);
+      return batchEndDate >= today; // Batch is ongoing or upcoming
+    });
+    
+    const hasCompletedBatches = enrollments.some(enrollment => {
+      const batch = (enrollment as any).batch;
+      if (!batch) return false;
+      const batchEndDate = new Date(batch.endDate);
+      batchEndDate.setHours(0, 0, 0, 0);
+      return batchEndDate < today; // Batch is completed
+    });
+    
+    // Determine student status based on payment status and course completion
+    let newStatus = 'active'; // default status
+    
+    if (hasCompletedBatches && !hasActiveEnrollments) {
+      // Student has completed all enrolled batches
+      newStatus = 'finished';
+    } else if (totalAmount > 0) {
+      if (totalPaid >= totalAmount) {
+        // Student has paid all fees
+        newStatus = 'active';
+      } else if (totalPaid > 0 && totalPaid < totalAmount) {
+        // Student has paid some fees but not all
+        newStatus = 'active plus';
+      } else {
+        // Student has not paid anything
+        newStatus = 'deactive'; // student is deactive if no payments made
+      }
+    } else {
+      // No payment obligations - default to active
+      newStatus = 'active';
+    }
+    
+    // Update student profile with new status
+    await studentProfile.update({ status: newStatus });
+    logger.info(`Updated student ${studentId} status to ${newStatus} based on payment status (total: ${totalAmount}, paid: ${totalPaid})`);
+  } catch (error) {
+    logger.error(`Error updating student status for student ${studentId}:`, error);
+    // Don't throw - this is a background update
+  }
+};
 
 // Helper function to update payment plan balance based on payments
 const updatePaymentPlanBalance = async (studentId: number, enrollmentId?: number | null): Promise<void> => {
@@ -970,7 +1068,7 @@ export const createPayment = async (req: AuthRequest, res: Response): Promise<vo
       return;
     }
 
-    const { studentId, enrollmentId, amount, dueDate, notes, paymentMethod, transactionId } = req.body;
+    const { studentId, enrollmentId, amount, dueDate, notes, paymentMethod, transactionId, bankName, bankAccount } = req.body;
 
     if (!studentId || !dueDate) {
       res.status(400).json({
@@ -1056,10 +1154,12 @@ export const createPayment = async (req: AuthRequest, res: Response): Promise<vo
       amount: parsedAmount,
       paidAmount: 0,
       dueDate: new Date(dueDate),
-      status: PaymentStatus.PENDING,
+      status: PaymentStatus.UNPAID,
       notes: notes || null,
       paymentMethod: paymentMethod || null,
       transactionId: transactionId || null,
+      bankName: bankName || null,
+      bankAccount: bankAccount || null,
     });
 
     // Try to fetch with relations, but don't fail if associations aren't available
@@ -1088,6 +1188,15 @@ export const createPayment = async (req: AuthRequest, res: Response): Promise<vo
     } catch (err) {
       logger.error('Payment plan balance update failed:', err);
       // Don't fail the payment creation if balance update fails
+    }
+    
+    // Update student status based on payment status
+    try {
+      await updateStudentStatus(studentId);
+      logger.info(`Student status updated for student ${studentId} after payment creation`);
+    } catch (statusErr) {
+      logger.error('Student status update failed:', statusErr);
+      // Don't fail the payment creation if status update fails
     }
 
     res.status(201).json({
@@ -1141,6 +1250,8 @@ export const updatePayment = async (req: AuthRequest, res: Response): Promise<vo
       paidDate,
       paymentMethod,
       transactionId,
+      bankName,
+      bankAccount,
       notes,
       paidAmount,
       receiptUrl,
@@ -1149,6 +1260,8 @@ export const updatePayment = async (req: AuthRequest, res: Response): Promise<vo
       paidDate?: string;
       paymentMethod?: string;
       transactionId?: string;
+      bankName?: string;
+      bankAccount?: string;
       notes?: string;
       paidAmount?: number;
       receiptUrl?: string;
@@ -1200,6 +1313,14 @@ export const updatePayment = async (req: AuthRequest, res: Response): Promise<vo
       updates.receiptUrl = receiptUrl || null;
     }
 
+    if (bankName !== undefined) {
+      updates.bankName = bankName || null;
+    }
+
+    if (bankAccount !== undefined) {
+      updates.bankAccount = bankAccount || null;
+    }
+
     // Auto-populate paidAt / paidAmount when marking as paid
     if (updates.status === PaymentStatus.PAID) {
       if (!updates.paidAt && !payment.paidAt) {
@@ -1248,6 +1369,15 @@ export const updatePayment = async (req: AuthRequest, res: Response): Promise<vo
           logger.error('Error generating receipt:', receiptError);
           // Don't fail the payment update if receipt generation fails
         }
+      }
+      
+      // Update student status when payment is marked as paid
+      try {
+        await updateStudentStatus(payment.studentId);
+        logger.info(`Student status updated for student ${payment.studentId} after payment marked as paid`);
+      } catch (statusErr) {
+        logger.error('Student status update failed:', statusErr);
+        // Don't fail the payment update if status update fails
       }
     }
 
@@ -1303,6 +1433,15 @@ export const updatePayment = async (req: AuthRequest, res: Response): Promise<vo
             // Don't fail the payment update if receipt generation fails
           }
         }
+        
+        // Update student status when payment is fully paid
+        try {
+          await updateStudentStatus(payment.studentId);
+          logger.info(`Student status updated for student ${payment.studentId} after payment fully paid`);
+        } catch (statusErr) {
+          logger.error('Student status update failed:', statusErr);
+          // Don't fail the payment update if status update fails
+        }
       }
     }
 
@@ -1328,6 +1467,15 @@ export const updatePayment = async (req: AuthRequest, res: Response): Promise<vo
         } catch (err) {
           logger.error('Payment plan balance update failed:', err);
           // Don't fail the payment update if balance update fails
+        }
+        
+        // Update student status based on payment status
+        try {
+          await updateStudentStatus(refreshedPayment.studentId);
+          logger.info(`Student status updated for student ${refreshedPayment.studentId} after payment update`);
+        } catch (statusErr) {
+          logger.error('Student status update failed:', statusErr);
+          // Don't fail the payment update if status update fails
         }
       }
     }
@@ -1359,7 +1507,140 @@ export const updatePayment = async (req: AuthRequest, res: Response): Promise<vo
   }
 };
 
+// POST /api/students/:studentId/update-status - Update student status directly
+export const updateStudentStatusManually = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    if (!req.user) {
+      res.status(401).json({
+        status: 'error',
+        message: 'Authentication required',
+      });
+      return;
+    }
+
+    // Only admins can manually update student status
+    if (req.user.role !== UserRole.ADMIN && req.user.role !== UserRole.SUPERADMIN) {
+      res.status(403).json({
+        status: 'error',
+        message: 'Only admins can manually update student status',
+      });
+      return;
+    }
+
+    const studentId = Number(req.params.studentId);
+    if (Number.isNaN(studentId)) {
+      res.status(400).json({ status: 'error', message: 'Invalid student id' });
+      return;
+    }
+
+    const { status } = req.body;
+    
+    if (!status) {
+      res.status(400).json({ status: 'error', message: 'Status is required' });
+      return;
+    }
+    
+    const validStatuses = ['active', 'active plus', 'dropped', 'finished', 'deactive'];
+    const normalizedStatus = status.toLowerCase().trim();
+    
+    if (!validStatuses.includes(normalizedStatus)) {
+      res.status(400).json({
+        status: 'error',
+        message: `Invalid status. Valid statuses are: ${validStatuses.join(', ')}`,
+      });
+      return;
+    }
+
+    // Find student profile
+    const studentProfile = await db.StudentProfile.findOne({
+      where: { userId: studentId },
+    });
+
+    if (!studentProfile) {
+      res.status(404).json({
+        status: 'error',
+        message: 'Student profile not found',
+      });
+      return;
+    }
+
+    // Update the student status
+    await studentProfile.update({ status: normalizedStatus });
+    
+    logger.info(`Manually updated student ${studentId} status to ${normalizedStatus} by admin ${req.user.userId || (req.user as any).id}`);
+
+    res.status(200).json({
+      status: 'success',
+      message: `Student status updated to ${normalizedStatus}`,
+      data: { status: normalizedStatus },
+    });
+  } catch (error) {
+    logger.error('Update student status manually error', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Failed to update student status',
+    });
+  }
+};
+
 // POST /api/payments/:paymentId/generate-receipt - Generate receipt for a payment
+export const deletePayment = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    // Only superadmin can delete payments
+    if (!req.user || req.user.role !== UserRole.SUPERADMIN) {
+      res.status(403).json({
+        status: 'error',
+        message: 'Only superadmin can delete payments',
+      });
+      return;
+    }
+
+    const paymentId = Number(req.params.paymentId);
+    if (Number.isNaN(paymentId)) {
+      res.status(400).json({ status: 'error', message: 'Invalid payment id' });
+      return;
+    }
+
+    const payment = await db.PaymentTransaction.findByPk(paymentId);
+    if (!payment) {
+      res.status(404).json({
+        status: 'error',
+        message: 'Payment not found',
+      });
+      return;
+    }
+
+    // Store studentId and enrollmentId for payment plan update
+    const studentId = payment.studentId;
+    const enrollmentId = payment.enrollmentId;
+
+    // Delete the payment
+    await payment.destroy();
+
+    // Update payment plan balance after deletion
+    try {
+      await updatePaymentPlanBalance(studentId, enrollmentId || null);
+      logger.info(`Payment plan balance updated after deleting payment ${paymentId} for student ${studentId}`);
+    } catch (err) {
+      logger.error('Payment plan balance update failed after deletion:', err);
+      // Don't fail the deletion if balance update fails
+    }
+
+    logger.info(`Payment ${paymentId} deleted by superadmin ${req.user.userId || (req.user as any).id}`);
+
+    res.status(200).json({
+      status: 'success',
+      message: 'Payment deleted successfully',
+    });
+  } catch (error) {
+    logger.error('Delete payment error', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Failed to delete payment',
+    });
+  }
+};
+
 export const generateReceipt = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     if (!ensureAdminAccess(req, res)) return;
@@ -1782,7 +2063,7 @@ export const bulkUploadPayments = async (req: AuthRequest, res: Response): Promi
             
             if (softwareArray.length > 0) {
               // Get or create student profile
-              let studentProfile = await db.StudentProfile.findOne({
+              const studentProfile = await db.StudentProfile.findOne({
                 where: { userId: student.id },
                 attributes: { exclude: ['serialNo'] }, // Exclude serialNo column
               });
@@ -1815,7 +2096,7 @@ export const bulkUploadPayments = async (req: AuthRequest, res: Response): Promi
           amount: amount,
           paidAmount: 0,
           dueDate: dueDate,
-          status: PaymentStatus.PENDING,
+          status: PaymentStatus.UNPAID,
           paymentMethod: paymentMethod || null,
           transactionId: transactionId || null,
           notes: notes || null,

@@ -1,0 +1,622 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Photo Upload Test - Local</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .test-section {
+            background: white;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .test-section h2 {
+            margin-top: 0;
+            color: #333;
+        }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+        .success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 5px;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        input[type="file"] {
+            margin: 10px 0;
+            padding: 10px;
+            border: 2px dashed #007bff;
+            border-radius: 4px;
+            width: 100%;
+            box-sizing: border-box;
+        }
+        .result {
+            margin-top: 10px;
+            padding: 10px;
+            background: #f8f9fa;
+            border-radius: 4px;
+            white-space: pre-wrap;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        .image-preview {
+            max-width: 200px;
+            max-height: 200px;
+            margin: 10px 0;
+            border: 2px solid #007bff;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <h1>🔍 Photo Upload Test - Local Environment</h1>
+    
+    <!-- Test 1: Authentication -->
+    <div class="test-section">
+        <h2>Test 1: Check Authentication Token</h2>
+        <p><strong>Option 1:</strong> If you're logged in on localhost:5173, copy your token:</p>
+        <ol>
+            <li>Open your application: <a href="http://localhost:5173" target="_blank">http://localhost:5173</a></li>
+            <li>Press F12 to open DevTools</li>
+            <li>Go to Console tab</li>
+            <li>Type: <code>localStorage.getItem('token')</code> and press Enter</li>
+            <li><strong>Right-click on the token string</strong> → Copy (don't copy quotes if they appear)</li>
+            <li>Paste it below and click "Set Token"</li>
+        </ol>
+        <input type="text" id="tokenInput" placeholder="Paste your token here (will auto-remove quotes)" style="width: 100%; padding: 10px; margin: 10px 0; box-sizing: border-box; font-family: monospace; font-size: 12px;">
+        <button onclick="setToken()">Set Token</button>
+        <button onclick="checkAuth()">Check Token</button>
+        <button onclick="validateToken()">Validate Token Format</button>
+        <div id="auth-result"></div>
+    </div>
+
+    <!-- Test 2: Upload Endpoint -->
+    <div class="test-section">
+        <h2>Test 2: Check Upload Endpoint</h2>
+        <button onclick="checkUploadEndpoint()">Test Endpoint</button>
+        <div id="endpoint-result"></div>
+    </div>
+
+    <!-- Test 3: Static File Serving -->
+    <div class="test-section">
+        <h2>Test 3: Check Static File Serving</h2>
+        <button onclick="checkStaticServing()">Test Static Serving</button>
+        <div id="static-result"></div>
+    </div>
+
+    <!-- Test 4: URL Construction -->
+    <div class="test-section">
+        <h2>Test 4: Check URL Construction</h2>
+        <button onclick="checkUrlConstruction()">Test URL Construction</button>
+        <div id="url-result"></div>
+    </div>
+
+    <!-- Test 5: Actual Upload -->
+    <div class="test-section">
+        <h2>Test 5: Upload a Photo</h2>
+        <p><strong>Select an image file (JPG, PNG - Max 10MB):</strong></p>
+        <input type="file" id="photoInput" accept="image/jpeg,image/jpg,image/png,image/webp,image/gif">
+        <button onclick="uploadPhoto()" id="uploadBtn">Upload Photo</button>
+        <div id="upload-result"></div>
+        <div id="image-preview"></div>
+    </div>
+
+    <!-- Test 6: Test Image Display -->
+    <div class="test-section">
+        <h2>Test 6: Test Image Display</h2>
+        <p>Enter the URL returned from upload (e.g., /uploads/general/filename.jpg):</p>
+        <input type="text" id="imageUrlInput" placeholder="/uploads/general/filename.jpg" style="width: 100%; padding: 10px; margin: 10px 0; box-sizing: border-box;">
+        <button onclick="testImageDisplay()">Test Image Display</button>
+        <div id="image-display-result"></div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://localhost:3001/api';
+        const BASE_URL = 'http://localhost:3001';
+
+        // Store token in sessionStorage (works across file:// and localhost)
+        let storedToken = null;
+
+        // Get token from localStorage or sessionStorage
+        function getToken() {
+            // First try sessionStorage (set manually)
+            if (storedToken) {
+                return storedToken;
+            }
+            // Try localStorage (if same origin)
+            try {
+                const token = localStorage.getItem('token');
+                if (token) {
+                    storedToken = token;
+                    return token;
+                }
+            } catch (e) {
+                // localStorage not accessible (different origin)
+            }
+            // Try sessionStorage
+            try {
+                const token = sessionStorage.getItem('test-token');
+                if (token) {
+                    storedToken = token;
+                    return token;
+                }
+            } catch (e) {
+                // sessionStorage not accessible
+            }
+            return null;
+        }
+
+        // Set token manually
+        function setToken() {
+            const tokenInput = document.getElementById('tokenInput');
+            let token = tokenInput.value.trim();
+            
+            if (!token) {
+                alert('Please enter a token!');
+                return;
+            }
+            
+            // Remove quotes if user copied with quotes
+            if ((token.startsWith('"') && token.endsWith('"')) || 
+                (token.startsWith("'") && token.endsWith("'"))) {
+                token = token.slice(1, -1);
+            }
+            
+            // Remove any extra whitespace
+            token = token.trim();
+            
+            // Validate token format (JWT should have 3 parts separated by dots)
+            const parts = token.split('.');
+            if (parts.length !== 3) {
+                alert('Invalid token format! Token should have 3 parts separated by dots (JWT format).\n\nMake sure you copied the entire token without any extra text.');
+                return;
+            }
+            
+            storedToken = token;
+            try {
+                sessionStorage.setItem('test-token', token);
+            } catch (e) {
+                // Ignore if sessionStorage not available
+            }
+            
+            const resultDiv = document.getElementById('auth-result');
+            resultDiv.innerHTML = `
+                <div class="status success">✅ Token saved!</div>
+                <div class="result">Token: ${token.substring(0, 30)}...${token.substring(token.length - 10)}</div>
+                <p>Token length: ${token.length} characters</p>
+                <p>Now you can run the other tests.</p>
+            `;
+        }
+
+        // Validate token format
+        function validateToken() {
+            const resultDiv = document.getElementById('auth-result');
+            const token = getToken();
+            
+            if (!token) {
+                resultDiv.innerHTML = '<div class="status error">❌ No token found! Please set token first.</div>';
+                return;
+            }
+            
+            // Clean token
+            let cleanToken = token.trim();
+            if ((cleanToken.startsWith('"') && cleanToken.endsWith('"')) || 
+                (cleanToken.startsWith("'") && cleanToken.endsWith("'"))) {
+                cleanToken = cleanToken.slice(1, -1).trim();
+            }
+            
+            const parts = cleanToken.split('.');
+            const isValidFormat = parts.length === 3;
+            
+            // Try to decode (without verification)
+            let decoded = null;
+            try {
+                const payload = parts[1];
+                decoded = JSON.parse(atob(payload));
+            } catch (e) {
+                // Ignore decode errors
+            }
+            
+            resultDiv.innerHTML = `
+                <div class="status ${isValidFormat ? 'success' : 'error'}">
+                    ${isValidFormat ? '✅' : '❌'} Token Format: ${isValidFormat ? 'Valid JWT' : 'Invalid'}
+                </div>
+                <div class="result">
+Token Length: ${cleanToken.length} characters
+Token Parts: ${parts.length} (should be 3)
+Token Starts: ${cleanToken.substring(0, 10)}...
+${decoded ? `\nDecoded Payload:\n${JSON.stringify(decoded, null, 2)}` : '\nCould not decode token payload'}
+                </div>
+                ${!isValidFormat ? '<p style="color: red;"><strong>⚠️ Token format is wrong! Make sure you copied the entire token.</strong></p>' : ''}
+            `;
+        }
+
+        // Test 1: Check Authentication
+        async function checkAuth() {
+            const resultDiv = document.getElementById('auth-result');
+            resultDiv.innerHTML = '<div class="status info">Checking...</div>';
+            
+            const token = getToken();
+            if (!token) {
+                resultDiv.innerHTML = `
+                    <div class="status error">❌ No token found!</div>
+                    <p><strong>Solution:</strong> You need to login first. Open your application, login, then come back to this page.</p>
+                    <p>Or manually set token: <code>localStorage.setItem('token', 'your-token-here')</code></p>
+                `;
+                return;
+            }
+            
+            // Clean and validate
+            let cleanToken = token.trim();
+            if ((cleanToken.startsWith('"') && cleanToken.endsWith('"')) || 
+                (cleanToken.startsWith("'") && cleanToken.endsWith("'"))) {
+                cleanToken = cleanToken.slice(1, -1).trim();
+            }
+            
+            const parts = cleanToken.split('.');
+            const isValidFormat = parts.length === 3;
+            
+            resultDiv.innerHTML = `
+                <div class="status success">✅ Token found!</div>
+                <div class="result">Token: ${cleanToken.substring(0, 30)}...${cleanToken.substring(cleanToken.length - 10)}</div>
+                <p>Token Length: ${cleanToken.length} characters</p>
+                <p>Token Format: ${isValidFormat ? '✅ Valid (3 parts)' : '❌ Invalid'}</p>
+                ${!isValidFormat ? '<p style="color: red;"><strong>⚠️ Token format is wrong! Click "Validate Token Format" for details.</strong></p>' : ''}
+            `;
+        }
+
+        // Test 2: Check Upload Endpoint
+        async function checkUploadEndpoint() {
+            const resultDiv = document.getElementById('endpoint-result');
+            resultDiv.innerHTML = '<div class="status info">Testing...</div>';
+            
+            const token = getToken();
+            if (!token) {
+                resultDiv.innerHTML = '<div class="status error">❌ No token! Please set token first in Test 1.</div>';
+                return;
+            }
+
+            try {
+                // Clean token (remove quotes, trim)
+                let cleanToken = token.trim();
+                if ((cleanToken.startsWith('"') && cleanToken.endsWith('"')) || 
+                    (cleanToken.startsWith("'") && cleanToken.endsWith("'"))) {
+                    cleanToken = cleanToken.slice(1, -1).trim();
+                }
+                
+                // Log token for debugging (first 20 chars only)
+                console.log('Using token:', cleanToken.substring(0, 20) + '...');
+                console.log('Token length:', cleanToken.length);
+                console.log('Token parts:', cleanToken.split('.').length);
+                
+                const response = await fetch(`${API_BASE}/upload`, {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Bearer ${cleanToken}`,
+                        'Content-Type': 'application/json'
+                    },
+                    mode: 'cors' // Explicitly enable CORS
+                });
+                
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({ message: 'Unknown error' }));
+                    
+                    if (response.status === 401) {
+                        resultDiv.innerHTML = `
+                            <div class="status error">❌ Invalid or expired token (401)</div>
+                            <div class="result">Status: ${response.status}\n${JSON.stringify(errorData, null, 2)}</div>
+                            <p><strong>Solution:</strong></p>
+                            <ol>
+                                <li>Go to your application: <a href="http://localhost:5173" target="_blank">http://localhost:5173</a></li>
+                                <li><strong>Logout and login again</strong> to get a fresh token</li>
+                                <li>Get the new token: Press F12 → Console → Type: <code>localStorage.getItem('token')</code></li>
+                                <li>Copy the new token and paste it in Test 1</li>
+                                <li>Click "Set Token" again</li>
+                                <li>Try this test again</li>
+                            </ol>
+                        `;
+                    } else {
+                        resultDiv.innerHTML = `
+                            <div class="status error">❌ Upload endpoint error</div>
+                            <div class="result">Status: ${response.status}\n${JSON.stringify(errorData, null, 2)}</div>
+                        `;
+                    }
+                    return;
+                }
+                
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    resultDiv.innerHTML = `
+                        <div class="status success">✅ Upload endpoint is working!</div>
+                        <div class="result">${JSON.stringify(data, null, 2)}</div>
+                    `;
+                } else {
+                    resultDiv.innerHTML = `
+                        <div class="status error">❌ Upload endpoint error</div>
+                        <div class="result">${JSON.stringify(data, null, 2)}</div>
+                    `;
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `
+                    <div class="status error">❌ Cannot connect to backend!</div>
+                    <div class="result">Error: ${error.message}</div>
+                    <p><strong>Possible causes:</strong></p>
+                    <ul>
+                        <li>Backend not running - Check terminal for "Server is running on port 3001"</li>
+                        <li>CORS issue - Backend might not allow file:// origin</li>
+                        <li>Wrong URL - Make sure backend is on http://localhost:3001</li>
+                    </ul>
+                    <p><strong>Quick test:</strong> Open <a href="http://localhost:3001/uploads/test" target="_blank">http://localhost:3001/uploads/test</a> in browser</p>
+                `;
+            }
+        }
+
+        // Test 3: Check Static File Serving
+        async function checkStaticServing() {
+            const resultDiv = document.getElementById('static-result');
+            resultDiv.innerHTML = '<div class="status info">Testing...</div>';
+
+            try {
+                const response = await fetch(`${BASE_URL}/uploads/test`, {
+                    method: 'GET',
+                    mode: 'cors' // Explicitly enable CORS
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    const generalExists = data.generalExists !== undefined ? data.generalExists : data.exists;
+                    resultDiv.innerHTML = `
+                        <div class="status success">✅ Static file serving is working!</div>
+                        <div class="result">${JSON.stringify(data, null, 2)}</div>
+                        <p><strong>Uploads Path:</strong> ${data.uploadsPath || 'Not specified'}</p>
+                        <p><strong>General Directory:</strong> ${data.generalDir || 'Not specified'}</p>
+                        <p><strong>General Directory Exists:</strong> ${generalExists ? '✅ Yes' : '❌ No'}</p>
+                        ${!generalExists ? '<p style="color: red;"><strong>⚠️ The general folder is missing! Files will be created automatically on first upload.</strong></p>' : ''}
+                    `;
+                } else {
+                    resultDiv.innerHTML = `
+                        <div class="status error">❌ Static file serving error</div>
+                        <div class="result">${JSON.stringify(data, null, 2)}</div>
+                    `;
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `
+                    <div class="status error">❌ Cannot connect to static serving!</div>
+                    <div class="result">Error: ${error.message}</div>
+                    <p><strong>Solution:</strong> Make sure backend is running on http://localhost:3001</p>
+                    <p><strong>Test manually:</strong> Open <a href="http://localhost:3001/uploads/test" target="_blank">http://localhost:3001/uploads/test</a> in browser</p>
+                `;
+            }
+        }
+
+        // Test 4: Check URL Construction
+        function checkUrlConstruction() {
+            const resultDiv = document.getElementById('url-result');
+            
+            const testRelativeUrl = '/uploads/general/test.jpg';
+            const expectedFullUrl = `${BASE_URL}${testRelativeUrl}`;
+            
+            resultDiv.innerHTML = `
+                <div class="status success">✅ URL Construction Test</div>
+                <div class="result">
+Input URL: ${testRelativeUrl}
+Base URL: ${BASE_URL}
+Expected Full URL: ${expectedFullUrl}
+                </div>
+                <p><strong>✅ Correct!</strong> URL should be: <code>${expectedFullUrl}</code></p>
+                <p><strong>❌ Wrong if:</strong> URL contains <code>/api</code> like: <code>http://localhost:3001/api/uploads/...</code></p>
+            `;
+        }
+
+        // Test 5: Upload Photo
+        async function uploadPhoto() {
+            const resultDiv = document.getElementById('upload-result');
+            const previewDiv = document.getElementById('image-preview');
+            const fileInput = document.getElementById('photoInput');
+            const uploadBtn = document.getElementById('uploadBtn');
+            
+            const file = fileInput.files[0];
+            if (!file) {
+                resultDiv.innerHTML = '<div class="status error">❌ Please select a file first!</div>';
+                return;
+            }
+
+            // Validate file
+            const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif'];
+            if (!allowedTypes.includes(file.type)) {
+                resultDiv.innerHTML = `<div class="status error">❌ Invalid file type: ${file.type}. Only images allowed.</div>`;
+                return;
+            }
+
+            if (file.size > 10 * 1024 * 1024) {
+                resultDiv.innerHTML = '<div class="status error">❌ File too large! Maximum 10MB allowed.</div>';
+                return;
+            }
+
+            const token = getToken();
+            if (!token) {
+                resultDiv.innerHTML = '<div class="status error">❌ No token! Please login first.</div>';
+                return;
+            }
+
+            resultDiv.innerHTML = '<div class="status info">⏳ Uploading...</div>';
+            uploadBtn.disabled = true;
+
+            try {
+                const formData = new FormData();
+                formData.append('files', file);
+
+                const response = await fetch(`${API_BASE}/upload`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                        // Don't set Content-Type - browser will set it with boundary
+                    },
+                    body: formData
+                });
+
+                const data = await response.json();
+
+                if (response.ok && data.status === 'success' && data.data.files && data.data.files.length > 0) {
+                    const uploadedFile = data.data.files[0];
+                    const imageUrl = `${BASE_URL}${uploadedFile.url}`;
+                    
+                    resultDiv.innerHTML = `
+                        <div class="status success">✅ Upload successful!</div>
+                        <div class="result">
+File Name: ${uploadedFile.originalName}
+File Size: ${(uploadedFile.size / 1024).toFixed(2)} KB
+Relative URL: ${uploadedFile.url}
+Full URL: ${imageUrl}
+                        </div>
+                    `;
+
+                    // Show preview with better error handling
+                    const img = new Image();
+                    img.onload = function() {
+                        previewDiv.innerHTML = `
+                            <h3>Image Preview:</h3>
+                            <img src="${imageUrl}?t=${Date.now()}" alt="Preview" class="image-preview" crossorigin="anonymous">
+                            <p style="color: green;"><strong>✅ Image loaded successfully!</strong></p>
+                            <p><a href="${imageUrl}" target="_blank">Open image in new tab</a></p>
+                        `;
+                    };
+                    img.onerror = function() {
+                        previewDiv.innerHTML = `
+                            <h3>Image Preview:</h3>
+                            <div style="border: 2px solid red; padding: 20px; text-align: center;">
+                                <p style="color: red;"><strong>❌ Image failed to load</strong></p>
+                                <p>URL: <code>${imageUrl}</code></p>
+                                <p><strong>Possible issues:</strong></p>
+                                <ul style="text-align: left; display: inline-block;">
+                                    <li>CORS blocking (file:// origin)</li>
+                                    <li>File doesn't exist at path</li>
+                                    <li>Wrong Content-Type header</li>
+                                </ul>
+                                <p><a href="${imageUrl}" target="_blank">Try opening URL directly</a></p>
+                            </div>
+                        `;
+                    };
+                    img.src = imageUrl + '?t=' + Date.now();
+
+                    // Copy URL to test 6 input
+                    document.getElementById('imageUrlInput').value = uploadedFile.url;
+                } else {
+                    resultDiv.innerHTML = `
+                        <div class="status error">❌ Upload failed!</div>
+                        <div class="result">Status: ${response.status}\n${JSON.stringify(data, null, 2)}</div>
+                    `;
+                    previewDiv.innerHTML = '';
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `
+                    <div class="status error">❌ Upload error!</div>
+                    <div class="result">Error: ${error.message}</div>
+                `;
+                previewDiv.innerHTML = '';
+            } finally {
+                uploadBtn.disabled = false;
+            }
+        }
+
+        // Test 6: Test Image Display
+        function testImageDisplay() {
+            const resultDiv = document.getElementById('image-display-result');
+            const urlInput = document.getElementById('imageUrlInput');
+            const imageUrl = urlInput.value.trim();
+
+            if (!imageUrl) {
+                resultDiv.innerHTML = '<div class="status error">❌ Please enter an image URL!</div>';
+                return;
+            }
+
+            const fullUrl = imageUrl.startsWith('http') ? imageUrl : `${BASE_URL}${imageUrl}`;
+            
+            resultDiv.innerHTML = `
+                <div class="status info">Testing image display...</div>
+                <div class="result">
+Input URL: ${imageUrl}
+Full URL: ${fullUrl}
+                </div>
+                <h3>Image Display:</h3>
+                <p><a href="${fullUrl}" target="_blank">Open image URL in new tab</a> (to test if it loads directly)</p>
+            `;
+            
+            // Create image with better error handling
+            const img = new Image();
+            img.crossOrigin = 'anonymous'; // Allow CORS
+            
+            img.onload = function() {
+                resultDiv.innerHTML += `
+                    <img src="${fullUrl}?t=${Date.now()}" alt="Test Image" class="image-preview" crossorigin="anonymous">
+                    <div class="status success">✅ Image loaded successfully!</div>
+                `;
+            };
+            
+            img.onerror = function() {
+                resultDiv.innerHTML += `
+                    <div style="border: 2px solid red; padding: 20px; text-align: center;">
+                        <p style="color: red;"><strong>❌ Image failed to load!</strong></p>
+                        <p>This might be a CORS issue if you're using file:// origin.</p>
+                        <p><strong>Solution:</strong> Open the URL directly: <a href="${fullUrl}" target="_blank">${fullUrl}</a></p>
+                        <p>If it loads in a new tab, the file exists but CORS is blocking it from file:// origin.</p>
+                    </div>
+                `;
+            };
+            
+            img.src = fullUrl + '?t=' + Date.now();
+        }
+
+        // Auto-check on load
+        window.onload = function() {
+            checkAuth();
+        };
+    </script>
+</body>
+</html>
+

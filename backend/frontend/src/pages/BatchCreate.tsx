@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../context/AuthContext';
@@ -6,7 +6,6 @@ import { Layout } from '../components/Layout';
 import { batchAPI, CreateBatchRequest, SuggestedCandidate } from '../api/batch.api';
 import { studentAPI } from '../api/student.api';
 import { facultyAPI } from '../api/faculty.api';
-import { courseAPI } from '../api/course.api';
 import { formatDateInputToDDMMYYYY } from '../utils/dateUtils';
 
 const DAYS_OF_WEEK = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
@@ -15,6 +14,166 @@ interface DaySchedule {
   startTime: string;
   endTime: string;
 }
+
+// Software to session count mapping
+const softwareSessionMap: Record<string, number> = {
+  'Photoshop': 23,
+  'Illustrator': 16,
+  'InDesign': 16,
+  'After Effects': 16,
+  'Premiere Pro': 14,
+  'Figma': 12,
+  'XD': 6,
+  'Animate CC': 32,
+  'Premiere Audition': 14,
+  'HTML Java DW CSS': 24,
+  'Ar. MAX + Vray': 48,
+  'MAX': 89,
+  'Fusion': 10,
+  'Real Flow': 10,
+  'Fume FX': 8,
+  'Nuke': 24,
+  'Thinking Particle': 10,
+  'Ray Fire': 6,
+  'Mocha': 6,
+  'Silhouette': 6,
+  'PF Track': 6,
+  'Vue': 13,
+  'Houdni': 12,
+  'FCP': 11,
+  'Maya': 92,
+  'CAD UNITY': 12,
+  'Mudbox': 7,
+  'Unity Game Design': 24,
+  'Z-Brush': 12,
+  'Lumion': 6,
+  'SketchUp': 12,
+  'Unreal': 33,
+  'Blender Pro': 72,
+  'Cinema 4D': 72,
+  'Substance Painter': 6,
+  '3D Equalizer': 6,
+  'Photography': 10,
+  'Auto-Cad': 15,
+  'Davinci': 10,
+  'Corel': 14,
+  'CorelDRAW': 14,
+};
+
+// Auto-calculate end date based on start date, software, and schedule
+const calculateEndDate = (startDate: string, software: string[], schedule?: Record<string, DaySchedule>): string => {
+  if (!startDate || software.length === 0) return '';
+  
+  // Calculate total number of sessions based on software
+  let totalSessions = 0;
+  software.forEach(sw => {
+    const cleanSoftware = sw.trim();
+    // Check for exact matches first
+    if (softwareSessionMap[cleanSoftware]) {
+      totalSessions += softwareSessionMap[cleanSoftware];
+    } else {
+      // Check for partial matches (case insensitive)
+      const foundSoftware = Object.keys(softwareSessionMap).find(key => 
+        key.toLowerCase().includes(cleanSoftware.toLowerCase()) || 
+        cleanSoftware.toLowerCase().includes(key.toLowerCase())
+      );
+      if (foundSoftware) {
+        totalSessions += softwareSessionMap[foundSoftware];
+      }
+    }
+  });
+  
+  if (totalSessions === 0) return startDate; // If no mapping found, return start date
+  
+  // Calculate end date based on the schedule (number of sessions per week)
+  // If schedule is not provided or empty, default to 1 session per day
+  if (schedule && Object.keys(schedule).length > 0) {
+    // Count how many days per week have scheduled classes
+    const daysPerWeek = Object.keys(schedule).length;
+    
+    // If we have a schedule, calculate based on days per week
+    if (daysPerWeek > 0) {
+      // Calculate end date by adding the actual number of days needed
+      // based on the scheduled days
+      const start = new Date(startDate);
+      // Set to start of day to avoid timezone issues
+      start.setHours(0, 0, 0, 0);
+      let currentDate = new Date(start);
+      let sessionsScheduled = 0;
+      
+      // We need to count actual calendar days based on the scheduled days
+      // First, make sure we start from a scheduled day
+      // If the start date is not a scheduled day, move to the next scheduled day
+      let startDayName = DAYS_OF_WEEK[currentDate.getDay()];
+      let isStartDayScheduled = false;
+      
+      // Check if start date is scheduled
+      const startDayMatches = [
+        startDayName, // Full day name (e.g., "Monday")
+        startDayName.substring(0, 3), // Abbreviated day (e.g., "Mon")
+        startDayName.toLowerCase(),
+        startDayName.substring(0, 3).toLowerCase(),
+        currentDate.getDay().toString(), // Numeric day (0-6 where 0 is Sunday)
+        (currentDate.getDay() === 0 ? 7 : currentDate.getDay()).toString() // Monday as 1, Sunday as 7
+      ];
+      isStartDayScheduled = startDayMatches.some(match => match in schedule);
+      
+      // If start date is not scheduled, find the next scheduled day
+      if (!isStartDayScheduled) {
+        while (!isStartDayScheduled) {
+          currentDate = new Date(currentDate.getTime() + 24 * 60 * 60 * 1000); // Add one day
+          startDayName = DAYS_OF_WEEK[currentDate.getDay()];
+          
+          const nextDayMatches = [
+            startDayName, // Full day name (e.g., "Monday")
+            startDayName.substring(0, 3), // Abbreviated day (e.g., "Mon")
+            startDayName.toLowerCase(),
+            startDayName.substring(0, 3).toLowerCase(),
+            currentDate.getDay().toString(), // Numeric day (0-6 where 0 is Sunday)
+            (currentDate.getDay() === 0 ? 7 : currentDate.getDay()).toString() // Monday as 1, Sunday as 7
+          ];
+          isStartDayScheduled = nextDayMatches.some(match => match in schedule);
+        }
+      }
+      
+      // Now start counting from the first scheduled day
+      sessionsScheduled = 1; // Count the first scheduled day as the first session
+      
+      // Continue until we reach the required number of sessions
+      while (sessionsScheduled < totalSessions) {
+        // Move to next day
+        currentDate = new Date(currentDate.getTime() + 24 * 60 * 60 * 1000); // Add one day in milliseconds
+        
+        // Check if this day is in the schedule
+        const dayName = DAYS_OF_WEEK[currentDate.getDay()];
+        // Check if this day is scheduled (comprehensive matching)
+        const dayMatches = [
+          dayName, // Full day name (e.g., "Monday")
+          dayName.substring(0, 3), // Abbreviated day (e.g., "Mon")
+          dayName.toLowerCase(),
+          dayName.substring(0, 3).toLowerCase(),
+          currentDate.getDay().toString(), // Numeric day (0-6 where 0 is Sunday)
+          (currentDate.getDay() === 0 ? 7 : currentDate.getDay()).toString() // Monday as 1, Sunday as 7
+        ];
+        
+        const isDayScheduled = dayMatches.some(match => match in schedule);
+        
+        if (isDayScheduled) {
+          sessionsScheduled++;
+        }
+      }
+      
+      return currentDate.toISOString().split('T')[0];
+    }
+  }
+  
+  // Fallback: if no schedule or schedule is empty, assume 1 session per day
+  const start = new Date(startDate);
+  const end = new Date(start);
+  end.setDate(start.getDate() + totalSessions);
+  
+  return end.toISOString().split('T')[0];
+};
 
 export const BatchCreate: React.FC = () => {
   const { user } = useAuth();
@@ -29,12 +188,43 @@ export const BatchCreate: React.FC = () => {
   const [suggestedCandidates, setSuggestedCandidates] = useState<SuggestedCandidate[]>([]);
   const [showOtherSoftwareInput, setShowOtherSoftwareInput] = useState(false);
   const [otherSoftware, setOtherSoftware] = useState('');
-  const [selectedSoftwares, setSelectedSoftwares] = useState<string[]>([]);
+  const [selectedSoftware, setSelectedSoftware] = useState<string>('');
   const [studentSearchQuery, setStudentSearchQuery] = useState('');
   const [startDateDisplay, setStartDateDisplay] = useState('');
   const [endDateDisplay, setEndDateDisplay] = useState('');
-  const [selectedCourseId, setSelectedCourseId] = useState<number | null>(null);
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  
   const [batchStatus, setBatchStatus] = useState<string>('active');
+  const [facultyAvailability, setFacultyAvailability] = useState<any>(null);
+  const [checkingAvailability, setCheckingAvailability] = useState(false);
+
+  const checkFacultyAvailability = async (facultyIds: number[]) => {
+    if (!startDate || !endDate) return;
+    
+    setCheckingAvailability(true);
+    try {
+      const scheduleData = Object.keys(daySchedules).length > 0 ? daySchedules : null;
+      const result = await batchAPI.checkFacultyAvailability(facultyIds, startDate, endDate, scheduleData);
+      setFacultyAvailability(result.data.availabilityResults);
+    } catch (error: any) {
+      console.error('Error checking faculty availability:', error);
+      alert(error.response?.data?.message || 'Failed to check faculty availability');
+    } finally {
+      setCheckingAvailability(false);
+    }
+  };
+
+  // Auto-calculate end date when selected software or schedule changes
+  useEffect(() => {
+    if (startDate && selectedSoftware) {
+      const calculatedEndDate = calculateEndDate(startDate, [selectedSoftware], daySchedules);
+      if (calculatedEndDate) {
+        setEndDate(calculatedEndDate);
+        setEndDateDisplay(formatDateInputToDDMMYYYY(calculatedEndDate));
+      }
+    }
+  }, [startDate, selectedSoftware, daySchedules]);
 
   // Fetch all students
   const { data: studentsData } = useQuery({
@@ -46,12 +236,6 @@ export const BatchCreate: React.FC = () => {
   const { data: facultyData, isLoading: isLoadingFaculty } = useQuery({
     queryKey: ['faculty'],
     queryFn: () => facultyAPI.getAllFaculty(1000), // Get up to 1000 faculty
-  });
-
-  // Fetch all courses
-  const { data: coursesData, isLoading: isLoadingCourses } = useQuery({
-    queryKey: ['courses'],
-    queryFn: () => courseAPI.getAllCourses(),
   });
 
   const createBatchMutation = useMutation({
@@ -110,13 +294,11 @@ export const BatchCreate: React.FC = () => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
     
-    // Get software from selected softwares - REQUIRED
-    const softwareValue = selectedSoftwares.length > 0 
-      ? selectedSoftwares.join(', ')
-      : '';
+    // Get software from selected software - REQUIRED
+    const softwareValue = selectedSoftware || '';
     
     if (!softwareValue || softwareValue.trim() === '') {
-      alert('Please select at least one software for this batch.');
+      alert('Please select a software for this batch.');
       return;
     }
     
@@ -127,16 +309,15 @@ export const BatchCreate: React.FC = () => {
     }
 
     // Get status - use state value as fallback if FormData doesn't have it
-    let statusValue = (formData.get('status') as string) || batchStatus;
+    const statusValue = (formData.get('status') as string) || batchStatus;
     const finalStatus = statusValue && statusValue.trim() ? statusValue.trim() : 'active';
 
     const data: CreateBatchRequest = {
       title: (formData.get('title') as string)?.trim() || '',
       software: softwareValue.trim(),
       mode: (formData.get('mode') as string) || '',
-      startDate: (formData.get('startDate') as string) || '',
-      endDate: (formData.get('endDate') as string) || '',
-      maxCapacity: formData.get('maxCapacity') ? parseInt(formData.get('maxCapacity') as string) : undefined,
+      startDate: startDate || (formData.get('startDate') as string) || '',
+      endDate: endDate || (formData.get('endDate') as string) || '',
       status: finalStatus,
       schedule: Object.keys(daySchedules).length > 0 ? 
         Object.fromEntries(
@@ -145,7 +326,6 @@ export const BatchCreate: React.FC = () => {
       facultyIds: selectedFaculty,
       studentIds: selectedStudents.length > 0 ? selectedStudents : undefined,
       exceptionStudentIds: exceptionStudentIds.length > 0 ? exceptionStudentIds : undefined,
-      courseId: selectedCourseId || null,
     };
     
     // Debug log to verify status is being sent
@@ -159,10 +339,10 @@ export const BatchCreate: React.FC = () => {
     if (!form) return;
     
     const formData = new FormData(form);
-    const software = selectedSoftwares.length > 0 ? selectedSoftwares.join(', ') : undefined;
-    const startDate = formData.get('startDate') as string;
+    const software = selectedSoftware || undefined;
+    const actualStartDate = startDate || (formData.get('startDate') as string);
     
-    if (!software || !startDate) {
+    if (!software || !actualStartDate) {
       alert('Please select software and enter start date first to get suggestions');
       return;
     }
@@ -189,9 +369,8 @@ export const BatchCreate: React.FC = () => {
         title: 'TEMP_FOR_SUGGESTIONS',
         software,
         mode: formData.get('mode') as string || 'online',
-        startDate,
-        endDate: formData.get('endDate') as string || startDate,
-        maxCapacity: 100,
+        startDate: actualStartDate,
+        endDate: formData.get('endDate') as string || actualStartDate,
         status: statusValue,
         facultyIds: tempFacultyIds,
       };
@@ -233,15 +412,20 @@ export const BatchCreate: React.FC = () => {
   };
 
   const handleToggleFaculty = (facultyId: number) => {
-    setSelectedFaculty(prev => 
-      prev.includes(facultyId) 
-        ? prev.filter(id => id !== facultyId)
-        : [...prev, facultyId]
-    );
+    const newSelectedFaculty = selectedFaculty.includes(facultyId) 
+      ? selectedFaculty.filter(id => id !== facultyId)
+      : [...selectedFaculty, facultyId];
+    
+    setSelectedFaculty(newSelectedFaculty);
+    
+    // Check availability when faculty selection changes
+    if (newSelectedFaculty.length > 0 && startDate && endDate) {
+      checkFacultyAvailability(newSelectedFaculty);
+    }
   };
 
   const handleSelectSuggested = (candidate: SuggestedCandidate) => {
-    if (candidate.status === 'available' || candidate.status === 'fees_overdue' || candidate.status === 'pending_fees' || candidate.status === 'no_orientation') {
+    if (candidate.status === 'available' || candidate.status === 'fees_overdue' || candidate.status === 'pending_fees' || candidate.status === 'no_orientation' || candidate.status === 'time_conflict' || candidate.status === 'day_mismatch') {
       handleToggleStudent(candidate.studentId);
     }
   };
@@ -314,34 +498,6 @@ export const BatchCreate: React.FC = () => {
                   />
                 </div>
 
-                <div className="md:col-span-2">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Course (Optional)
-                  </label>
-                  <select
-                    value={selectedCourseId || ''}
-                    onChange={(e) => setSelectedCourseId(e.target.value ? parseInt(e.target.value) : null)}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent"
-                  >
-                    <option value="">Select a course (optional)</option>
-                    {isLoadingCourses ? (
-                      <option disabled>Loading courses...</option>
-                    ) : (
-                      coursesData?.data?.map((course) => (
-                        <option key={course.id} value={course.id}>
-                          {course.name}
-                        </option>
-                      ))
-                    )}
-                  </select>
-                  {selectedCourseId && coursesData?.data?.find(c => c.id === selectedCourseId) && (
-                    <p className="mt-1 text-xs text-gray-600">
-                      Software: {Array.isArray(coursesData.data.find(c => c.id === selectedCourseId)?.software) 
-                        ? coursesData.data.find(c => c.id === selectedCourseId)?.software.join(', ')
-                        : 'N/A'}
-                    </p>
-                  )}
-                </div>
 
                 <div className="md:col-span-2">
                   <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -349,6 +505,17 @@ export const BatchCreate: React.FC = () => {
                   </label>
                   <div className="border border-gray-300 rounded-lg p-4 max-h-48 overflow-y-auto">
                     <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                      <label className="flex items-center space-x-2 cursor-pointer hover:bg-gray-50 p-2 rounded">
+                        <input
+                          type="radio"
+                          name="software"
+                          value=""
+                          checked={selectedSoftware === ''}
+                          onChange={() => setSelectedSoftware('')}
+                          className="w-4 h-4 text-orange-600 border-gray-300 focus:ring-orange-500"
+                        />
+                        <span className="text-sm text-gray-700">None</span>
+                      </label>
                       {[
                         'Photoshop',
                         'Illustrator',
@@ -382,20 +549,22 @@ export const BatchCreate: React.FC = () => {
                           className="flex items-center space-x-2 cursor-pointer hover:bg-gray-50 p-2 rounded"
                         >
                           <input
-                            type="checkbox"
-                            checked={software === 'Other' ? showOtherSoftwareInput : selectedSoftwares.includes(software)}
+                            type="radio"
+                            name="software"
+                            value={software}
+                            checked={selectedSoftware === software}
                             onChange={(e) => {
                               if (software === 'Other') {
                                 setShowOtherSoftwareInput(e.target.checked);
-                              } else {
                                 if (e.target.checked) {
-                                  setSelectedSoftwares(prev => [...prev, software]);
-                                } else {
-                                  setSelectedSoftwares(prev => prev.filter(s => s !== software));
+                                  setSelectedSoftware(software);
                                 }
+                              } else {
+                                setSelectedSoftware(software);
+                                setShowOtherSoftwareInput(false);
                               }
                             }}
-                            className="w-4 h-4 text-orange-600 border-gray-300 rounded focus:ring-orange-500"
+                            className="w-4 h-4 text-orange-600 border-gray-300 focus:ring-orange-500"
                           />
                           <span className="text-sm text-gray-700">{software}</span>
                         </label>
@@ -414,26 +583,13 @@ export const BatchCreate: React.FC = () => {
                           const value = e.target.value;
                           setOtherSoftware(value);
                           if (value.trim()) {
-                            // Split by comma and add each software
-                            const newSoftwares = value.split(',').map(s => s.trim()).filter(s => s);
-                            setSelectedSoftwares(prev => {
-                              const standardSoftwares = prev.filter(s => 
-                                ['Photoshop', 'Illustrator', 'InDesign', 'After Effects', 'Premiere Pro', 
-                                 'Figma', 'Sketch', 'Blender', 'Maya', '3ds Max', 'Cinema 4D', 'Lightroom',
-                                 'CorelDRAW', 'AutoCAD', 'SolidWorks', 'Revit', 'SketchUp', 'Unity',
-                                 'Unreal Engine', 'DaVinci Resolve', 'Final Cut Pro', 'Procreate',
-                                 'Affinity Designer', 'Affinity Photo', 'Canva Pro'].includes(s)
-                              );
-                              return [...standardSoftwares, ...newSoftwares];
-                            });
+                            // For single selection, just use the first software from the input
+                            const firstSoftware = value.split(',')[0].trim();
+                            if (firstSoftware) {
+                              setSelectedSoftware(firstSoftware);
+                            }
                           } else {
-                            setSelectedSoftwares(prev => prev.filter(s => 
-                              ['Photoshop', 'Illustrator', 'InDesign', 'After Effects', 'Premiere Pro', 
-                               'Figma', 'Sketch', 'Blender', 'Maya', '3ds Max', 'Cinema 4D', 'Lightroom',
-                               'CorelDRAW', 'AutoCAD', 'SolidWorks', 'Revit', 'SketchUp', 'Unity',
-                               'Unreal Engine', 'DaVinci Resolve', 'Final Cut Pro', 'Procreate',
-                               'Affinity Designer', 'Affinity Photo', 'Canva Pro'].includes(s)
-                            ));
+                            setSelectedSoftware('Other');
                           }
                         }}
                         placeholder="Enter software names (comma separated)"
@@ -441,9 +597,9 @@ export const BatchCreate: React.FC = () => {
                       />
                     </div>
                   )}
-                  {selectedSoftwares.length > 0 && (
+                  {selectedSoftware && (
                     <p className="mt-2 text-xs text-gray-600">
-                      Selected: {selectedSoftwares.join(', ')}
+                      Selected: {selectedSoftware}
                     </p>
                   )}
                 </div>
@@ -472,14 +628,28 @@ export const BatchCreate: React.FC = () => {
                     type="date"
                     name="startDate"
                     required
+                    min={new Date().toISOString().split('T')[0]}
+                    value={startDate}
                     onChange={(e) => {
-                      setStartDateDisplay(formatDateInputToDDMMYYYY(e.target.value));
+                      const newStartDate = e.target.value;
+                      setStartDate(newStartDate);
+                      setStartDateDisplay(formatDateInputToDDMMYYYY(newStartDate));
+                      
+                      // Auto-calculate end date when start date changes
+                      if (selectedSoftware) {
+                        const calculatedEndDate = calculateEndDate(newStartDate, [selectedSoftware], daySchedules);
+                        if (calculatedEndDate) {
+                          setEndDate(calculatedEndDate);
+                          setEndDateDisplay(formatDateInputToDDMMYYYY(calculatedEndDate));
+                        }
+                      }
                     }}
                     className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent"
                   />
                   {startDateDisplay && (
                     <p className="mt-1 text-sm text-gray-600">Selected: {startDateDisplay}</p>
                   )}
+                  <p className="mt-1 text-xs text-gray-500">Start date must be today or a future date</p>
                 </div>
 
                 <div>
@@ -490,14 +660,19 @@ export const BatchCreate: React.FC = () => {
                     type="date"
                     name="endDate"
                     required
+                    value={endDate}
                     onChange={(e) => {
-                      setEndDateDisplay(formatDateInputToDDMMYYYY(e.target.value));
+                      // Allow manual override of end date
+                      const newEndDate = e.target.value;
+                      setEndDate(newEndDate);
+                      setEndDateDisplay(formatDateInputToDDMMYYYY(newEndDate));
                     }}
                     className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent"
                   />
                   {endDateDisplay && (
                     <p className="mt-1 text-sm text-gray-600">Selected: {endDateDisplay}</p>
                   )}
+                  <p className="mt-1 text-xs text-gray-500">Auto-calculated based on software sessions. You can manually override this date.</p>
                 </div>
 
                 <div>
@@ -575,6 +750,54 @@ export const BatchCreate: React.FC = () => {
                           ))
                       )}
                     </div>
+                    {checkingAvailability && (
+                      <div className="mt-2 flex items-center text-sm text-blue-600">
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-500 mr-2"></div>
+                        Checking faculty availability...
+                      </div>
+                    )}
+                    {facultyAvailability && facultyAvailability.length > 0 && (
+                      <div className="mt-3 p-3 bg-gray-50 rounded-lg">
+                        <h4 className="text-sm font-medium text-gray-900 mb-2">Faculty Availability Status:</h4>
+                        <div className="space-y-2">
+                          {facultyAvailability.map((result: any) => {
+                            const faculty = facultyData?.data?.users?.find((f: any) => f.id === result.facultyId);
+                            return (
+                              <div key={result.facultyId} className={`p-2 rounded ${result.isAvailable ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'}`}>
+                                <div className="flex justify-between items-start">
+                                  <div>
+                                    <span className="font-medium text-gray-900">{faculty?.name || `Faculty ${result.facultyId}`}</span>
+                                    <span className={`ml-2 text-xs px-2 py-1 rounded ${result.isAvailable ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+                                      {result.isAvailable ? 'Available' : 'Unavailable'}
+                                    </span>
+                                  </div>
+                                </div>
+                                {!result.isAvailable && result.conflicts.length > 0 && (
+                                  <div className="mt-2 text-xs text-gray-600">
+                                    <p className="font-medium mb-1">Conflicts:</p>
+                                    {result.conflicts.map((conflict: any, idx: number) => (
+                                      <div key={idx} className="mb-1">
+                                        <p className="text-red-700">• {conflict.batchTitle} (Batch ID: {conflict.batchId})</p>
+                                        {conflict.conflictDays.length > 0 && (
+                                          <p>Days: {conflict.conflictDays.join(', ')}</p>
+                                        )}
+                                        {conflict.conflictTimes.length > 0 && (
+                                          <ul className="list-disc list-inside ml-2">
+                                            {conflict.conflictTimes.map((time: any, timeIdx: number) => (
+                                              <li key={timeIdx}>{time.time}</li>
+                                            ))}
+                                          </ul>
+                                        )}
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
                     {selectedFaculty.length > 0 ? (
                       <p className="mt-2 text-sm text-green-600 font-medium">
                         ✓ {selectedFaculty.length} faculty member(s) selected
@@ -586,6 +809,167 @@ export const BatchCreate: React.FC = () => {
                     )}
                   </>
                 )}
+              </div>
+
+              {/* Schedule Section */}
+              <div className="pt-6 border-t border-gray-200">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">Schedule (Optional)</h3>
+                <p className="text-sm text-gray-600 mb-4">Select days and set start/end times for each day</p>
+                
+                {/* Quick-select schedule buttons */}
+                <div className="mb-4 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      // Select MWF (Monday, Wednesday, Friday)
+                      const mwfDays = ['Monday', 'Wednesday', 'Friday'];
+                      const newSchedules = { ...daySchedules };
+                      
+                      // Add MWF days, keep existing times if they exist
+                      mwfDays.forEach(day => {
+                        if (!newSchedules[day]) {
+                          newSchedules[day] = { startTime: '', endTime: '' };
+                        }
+                      });
+                      
+                      // Remove non-MWF days
+                      Object.keys(newSchedules).forEach(day => {
+                        if (!mwfDays.includes(day)) {
+                          delete newSchedules[day];
+                        }
+                      });
+                      
+                      setDaySchedules(newSchedules);
+                    }}
+                    className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                      Object.keys(daySchedules).length === 3 &&
+                      ['Monday', 'Wednesday', 'Friday'].every(day => daySchedules[day])
+                        ? 'bg-blue-600 text-white' // Selected state
+                        : 'bg-blue-100 text-blue-800 hover:bg-blue-200' // Default state
+                    }`}
+                  >
+                    MWF (Mon, Wed, Fri)
+                  </button>
+                  
+                  <button
+                    type="button"
+                    onClick={() => {
+                      // Select TTS (Tuesday, Thursday, Saturday)
+                      const ttsDays = ['Tuesday', 'Thursday', 'Saturday'];
+                      const newSchedules = { ...daySchedules };
+                      
+                      // Add TTS days, keep existing times if they exist
+                      ttsDays.forEach(day => {
+                        if (!newSchedules[day]) {
+                          newSchedules[day] = { startTime: '', endTime: '' };
+                        }
+                      });
+                      
+                      // Remove non-TTS days
+                      Object.keys(newSchedules).forEach(day => {
+                        if (!ttsDays.includes(day)) {
+                          delete newSchedules[day];
+                        }
+                      });
+                      
+                      setDaySchedules(newSchedules);
+                    }}
+                    className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                      Object.keys(daySchedules).length === 3 &&
+                      ['Tuesday', 'Thursday', 'Saturday'].every(day => daySchedules[day])
+                        ? 'bg-purple-600 text-white' // Selected state
+                        : 'bg-purple-100 text-purple-800 hover:bg-purple-200' // Default state
+                    }`}
+                  >
+                    TTS (Tue, Thu, Sat)
+                  </button>
+                  
+                  <button
+                    type="button"
+                    onClick={() => {
+                      // Custom schedule - allow user to select any days
+                      // For custom, we don't change the schedule, just allow manual selection
+                      // Clear the schedule to start fresh for custom selection
+                      setDaySchedules({});
+                    }}
+                    className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                      Object.keys(daySchedules).length > 0 &&
+                      !(['Monday', 'Wednesday', 'Friday'].every(day => daySchedules[day]) && Object.keys(daySchedules).length === 3) &&
+                      !(['Tuesday', 'Thursday', 'Saturday'].every(day => daySchedules[day]) && Object.keys(daySchedules).length === 3)
+                        ? 'bg-green-600 text-white' // Selected state for custom
+                        : 'bg-green-100 text-green-800 hover:bg-green-200' // Default state
+                    }`}
+                  >
+                    Custom
+                  </button>
+                </div>
+                
+                <div className="mb-4 p-3 bg-orange-50 border border-orange-200 rounded-lg">
+                  <label className="flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={applyToAll}
+                      onChange={(e) => setApplyToAll(e.target.checked)}
+                      className="w-4 h-4 text-orange-600 border-gray-300 rounded focus:ring-orange-500"
+                    />
+                    <span className="ml-2 text-sm font-medium text-gray-700">
+                      Apply same time to all selected days
+                    </span>
+                  </label>
+                  <p className="ml-6 mt-1 text-xs text-gray-600">
+                    When enabled, changing time on any day will update all selected days
+                  </p>
+                </div>
+                
+                <div className="space-y-4">
+                  {DAYS_OF_WEEK.map((day) => {
+                    const isSelected = !!daySchedules[day];
+                    const schedule = daySchedules[day] || { startTime: '', endTime: '' };
+                    
+                    return (
+                      <div key={day} className="border border-gray-200 rounded-lg p-4">
+                        <div className="flex items-center justify-between mb-3">
+                          <label className="flex items-center cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => handleDayToggle(day)}
+                              className="w-4 h-4 text-orange-600 border-gray-300 rounded focus:ring-orange-500"
+                            />
+                            <span className="ml-2 text-sm font-medium text-gray-700">{day}</span>
+                          </label>
+                        </div>
+                        
+                        {isSelected && (
+                          <div className="grid grid-cols-2 gap-4 mt-3 pl-6">
+                            <div>
+                              <label className="block text-xs font-medium text-gray-600 mb-1">
+                                Start Time
+                              </label>
+                              <input
+                                type="time"
+                                value={schedule.startTime}
+                                onChange={(e) => handleTimeChange(day, 'startTime', e.target.value)}
+                                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500 text-sm"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs font-medium text-gray-600 mb-1">
+                                End Time
+                              </label>
+                              <input
+                                type="time"
+                                value={schedule.endTime}
+                                onChange={(e) => handleTimeChange(day, 'endTime', e.target.value)}
+                                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500 text-sm"
+                              />
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
 
               {/* Student Selection Section */}
@@ -618,6 +1002,10 @@ export const BatchCreate: React.FC = () => {
                                 ? 'bg-amber-50 border-amber-300 hover:bg-amber-100'
                                 : candidate.status === 'no_orientation'
                                 ? 'bg-orange-50 border-orange-300 hover:bg-orange-100'
+                                : candidate.status === 'time_conflict'
+                                ? 'bg-red-50 border-red-300 hover:bg-red-100'
+                                : candidate.status === 'day_mismatch'
+                                ? 'bg-red-100 border-red-400 hover:bg-red-200'
                                 : 'bg-gray-50 border-gray-300 opacity-50'
                             }`}
                             onClick={() => handleSelectSuggested(candidate)}
@@ -639,6 +1027,10 @@ export const BatchCreate: React.FC = () => {
                                     ? 'bg-amber-200 text-amber-800'
                                     : candidate.status === 'no_orientation'
                                     ? 'bg-orange-200 text-orange-800'
+                                    : candidate.status === 'time_conflict'
+                                    ? 'bg-red-200 text-red-800'
+                                    : candidate.status === 'day_mismatch'
+                                    ? 'bg-red-300 text-red-900 font-semibold'
                                     : 'bg-gray-200 text-gray-800'
                                 }`}>
                                   {candidate.statusMessage || candidate.status}
@@ -663,7 +1055,7 @@ export const BatchCreate: React.FC = () => {
                                   type="checkbox"
                                   checked={selectedStudents.includes(candidate.studentId)}
                                   onChange={() => handleToggleStudent(candidate.studentId)}
-                                  disabled={candidate.status === 'busy'}
+                                  disabled={candidate.status === 'busy' || candidate.status === 'day_mismatch'}
                                   className="w-4 h-4 text-orange-600 border-gray-300 rounded focus:ring-orange-500"
                                   onClick={(e) => e.stopPropagation()}
                                 />
@@ -675,7 +1067,7 @@ export const BatchCreate: React.FC = () => {
                     ) : (
                       <div className="p-3 bg-white border border-blue-200 rounded">
                         <p className="text-sm text-gray-600">
-                          No students found with matching software "{selectedSoftwares.join(', ')}".
+                          No students found with matching software "{selectedSoftware}".
                         </p>
                         <p className="text-xs text-gray-500 mt-2">
                           Students need to have the software selected in their profile to appear here.
@@ -746,79 +1138,6 @@ export const BatchCreate: React.FC = () => {
                 </div>
               </div>
 
-              {/* Schedule Section */}
-              <div className="pt-6 border-t border-gray-200">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">Schedule (Optional)</h3>
-                <p className="text-sm text-gray-600 mb-4">Select days and set start/end times for each day</p>
-                
-                <div className="mb-4 p-3 bg-orange-50 border border-orange-200 rounded-lg">
-                  <label className="flex items-center cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={applyToAll}
-                      onChange={(e) => setApplyToAll(e.target.checked)}
-                      className="w-4 h-4 text-orange-600 border-gray-300 rounded focus:ring-orange-500"
-                    />
-                    <span className="ml-2 text-sm font-medium text-gray-700">
-                      Apply same time to all selected days
-                    </span>
-                  </label>
-                  <p className="ml-6 mt-1 text-xs text-gray-600">
-                    When enabled, changing time on any day will update all selected days
-                  </p>
-                </div>
-                
-                <div className="space-y-4">
-                  {DAYS_OF_WEEK.map((day) => {
-                    const isSelected = !!daySchedules[day];
-                    const schedule = daySchedules[day] || { startTime: '', endTime: '' };
-                    
-                    return (
-                      <div key={day} className="border border-gray-200 rounded-lg p-4">
-                        <div className="flex items-center justify-between mb-3">
-                          <label className="flex items-center cursor-pointer">
-                            <input
-                              type="checkbox"
-                              checked={isSelected}
-                              onChange={() => handleDayToggle(day)}
-                              className="w-4 h-4 text-orange-600 border-gray-300 rounded focus:ring-orange-500"
-                            />
-                            <span className="ml-2 text-sm font-medium text-gray-700">{day}</span>
-                          </label>
-                        </div>
-                        
-                        {isSelected && (
-                          <div className="grid grid-cols-2 gap-4 mt-3 pl-6">
-                            <div>
-                              <label className="block text-xs font-medium text-gray-600 mb-1">
-                                Start Time
-                              </label>
-                              <input
-                                type="time"
-                                value={schedule.startTime}
-                                onChange={(e) => handleTimeChange(day, 'startTime', e.target.value)}
-                                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500 text-sm"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-xs font-medium text-gray-600 mb-1">
-                                End Time
-                              </label>
-                              <input
-                                type="time"
-                                value={schedule.endTime}
-                                onChange={(e) => handleTimeChange(day, 'endTime', e.target.value)}
-                                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500 text-sm"
-                              />
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-
               <div className="flex gap-4 pt-6 border-t border-gray-200">
                 <button
                   type="submit"
@@ -842,4 +1161,5 @@ export const BatchCreate: React.FC = () => {
     </Layout>
   );
 };
+
 

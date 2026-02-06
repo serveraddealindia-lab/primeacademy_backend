@@ -5,6 +5,46 @@ import { UserRole } from '../models/User';
 import { Module } from '../models/RolePermission';
 import { logger } from '../utils/logger';
 
+// System roles that should be predefined
+const SYSTEM_ROLES = [
+  'superadmin', 'admin', 'faculty', 'student', 'employee'
+];
+
+// Initialize system roles function
+export const initializeSystemRoles = async (): Promise<void> => {
+  try {
+    for (const roleName of SYSTEM_ROLES) {
+      const existingRole = await db.Role.findOne({ where: { name: roleName } });
+      if (!existingRole) {
+        // Create system role if it doesn't exist
+        await db.Role.create({
+          name: roleName,
+          description: `${roleName.charAt(0).toUpperCase() + roleName.slice(1)} role`,
+          isSystem: true,
+          isActive: true,
+        });
+        console.log(`Created system role: ${roleName}`);
+      } else if (!existingRole.isSystem) {
+        // Update existing role to mark it as system role
+        await existingRole.update({ isSystem: true });
+        console.log(`Updated role ${roleName} to system role`);
+      }
+    }
+    
+    // Also ensure any existing roles that should be system roles are properly marked
+    const allRoles = await db.Role.findAll();
+    for (const role of allRoles) {
+      if (SYSTEM_ROLES.includes(role.name) && !role.isSystem) {
+        await role.update({ isSystem: true });
+        console.log(`Marked existing role ${role.name} as system role`);
+      }
+    }
+  } catch (error) {
+    console.error('Error initializing system roles:', error);
+    throw error;
+  }
+};
+
 interface CreateRoleBody {
   name: string;
   description?: string;
@@ -283,8 +323,8 @@ export const updateRole = async (
       return;
     }
 
-    // Prevent updating system roles
-    if (role.isSystem) {
+    // Allow superadmin to update system roles, but prevent modification of critical system role properties
+    if (role.isSystem && req.user.role !== UserRole.SUPERADMIN) {
       res.status(403).json({
         status: 'error',
         message: 'Cannot update system roles',
@@ -303,6 +343,16 @@ export const updateRole = async (
         });
         return;
       }
+      
+      // Check if trying to change a system role name
+      if (role.isSystem && req.user.role !== UserRole.SUPERADMIN) {
+        res.status(403).json({
+          status: 'error',
+          message: 'Cannot change system role name',
+        });
+        return;
+      }
+      
       // Check if another role with same name exists
       const existingRole = await db.Role.findOne({
         where: { name: name.trim() },
@@ -314,7 +364,28 @@ export const updateRole = async (
         });
         return;
       }
-      role.name = name.trim();
+      
+      // Prevent changing system role names to non-system role names
+      if (role.isSystem && !SYSTEM_ROLES.includes(name.trim())) {
+        res.status(400).json({
+          status: 'error',
+          message: 'Cannot change system role to a non-system role name',
+        });
+        return;
+      }
+      
+      // Allow superadmin to update system role name
+      if (role.isSystem && req.user.role === UserRole.SUPERADMIN) {
+        role.name = name.trim();
+      } else if (!role.isSystem) {
+        role.name = name.trim();
+      } else {
+        res.status(403).json({
+          status: 'error',
+          message: 'Cannot change system role name',
+        });
+        return;
+      }
     }
 
     if (description !== undefined) {
@@ -416,8 +487,8 @@ export const deleteRole = async (
       return;
     }
 
-    // Prevent deleting system roles
-    if (role.isSystem) {
+    // Prevent deleting system roles except for superadmin
+    if (role.isSystem && req.user.role !== UserRole.SUPERADMIN) {
       res.status(403).json({
         status: 'error',
         message: 'Cannot delete system roles',
@@ -686,12 +757,106 @@ export const getUserRoles = async (
   }
 };
 
+// PUT /api/roles/system/:name - Update system role
+export const updateSystemRole = async (
+  req: AuthRequest & { params: { name: string }; body: UpdateRoleBody },
+  res: Response
+): Promise<void> => {
+  try {
+    if (!req.user) {
+      res.status(401).json({
+        status: 'error',
+        message: 'Authentication required',
+      });
+      return;
+    }
 
+    // Only superadmin can update system roles
+    if (req.user.role !== UserRole.SUPERADMIN) {
+      res.status(403).json({
+        status: 'error',
+        message: 'Only superadmin can update system roles',
+      });
+      return;
+    }
 
+    const roleName = req.params.name;
+    
+    if (!SYSTEM_ROLES.includes(roleName)) {
+      res.status(400).json({
+        status: 'error',
+        message: 'Invalid system role name',
+      });
+      return;
+    }
 
+    const role = await db.Role.findOne({ where: { name: roleName } });
+    if (!role) {
+      res.status(404).json({
+        status: 'error',
+        message: 'System role not found',
+      });
+      return;
+    }
 
+    const { description, isActive, permissions } = req.body;
 
+    // Update role fields
+    if (description !== undefined) {
+      role.description = description || null;
+    }
 
+    if (isActive !== undefined) {
+      role.isActive = isActive;
+    }
 
+    await role.save();
 
+    // Update permissions if provided
+    if (permissions && Array.isArray(permissions)) {
+      // Delete existing permissions
+      await db.RolePermission.destroy({ where: { roleId: role.id } });
+
+      // Create new permissions
+      const validModules = Object.values(Module);
+      for (const perm of permissions) {
+        if (!validModules.includes(perm.module)) {
+          continue; // Skip invalid modules
+        }
+        await db.RolePermission.create({
+          roleId: role.id,
+          module: perm.module,
+          canView: perm.canView || false,
+          canAdd: perm.canAdd || false,
+          canEdit: perm.canEdit || false,
+          canDelete: perm.canDelete || false,
+        });
+      }
+    }
+
+    // Fetch updated role with permissions
+    const updatedRole = await db.Role.findByPk(role.id, {
+      include: [
+        {
+          model: db.RolePermission,
+          as: 'rolePermissions',
+        },
+      ],
+    });
+
+    res.status(200).json({
+      status: 'success',
+      message: 'System role updated successfully',
+      data: {
+        role: updatedRole,
+      },
+    });
+  } catch (error) {
+    logger.error('Update system role error:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Internal server error while updating system role',
+    });
+  }
+};
 
