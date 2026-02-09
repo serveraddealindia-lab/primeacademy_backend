@@ -469,7 +469,7 @@ export const getFacultyProfile = async (
     // Parse JSON fields for faculty profile
     let facultyProfile = user.facultyProfile;
     if (facultyProfile) {
-      const profileJson = facultyProfile.toJSON ? facultyProfile.toJSON() : facultyProfile;
+      let profileJson = facultyProfile.toJSON ? facultyProfile.toJSON() : facultyProfile;
       
       // Parse documents if it's a string (MySQL JSON fields sometimes come as strings)
       if (profileJson.documents && typeof profileJson.documents === 'string') {
@@ -501,7 +501,7 @@ export const getFacultyProfile = async (
         }
       }
       
-      facultyProfile = profileJson;
+      facultyProfile = profileJson as any;
     }
 
     res.status(200).json({

@@ -3,6 +3,7 @@ import sequelize from '../config/database';
 import User from './User';
 
 export enum PaymentStatus {
+  UNPAID = 'unpaid',
   PENDING = 'pending',
   PARTIAL = 'partial',
   PAID = 'paid',
@@ -114,7 +115,7 @@ PaymentTransaction.init(
     status: {
       type: DataTypes.ENUM(...Object.values(PaymentStatus)),
       allowNull: false,
-      defaultValue: PaymentStatus.PENDING,
+      defaultValue: PaymentStatus.UNPAID,
     },
     receiptUrl: {
       type: DataTypes.STRING,

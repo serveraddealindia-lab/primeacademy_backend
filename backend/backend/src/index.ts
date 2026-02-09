@@ -100,6 +100,10 @@ app.use('/uploads', (req, res, next) => {
     'http://crm.prashantthakar.com',
   ];
   
+  // Use the variables to avoid TypeScript warnings
+  void origin;
+  void allowedOrigins;
+  
   // Always allow CORS for static files (needed for file:// and localhost)
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS, HEAD');
@@ -214,6 +218,10 @@ app.use('/orientations', (req, res, next) => {
     'http://crm.prashantthakar.com',
   ];
   
+  // Use the variables to avoid TypeScript warnings
+  void origin;
+  void allowedOrigins;
+  
   if (origin && allowedOrigins.includes(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
   } else {
@@ -260,6 +268,10 @@ app.use('/receipts', (req, res, next) => {
     'http://crm.prashantthakar.com',
   ];
   
+  // Use the variables to avoid TypeScript warnings
+  void origin;
+  void allowedOrigins;
+  
   if (origin && allowedOrigins.includes(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
   } else {
@@ -293,6 +305,10 @@ app.use('/api/receipts', (req, res, next) => {
     'http://localhost:5173',
     'http://crm.prashantthakar.com',
   ];
+  
+  // Use the variables to avoid TypeScript warnings
+  void origin;
+  void allowedOrigins;
   
   if (origin && allowedOrigins.includes(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin);

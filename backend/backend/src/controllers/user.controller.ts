@@ -5,6 +5,57 @@ import db from '../models';
 import { UserRole } from '../models/User';
 import { logger } from '../utils/logger';
 import { generateToken } from '../utils/jwt';
+import { Op } from 'sequelize';
+
+// Function to check for duplicate email or phone across all user types
+export const checkDuplicateEmailOrPhone = async (email: string | null | undefined, phone: string | null | undefined, excludeUserId?: number) => {
+  if (!email && !phone) {
+    return { isDuplicate: false };
+  }
+
+  const whereConditions: any = {};
+  
+  if (excludeUserId) {
+    whereConditions.id = { [Op.ne]: excludeUserId }; // Exclude the current user from check
+  }
+
+  const orConditions = [];
+  
+  if (email) {
+    orConditions.push(
+      db.sequelize.where(
+        db.sequelize.fn('LOWER', db.sequelize.col('email')),
+        db.sequelize.fn('LOWER', email)
+      )
+    );
+  }
+  
+  if (phone) {
+    orConditions.push({ phone });
+  }
+
+  if (orConditions.length > 0) {
+    whereConditions[Op.or] = orConditions;
+  }
+
+  const existingUser = await db.User.findOne({ where: whereConditions });
+  
+  if (existingUser) {
+    const isEmailDuplicate = email && existingUser.email.toLowerCase() === email.toLowerCase();
+    const isPhoneDuplicate = phone && existingUser.phone === phone;
+    
+    return {
+      isDuplicate: true,
+      existingUser,
+      duplicateFields: [
+        ...(isEmailDuplicate ? ['email'] : []),
+        ...(isPhoneDuplicate ? ['phone'] : [])
+      ]
+    };
+  }
+
+  return { isDuplicate: false };
+};
 
 // GET /api/users - Get all users with optional filters
 export const getAllUsers = async (
@@ -380,7 +431,7 @@ export const getUserById = async (
                       logger.info(`Successfully parsed documents JSON for faculty ${user.id}`);
                     } catch (e) {
                       logger.warn(`Failed to parse documents JSON for faculty ${user.id}:`, e);
-                      logger.warn(`Documents string value (first 200 chars): ${profileJson.documents.substring(0, 200)}`);
+                      logger.warn(`Documents string value (first 200 chars): ${typeof (profileJson.documents as unknown as string) === 'string' ? (profileJson.documents as unknown as string).substring(0, 200) : 'N/A'}`);
                       // Try to set to empty object instead of null to avoid frontend issues
                       profileJson.documents = {};
                     }
@@ -458,8 +509,38 @@ export const getUserById = async (
 
     // Parse JSON fields for faculty profile if it exists (MySQL JSON columns sometimes return as strings)
     const userJson = user.toJSON ? user.toJSON() : user;
-    if (userJson.facultyProfile) {
-      const profile = userJson.facultyProfile;
+    
+    // Process employee profile documents if it exists
+    if ((userJson as any).employeeProfile && (userJson as any).employeeProfile.documents) {
+      const documents = (userJson as any).employeeProfile.documents;
+      
+      // Process documents to ensure any file paths are converted to full URLs
+      const processedDocuments: Record<string, any> = {};
+      
+      for (const [key, value] of Object.entries(documents)) {
+        if (typeof value === 'string' && (value.includes('uploads/') || value.includes('/general/'))) {
+          // If it's already a full URL, keep as is
+          if (value.startsWith('http://') || value.startsWith('https://')) {
+            processedDocuments[key] = value;
+          } else {
+            // If it's a relative path, convert to full URL
+            // Check if it's already in the correct format
+            if (!value.startsWith('/uploads/')) {
+              processedDocuments[key] = `/uploads/${value}`;
+            } else {
+              processedDocuments[key] = value;
+            }
+          }
+        } else {
+          processedDocuments[key] = value;
+        }
+      }
+      
+      (userJson as any).employeeProfile.documents = processedDocuments;
+    }
+    
+    if ((userJson as any).facultyProfile) {
+      const profile = (userJson as any).facultyProfile;
       
       // Parse documents if it's a string - CRITICAL for production
       if (profile.documents) {
@@ -470,7 +551,7 @@ export const getUserById = async (
             logger.info(`Successfully parsed documents JSON for faculty ${userJson.id}`);
           } catch (e) {
             logger.warn(`Failed to parse documents JSON for faculty ${userJson.id}:`, e);
-            logger.warn(`Documents string value (first 200 chars): ${profile.documents.substring(0, 200)}`);
+            logger.warn(`Documents string value (first 200 chars): ${typeof profile.documents === 'string' ? profile.documents.substring(0, 200) : 'N/A'}`);
             // Try to set to empty object instead of null to avoid frontend issues
             profile.documents = {};
           }
@@ -502,7 +583,7 @@ export const getUserById = async (
         }
       }
       
-      userJson.facultyProfile = profile;
+      (userJson as any).facultyProfile = profile;
     }
 
     res.status(200).json({
@@ -575,6 +656,30 @@ export const updateUser = async (
       res.status(404).json({
         status: 'error',
         message: 'User not found',
+      });
+      return;
+    }
+
+    // Check for duplicate email or phone before saving
+    const duplicateCheck = await checkDuplicateEmailOrPhone(
+      req.body.email,
+      req.body.phone,
+      userId // Exclude current user from duplicate check
+    );
+    
+    if (duplicateCheck.isDuplicate && duplicateCheck.existingUser && duplicateCheck.duplicateFields) {
+      const conflictFields = duplicateCheck.duplicateFields.join(' and ');
+      res.status(409).json({
+        status: 'error',
+        message: `A user with this ${conflictFields} already exists.`,
+        existingUser: {
+          id: duplicateCheck.existingUser.id,
+          name: duplicateCheck.existingUser.name,
+          email: duplicateCheck.existingUser.email,
+          phone: duplicateCheck.existingUser.phone,
+          role: duplicateCheck.existingUser.role,
+        },
+        conflictFields: duplicateCheck.duplicateFields,
       });
       return;
     }
@@ -770,6 +875,35 @@ export const updateStudentProfile = async (
         message: 'User not found',
       });
       return;
+    }
+
+    // Check if email or phone is being updated and validate for duplicates
+    if (req.body.email !== undefined || req.body.phone !== undefined) {
+      const newEmail = req.body.email !== undefined ? req.body.email : user.email;
+      const newPhone = req.body.phone !== undefined ? req.body.phone : user.phone;
+      
+      const duplicateCheck = await checkDuplicateEmailOrPhone(
+        newEmail,
+        newPhone,
+        userId // Exclude current user from duplicate check
+      );
+      
+      if (duplicateCheck.isDuplicate && duplicateCheck.existingUser && duplicateCheck.duplicateFields) {
+        const conflictFields = duplicateCheck.duplicateFields.join(' and ');
+        res.status(409).json({
+          status: 'error',
+          message: `A user with this ${conflictFields} already exists.`,
+          existingUser: {
+            id: duplicateCheck.existingUser.id,
+            name: duplicateCheck.existingUser.name,
+            email: duplicateCheck.existingUser.email,
+            phone: duplicateCheck.existingUser.phone,
+            role: duplicateCheck.existingUser.role,
+          },
+          conflictFields: duplicateCheck.duplicateFields,
+        });
+        return;
+      }
     }
 
     if (user.role !== UserRole.STUDENT) {
@@ -996,6 +1130,35 @@ export const updateFacultyProfile = async (
       return;
     }
 
+    // Check if email or phone is being updated and validate for duplicates
+    if (req.body.email !== undefined || req.body.phone !== undefined) {
+      const newEmail = req.body.email !== undefined ? req.body.email : user.email;
+      const newPhone = req.body.phone !== undefined ? req.body.phone : user.phone;
+      
+      const duplicateCheck = await checkDuplicateEmailOrPhone(
+        newEmail,
+        newPhone,
+        userId // Exclude current user from duplicate check
+      );
+      
+      if (duplicateCheck.isDuplicate && duplicateCheck.existingUser && duplicateCheck.duplicateFields) {
+        const conflictFields = duplicateCheck.duplicateFields.join(' and ');
+        res.status(409).json({
+          status: 'error',
+          message: `A user with this ${conflictFields} already exists.`,
+          existingUser: {
+            id: duplicateCheck.existingUser.id,
+            name: duplicateCheck.existingUser.name,
+            email: duplicateCheck.existingUser.email,
+            phone: duplicateCheck.existingUser.phone,
+            role: duplicateCheck.existingUser.role,
+          },
+          conflictFields: duplicateCheck.duplicateFields,
+        });
+        return;
+      }
+    }
+
     if (user.role !== UserRole.FACULTY) {
       res.status(400).json({
         status: 'error',
@@ -1220,7 +1383,7 @@ export const updateFacultyProfile = async (
             const cleaned: any = {};
             try {
               for (const key in documentsData) {
-                if (documentsData.hasOwnProperty(key)) {
+                if (Object.prototype.hasOwnProperty.call(documentsData, key)) {
                   try {
                     const value = documentsData[key];
                     // Only include serializable values
@@ -1582,6 +1745,7 @@ export const updateEmployeeProfile = async (
     city?: string;
     state?: string;
     postalCode?: string;
+    address?: string;
   } },
   res: Response
 ): Promise<void> => {
@@ -1622,6 +1786,35 @@ export const updateEmployeeProfile = async (
         message: 'User not found',
       });
       return;
+    }
+
+    // Check if email or phone is being updated and validate for duplicates
+    if (req.body.email !== undefined || req.body.phone !== undefined) {
+      const newEmail = req.body.email !== undefined ? req.body.email : user.email;
+      const newPhone = req.body.phone !== undefined ? req.body.phone : user.phone;
+      
+      const duplicateCheck = await checkDuplicateEmailOrPhone(
+        newEmail,
+        newPhone,
+        userId // Exclude current user from duplicate check
+      );
+      
+      if (duplicateCheck.isDuplicate && duplicateCheck.existingUser && duplicateCheck.duplicateFields) {
+        const conflictFields = duplicateCheck.duplicateFields.join(' and ');
+        res.status(409).json({
+          status: 'error',
+          message: `A user with this ${conflictFields} already exists.`,
+          existingUser: {
+            id: duplicateCheck.existingUser.id,
+            name: duplicateCheck.existingUser.name,
+            email: duplicateCheck.existingUser.email,
+            phone: duplicateCheck.existingUser.phone,
+            role: duplicateCheck.existingUser.role,
+          },
+          conflictFields: duplicateCheck.duplicateFields,
+        });
+        return;
+      }
     }
 
     if (user.role !== UserRole.EMPLOYEE) {
@@ -1706,6 +1899,7 @@ export const updateEmployeeProfile = async (
     if (req.body.city !== undefined) employeeProfile.city = req.body.city;
     if (req.body.state !== undefined) employeeProfile.state = req.body.state;
     if (req.body.postalCode !== undefined) employeeProfile.postalCode = req.body.postalCode;
+    if (req.body.address !== undefined) employeeProfile.address = req.body.address;
 
     // Handle documents field (e.g., emergencyContact, photo, etc.)
     if ((req as any).body.documents !== undefined) {
@@ -1768,12 +1962,43 @@ export const updateEmployeeProfile = async (
         },
       ] : undefined,
     });
+    
+    // Process employee profile documents to ensure URLs are properly formatted
+    const userJson = updatedUser ? (updatedUser.toJSON ? updatedUser.toJSON() : updatedUser) : null;
+    
+    if (userJson && (userJson as any).employeeProfile && (userJson as any).employeeProfile.documents) {
+      const documents = (userJson as any).employeeProfile.documents;
+      
+      // Process documents to ensure any file paths are converted to full URLs
+      const processedDocuments: Record<string, any> = {};
+      
+      for (const [key, value] of Object.entries(documents)) {
+        if (typeof value === 'string' && (value.includes('uploads/') || value.includes('/general/'))) {
+          // If it's already a full URL, keep as is
+          if (value.startsWith('http://') || value.startsWith('https://')) {
+            processedDocuments[key] = value;
+          } else {
+            // If it's a relative path, convert to full URL
+            // Check if it's already in the correct format
+            if (!value.startsWith('/uploads/')) {
+              processedDocuments[key] = `/uploads/${value}`;
+            } else {
+              processedDocuments[key] = value;
+            }
+          }
+        } else {
+          processedDocuments[key] = value;
+        }
+      }
+      
+      (userJson as any).employeeProfile.documents = processedDocuments;
+    }
 
     res.status(200).json({
       status: 'success',
       message: 'Employee profile updated successfully',
       data: {
-        user: updatedUser,
+        user: userJson,
       },
     });
   } catch (error) {

@@ -265,6 +265,17 @@ export const completeEnrollment = async (
       const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
       if (!dateRegex.test(dateStr)) {
         validationErrors.push('Date of Admission must be in valid format');
+      } else {
+        // Validate that date is not in the past (current date or future)
+        const admissionDate = new Date(dateStr);
+        const today = new Date();
+        // Reset time part for comparison (compare only dates, not times)
+        today.setHours(0, 0, 0, 0);
+        admissionDate.setHours(0, 0, 0, 0);
+        
+        if (admissionDate < today) {
+          validationErrors.push('Date of Admission cannot be in the past. It must be current date or future date.');
+        }
       }
     }
     
@@ -294,11 +305,6 @@ export const completeEnrollment = async (
       validationErrors.push('Emergency Contact Relation is required');
     }
     
-    // Either course name or direct software selection is required
-    if (isEmptyString(courseName) && isEmptyString(softwaresIncluded)) {
-      validationErrors.push('Either Course Name or Software List is required');
-    }
-    
     // Batch ID is optional - student can be enrolled without being assigned to a batch
     // But if provided, it must be valid
     if (batchId !== null && batchId !== undefined) {
@@ -308,10 +314,24 @@ export const completeEnrollment = async (
       }
     }
     
-    // If no course name provided, software list must be specified directly
+    // Validation logic:
+    // ✅ Course name selected, software list empty → OK (software will be loaded from course)
+    // ✅ Course name empty, software list selected → OK  
+    // ✅ Both course name AND software list selected → OK (manual override allowed)
+    // ❌ Both course name AND software list empty → Show error
+    
+    // Debug logging to understand data flow
+    logger.debug('Validation inputs:', { courseName, softwaresIncluded });
+    
     if (isEmptyString(courseName) && isEmptyString(softwaresIncluded)) {
-      validationErrors.push('At least one software must be selected when no course is specified');
+      validationErrors.push('Either Course Name or Software List must be provided (both cannot be empty)');
     }
+    
+    // Removed mutual exclusivity to allow more flexibility
+    // This resolves the issue where software selection without course still showed an error
+    // if (!isEmptyString(courseName) && !isEmptyString(softwaresIncluded)) {
+    //   validationErrors.push('Cannot select both Course Name and Software List - please choose only one approach');
+    // }
     
     // Handle number fields - they might come as strings or numbers
     // Total Deal Amount is COMPULSORY - student registration not possible without it
@@ -2052,6 +2072,23 @@ export const bulkEnrollStudents = async (req: AuthRequest, res: Response): Promi
 
         // Format date as ISO string for storage in metadata (YYYY-MM-DD)
         const dateOfAdmissionISO = parsedDateOfAdmission.toISOString().split('T')[0];
+        
+        // Validate that date of admission is not in the past (current date or future)
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const admissionDate = new Date(parsedDateOfAdmission);
+        admissionDate.setHours(0, 0, 0, 0);
+        
+        if (admissionDate < today) {
+          await transaction.rollback();
+          result.failed++;
+          result.errors.push({
+            row: rowNumber,
+            email: email || 'N/A',
+            error: `Date of Admission (${dateOfAdmissionISO}) cannot be in the past. It must be current date or future date.`
+          });
+          continue;
+        }
         
         // Log for debugging (only in development)
         if (process.env.NODE_ENV === 'development') {
