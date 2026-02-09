@@ -77,7 +77,7 @@ export const PaymentManagement: React.FC = () => {
       if (!selectedStudentId) return { data: [], studentProfile: null };
       try {
         // Fetch enrollments
-        const enrollmentsResponse = await fetch(`${import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001'}/api/enrollments?studentId=${selectedStudentId}`, {
+        const enrollmentsResponse = await fetch(`${import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000'}/api/enrollments?studentId=${selectedStudentId}`, {
           headers: {
             'Authorization': `Bearer ${localStorage.getItem('token')}`,
           },
@@ -92,7 +92,7 @@ export const PaymentManagement: React.FC = () => {
         // Always try to get fees from student profile (even if enrollments exist, to show all fees)
         let studentProfile: any = null;
         try {
-          const studentResponse = await fetch(`${import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001'}/api/attendance-reports/students/${selectedStudentId}/details`, {
+          const studentResponse = await fetch(`${import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000'}/api/attendance-reports/students/${selectedStudentId}/details`, {
             headers: {
               'Authorization': `Bearer ${localStorage.getItem('token')}`,
             },
@@ -288,7 +288,7 @@ Please check:
       const formData = new FormData();
       formData.append('file', file);
       
-      const response = await fetch(`${import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001'}/api/payments/bulk-upload`, {
+      const response = await fetch(`${import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000'}/api/payments/bulk-upload`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`,
@@ -1210,7 +1210,7 @@ Please check:
                                               <a
                                                 href={payment.receiptUrl.startsWith('http') 
                                                   ? payment.receiptUrl 
-                                                  : `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001'}${payment.receiptUrl.split('/').map((part: string, index: number) => {
+                                                  : `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000'}${payment.receiptUrl.split('/').map((part: string, index: number) => {
                                                     if (index === 0 || part === '') return part;
                                                     return encodeURIComponent(part);
                                                   }).join('/')}`}
@@ -1396,7 +1396,7 @@ Please check:
                                 <a
                                   href={payment.receiptUrl.startsWith('http') 
                                     ? payment.receiptUrl 
-                                    : `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001'}${payment.receiptUrl.split('/').map((part: string, index: number) => {
+                                    : `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000'}${payment.receiptUrl.split('/').map((part: string, index: number) => {
                                       // Keep the first part (empty string or '/receipts') as-is, encode the rest
                                       if (index === 0 || part === '') return part;
                                       return encodeURIComponent(part);

@@ -524,6 +524,15 @@ const { data: employeesData } = useQuery({
     
     if (!dateOfAdmissionYYYYMMDD || !dateOfAdmissionYYYYMMDD.trim()) {
       errors.dateOfAdmission = 'Date of Admission is required';
+    } else {
+      // Validate that date is not in the past
+      const selectedDate = new Date(dateOfAdmissionYYYYMMDD);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      
+      if (selectedDate < today) {
+        errors.dateOfAdmission = 'Date of Admission cannot be in the past. It must be current date or future date.';
+      }
     }
     
     if (!formData.localAddress || !formData.localAddress.trim()) {
@@ -838,10 +847,10 @@ const { data: employeesData } = useQuery({
         errors.emergencyRelation = 'Emergency Contact Relation is required';
       }
     } else if (currentStep === 3) {
-      // Course name is now required
-      if (!formData.courseName || !formData.courseName.trim()) {
-        errors.courseName = 'Course Name is required';
-      }
+      // Course name is now optional to allow direct software selection
+      // if (!formData.courseName || !formData.courseName.trim()) {
+      //   errors.courseName = 'Course Name is required';
+      // }
       if (selectedSoftwares.length === 0 && !otherSoftware.trim()) {
         errors.softwaresIncluded = 'At least one software must be selected';
       }
@@ -1110,6 +1119,7 @@ const { data: employeesData } = useQuery({
                         type="date"
                         name="dateOfAdmission"
                         required
+                        min={new Date().toISOString().split('T')[0]}
                         value={dateOfAdmissionYYYYMMDD}
                         onChange={(e) => {
                           const yyyymmdd = e.target.value;

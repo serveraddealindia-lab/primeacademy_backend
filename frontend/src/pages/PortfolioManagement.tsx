@@ -570,7 +570,7 @@ export const PortfolioManagement: React.FC = () => {
                                         
                                         // If it's a relative path, try different base URLs
                                         if (!url.startsWith('http://') && !url.startsWith('https://') && !url.startsWith('data:')) {
-                                          const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001/api';
+                                          const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api';
                                           const baseUrl = apiBase.replace('/api', '').replace(/\/$/, '');
                                           
                                           // Try with API base URL
@@ -712,7 +712,7 @@ export const PortfolioManagement: React.FC = () => {
                                         
                                         // If it's a relative path, try different base URLs
                                         if (!imgUrl.startsWith('http://') && !imgUrl.startsWith('https://') && !imgUrl.startsWith('data:')) {
-                                          const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001/api';
+                                          const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api';
                                           const baseUrl = apiBase.replace('/api', '').replace(/\/$/, '');
                                           
                                           // Try with API base URL

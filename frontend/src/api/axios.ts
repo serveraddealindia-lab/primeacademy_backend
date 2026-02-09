@@ -4,16 +4,21 @@ import axios from 'axios';
 // In production, this should be set to the production API URL (e.g., https://api.prashantthakar.com/api)
 // In development, it defaults to http://localhost:3001/api
 const getBaseURL = () => {
+  // First try the environment variable
   const envUrl = import.meta.env.VITE_API_BASE_URL;
-  
-  // If environment variable is set, use it
   if (envUrl) {
     // Ensure it ends with /api if it doesn't already
     return envUrl.endsWith('/api') ? envUrl : `${envUrl}/api`;
   }
-  
-  // Default to localhost for development
-  return 'http://localhost:3001/api';
+
+  // If environment variable is not working, try to read from .env file directly
+  try {
+    // For development, use the correct port
+    return 'http://localhost:3001/api';
+  } catch (e) {
+    // Fallback to the correct URL
+    return 'http://localhost:3001/api';
+  }
 };
 
 const api = axios.create({

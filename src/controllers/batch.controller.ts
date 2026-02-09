@@ -2534,7 +2534,7 @@ export const checkFacultyAvailability = async (req: AuthRequest, res: Response):
       // Check each batch for conflicts
       for (const batch of batches) {
         // Skip if this faculty is not assigned to this batch
-        const assignedFacultyIds = batch.assignedFaculty?.map(f => f.id) || [];
+        const assignedFacultyIds = (batch as any).assignedFaculty?.map((f: any) => f.id) || [];
         if (!assignedFacultyIds.includes(facultyId)) {
           continue;
         }
@@ -2564,7 +2564,7 @@ export const checkFacultyAvailability = async (req: AuthRequest, res: Response):
               const batchTimeSlot = batchSchedule[day];
               
               // Check time overlap
-              if (newTimeSlot.startTime && newTimeSlot.endTime && 
+              if ((newTimeSlot as any).startTime && (newTimeSlot as any).endTime && 
                   batchTimeSlot.startTime && batchTimeSlot.endTime) {
                 
                 const newSlot = newTimeSlot as { startTime: string; endTime: string };

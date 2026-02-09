@@ -220,7 +220,7 @@ const PaymentDetailCard: React.FC<{
                       {downloadingReceipt ? 'Downloading...' : '📥 Download Receipt'}
                     </button>
                     <a
-                      href={`${import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001'}${payment.receiptUrl.split('/').map((part, index) => {
+                      href={`${import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000'}${payment.receiptUrl.split('/').map((part, index) => {
                         // Keep the first part (empty string or '/receipts') as-is, encode the rest
                         if (index === 0 || part === '') return part;
                         return encodeURIComponent(part);
