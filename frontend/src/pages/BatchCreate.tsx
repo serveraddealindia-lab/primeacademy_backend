@@ -678,20 +678,6 @@ export const BatchCreate: React.FC = () => {
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Max Capacity
-                  </label>
-                  <input
-                    type="number"
-                    name="maxCapacity"
-                    min="1"
-                    placeholder="e.g., 30"
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent"
-                  />
-                  <p className="mt-1 text-xs text-gray-500">Maximum number of students allowed in this batch</p>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
                     Status <span className="text-red-500">*</span>
                   </label>
                   <select
