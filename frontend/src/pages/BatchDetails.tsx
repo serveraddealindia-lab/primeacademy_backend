@@ -5,7 +5,8 @@ import { Layout } from '../components/Layout';
 import { batchAPI, Batch } from '../api/batch.api';
 import { formatDateDDMMYYYY } from '../utils/dateUtils';
 
-const DAYS_OF_WEEK = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+// JavaScript getDay() returns: 0=Sunday, 1=Monday, 2=Tuesday, etc.
+const DAYS_OF_WEEK = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
 export const BatchDetails: React.FC = () => {
   const { id } = useParams<{ id: string }>();

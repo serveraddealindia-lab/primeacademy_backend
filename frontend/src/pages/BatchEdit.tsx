@@ -10,7 +10,8 @@ import { facultyAPI } from '../api/faculty.api';
 import { courseAPI } from '../api/course.api';
 import { formatDateInputToDDMMYYYY } from '../utils/dateUtils';
 
-const DAYS_OF_WEEK = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+// JavaScript getDay() returns: 0=Sunday, 1=Monday, 2=Tuesday, etc.
+const DAYS_OF_WEEK = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
 interface DaySchedule {
   startTime: string;

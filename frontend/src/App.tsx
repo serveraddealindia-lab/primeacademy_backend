@@ -35,6 +35,7 @@ import { PhotoManagement } from './pages/PhotoManagement';
 import { CourseModuleManagement } from './pages/CourseModuleManagement';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import Settings from './pages/Settings';
+import DebugInfo from './components/DebugInfo';
 
 // Protected Route Component
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -341,6 +342,7 @@ function App() {
       <AuthProvider>
         <Router>
           <AppRoutes />
+          <DebugInfo />
         </Router>
       </AuthProvider>
     </ErrorBoundary>
