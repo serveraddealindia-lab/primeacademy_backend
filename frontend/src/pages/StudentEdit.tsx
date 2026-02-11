@@ -914,7 +914,12 @@ The payment will appear in the Payment History section below.`);
     if (!formData.whatsappNumber || !formData.whatsappNumber.trim()) {
       errors.push('WhatsApp number is required');
     } else {
-      const whatsappCleaned = formData.whatsappNumber.replace(/\D/g, '');
+      // Handle country code - remove +91 or 91 prefix if present, then check for 10 digits
+      let whatsappCleaned = formData.whatsappNumber.replace(/\D/g, '');
+      // Remove country code if present (91 for India)
+      if (whatsappCleaned.length > 10) {
+        whatsappCleaned = whatsappCleaned.slice(-10);
+      }
       if (whatsappCleaned.length !== 10) {
         errors.push('Please enter a valid 10-digit WhatsApp number');
       }

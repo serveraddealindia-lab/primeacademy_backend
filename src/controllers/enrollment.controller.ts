@@ -93,17 +93,19 @@ export const createEnrollment = async (req: AuthRequest & { body: CreateEnrollme
       return;
     }
 
-    // Check batch capacity
-    const currentEnrollments = await db.Enrollment.count({
-      where: { batchId },
-    });
-
-    if (batch.maxCapacity && currentEnrollments >= batch.maxCapacity) {
-      res.status(400).json({
-        status: 'error',
-        message: `Batch has reached maximum capacity of ${batch.maxCapacity} students`,
+    // Check batch capacity (only if maxCapacity is set)
+    if (batch.maxCapacity) {
+      const currentEnrollments = await db.Enrollment.count({
+        where: { batchId },
       });
-      return;
+
+      if (currentEnrollments >= batch.maxCapacity) {
+        res.status(400).json({
+          status: 'error',
+          message: `Batch has reached maximum capacity of ${batch.maxCapacity} students`,
+        });
+        return;
+      }
     }
 
     // Create enrollment

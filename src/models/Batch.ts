@@ -18,7 +18,7 @@ export interface BatchAttributes {
   mode: BatchMode;
   startDate: Date;
   endDate: Date;
-  maxCapacity: number;
+  maxCapacity: number | null;
   schedule: any | null;
   createdByAdminId: number | null;
   status: string | null;
@@ -27,7 +27,7 @@ export interface BatchAttributes {
   updatedAt?: Date;
 }
 
-export interface BatchCreationAttributes extends Optional<BatchAttributes, 'id' | 'software' | 'schedule' | 'createdByAdminId' | 'status' | 'courseId' | 'createdAt' | 'updatedAt'> {}
+export interface BatchCreationAttributes extends Optional<BatchAttributes, 'id' | 'software' | 'maxCapacity' | 'schedule' | 'createdByAdminId' | 'status' | 'courseId' | 'createdAt' | 'updatedAt'> {}
 
 class Batch extends Model<BatchAttributes, BatchCreationAttributes> implements BatchAttributes {
   public id!: number;
@@ -74,7 +74,8 @@ Batch.init(
     },
     maxCapacity: {
       type: DataTypes.INTEGER,
-      allowNull: false,
+      allowNull: true,
+      defaultValue: null,
     },
     schedule: {
       type: DataTypes.JSON,
