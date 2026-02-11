@@ -135,10 +135,12 @@ PaymentTransaction.init(
     bankName: {
       type: DataTypes.STRING,
       allowNull: true,
+      field: 'bankName',
     },
     bankAccount: {
       type: DataTypes.STRING,
       allowNull: true,
+      field: 'bankAccount',
     },
     notes: {
       type: DataTypes.TEXT,
