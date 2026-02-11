@@ -791,58 +791,84 @@ export const completeEnrollment = async (
             }
           }
           
-          // For Lump Sum payment - create payment transactions for the balance
-          else if (lumpSumPayment && balanceAmount && balanceAmount > 0) {
-            try {
-              // If multiple lump sum payments are provided, create each one
-              if (lumpSumPayments && Array.isArray(lumpSumPayments) && lumpSumPayments.length > 0) {
-                let totalLumpSumAmount = 0;
-                
-                for (const payment of lumpSumPayments) {
-                  if (payment.amount && payment.date) {
-                    totalLumpSumAmount += payment.amount;
-                    
-                    await db.PaymentTransaction.create(
-                      {
-                        studentId: user.id,
-                        enrollmentId: enrollment.id,
-                        amount: payment.amount,
-                        paidAmount: 0, // Lump sum amount is initially unpaid
-                        dueDate: new Date(payment.date),
-                        status: PaymentStatus.UNPAID,
-                        notes: `Lump Sum payment - Date: ${payment.date}, Amount: ${payment.amount}`,
-                      },
-                      { transaction }
-                    );
-                    logger.info(`Created lump sum payment: studentId=${user.id}, enrollmentId=${enrollment.id}, amount=${payment.amount}, dueDate=${payment.date}`);
+          // For Lump Sum payment - create payment transactions
+          else if (lumpSumPayment) {
+            // Case 1: Balance amount > 0 (partial payment made, remaining balance exists)
+            if (balanceAmount && balanceAmount > 0) {
+              try {
+                // If multiple lump sum payments are provided, create each one
+                if (lumpSumPayments && Array.isArray(lumpSumPayments) && lumpSumPayments.length > 0) {
+                  let totalLumpSumAmount = 0;
+                  
+                  for (const payment of lumpSumPayments) {
+                    if (payment.amount && payment.date) {
+                      totalLumpSumAmount += payment.amount;
+                      
+                      await db.PaymentTransaction.create(
+                        {
+                          studentId: user.id,
+                          enrollmentId: enrollment.id,
+                          amount: payment.amount,
+                          paidAmount: 0, // Lump sum amount is initially unpaid
+                          dueDate: new Date(payment.date),
+                          status: PaymentStatus.UNPAID,
+                          notes: `Lump Sum payment - Date: ${payment.date}, Amount: ${payment.amount}`,
+                        },
+                        { transaction }
+                      );
+                      logger.info(`Created lump sum payment: studentId=${user.id}, enrollmentId=${enrollment.id}, amount=${payment.amount}, dueDate=${payment.date}`);
+                    }
                   }
-                }
                 
-                // Validate that the total lump sum payments match the balance amount
-                if (Math.abs(totalLumpSumAmount - balanceAmount) > 0.01) {
-                  logger.warn(`Lump sum payment total (${totalLumpSumAmount}) does not match balance amount (${balanceAmount}) for student ${user.id}`);
+                  // Validate that the total lump sum payments match the balance amount
+                  if (Math.abs(totalLumpSumAmount - balanceAmount) > 0.01) {
+                    logger.warn(`Lump sum payment total (${totalLumpSumAmount}) does not match balance amount (${balanceAmount}) for student ${user.id}`);
+                  }
+                } else {
+                  // Create single lump sum payment (backward compatibility)
+                  const dueDate = nextPayDate ? new Date(nextPayDate) : new Date();
+                  
+                  await db.PaymentTransaction.create(
+                    {
+                      studentId: user.id,
+                      enrollmentId: enrollment.id,
+                      amount: balanceAmount,
+                      paidAmount: 0, // Lump sum amount is initially unpaid
+                      dueDate: dueDate,
+                      status: PaymentStatus.UNPAID,
+                      notes: 'Lump Sum payment with next payment date',
+                    },
+                    { transaction }
+                  );
+                  logger.info(`Created lump sum payment: studentId=${user.id}, enrollmentId=${enrollment.id}, amount=${balanceAmount}, dueDate=${dueDate.toISOString()}`);
                 }
-              } else {
-                // Create single lump sum payment (backward compatibility)
-                const dueDate = nextPayDate ? new Date(nextPayDate) : new Date();
-                
+              } catch (paymentError: any) {
+                logger.error('Error creating lump sum payment:', paymentError);
+                // Don't fail enrollment if payment creation fails, but log it
+              }
+            }
+            // Case 2: Balance amount = 0 (full payment received upfront)
+            else if (balanceAmount === 0 && totalDeal && totalDeal > 0) {
+              try {
+                // Create a PAID transaction showing full payment was received
                 await db.PaymentTransaction.create(
                   {
                     studentId: user.id,
                     enrollmentId: enrollment.id,
-                    amount: balanceAmount,
-                    paidAmount: 0, // Lump sum amount is initially unpaid
-                    dueDate: dueDate,
-                    status: PaymentStatus.UNPAID,
-                    notes: 'Lump Sum payment with next payment date',
+                    amount: totalDeal,
+                    paidAmount: totalDeal, // Full amount paid upfront
+                    dueDate: dateOfAdmission ? new Date(dateOfAdmission) : new Date(),
+                    paidAt: dateOfAdmission ? new Date(dateOfAdmission) : new Date(),
+                    status: PaymentStatus.PAID,
+                    notes: 'Full payment received - Lump sum (Balance: ₹0)',
                   },
                   { transaction }
                 );
-                logger.info(`Created lump sum payment: studentId=${user.id}, enrollmentId=${enrollment.id}, amount=${balanceAmount}, dueDate=${dueDate.toISOString()}`);
+                logger.info(`Created full payment record: studentId=${user.id}, enrollmentId=${enrollment.id}, amount=${totalDeal}, balanceAmount=0`);
+              } catch (paymentError: any) {
+                logger.error('Error creating full payment record:', paymentError);
+                // Don't fail enrollment if payment creation fails, but log it
               }
-            } catch (paymentError: any) {
-              logger.error('Error creating lump sum payment:', paymentError);
-              // Don't fail enrollment if payment creation fails, but log it
             }
           }
           
