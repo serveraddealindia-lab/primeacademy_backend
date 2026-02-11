@@ -5,6 +5,8 @@ import { UserRole } from '../models/User';
 import { Module } from '../models/RolePermission';
 import { logger } from '../utils/logger';
 
+const SYSTEM_ROLES = ['superadmin', 'admin', 'faculty', 'student', 'employee'];
+
 interface CreateRoleBody {
   name: string;
   description?: string;
@@ -283,8 +285,8 @@ export const updateRole = async (
       return;
     }
 
-    // Prevent updating system roles
-    if (role.isSystem) {
+    // Allow superadmin to update system roles, but prevent modification by others
+    if (role.isSystem && req.user.role !== UserRole.SUPERADMIN) {
       res.status(403).json({
         status: 'error',
         message: 'Cannot update system roles',
@@ -303,6 +305,16 @@ export const updateRole = async (
         });
         return;
       }
+      
+      // Check if trying to change a system role name (only superadmin can)
+      if (role.isSystem && req.user.role !== UserRole.SUPERADMIN) {
+        res.status(403).json({
+          status: 'error',
+          message: 'Cannot change system role name',
+        });
+        return;
+      }
+      
       // Check if another role with same name exists
       const existingRole = await db.Role.findOne({
         where: { name: name.trim() },
@@ -314,7 +326,28 @@ export const updateRole = async (
         });
         return;
       }
-      role.name = name.trim();
+      
+      // Prevent changing system role names to non-system role names
+      if (role.isSystem && !SYSTEM_ROLES.includes(name.trim())) {
+        res.status(400).json({
+          status: 'error',
+          message: 'Cannot change system role to a non-system role name',
+        });
+        return;
+      }
+      
+      // Allow superadmin to update system role name
+      if (role.isSystem && req.user.role === UserRole.SUPERADMIN) {
+        role.name = name.trim();
+      } else if (!role.isSystem) {
+        role.name = name.trim();
+      } else {
+        res.status(403).json({
+          status: 'error',
+          message: 'Cannot change system role name',
+        });
+        return;
+      }
     }
 
     if (description !== undefined) {
