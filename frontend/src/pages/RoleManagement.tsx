@@ -954,9 +954,11 @@ export const RoleManagement: React.FC = () => {
               <button
                 onClick={() => {
                   // Find the actual role from database by name
-                  const dbRole = roles.find(r => r.name.toLowerCase() === selectedPredefinedRole.toLowerCase());
+                  console.log('Looking for role:', selectedPredefinedRole);
+                  console.log('Available roles:', roles.map(r => ({ id: r.id, name: r.name, isSystem: r.isSystem })));
+                  const dbRole = roles.find(r => r.name.toLowerCase().trim() === selectedPredefinedRole.toLowerCase().trim());
                   if (!dbRole) {
-                    alert('Role not found in database. Please refresh the page.');
+                    alert(`Role "${selectedPredefinedRole}" not found in database. Available roles: ${roles.map(r => r.name).join(', ')}`);
                     return;
                   }
                   const permissions = rolePermissions.map((perm) => ({
