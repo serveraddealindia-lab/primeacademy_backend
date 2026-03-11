@@ -38,14 +38,14 @@ export default {
 
     // MySQL requires raw SQL to modify ENUM values
     await queryInterface.sequelize.query(
-      `ALTER TABLE ${TABLE_NAME} MODIFY COLUMN status ENUM('unpaid', 'partial', 'paid') NOT NULL DEFAULT 'unpaid';`
+      `ALTER TABLE ${TABLE_NAME} MODIFY COLUMN status ENUM('unpaid', 'pending', 'partial', 'paid', 'overdue', 'cancelled') NOT NULL DEFAULT 'unpaid';`
     );
   },
 
   down: async (queryInterface: QueryInterface): Promise<void> => {
     // Revert ENUM to original values
     await queryInterface.sequelize.query(
-      `ALTER TABLE ${TABLE_NAME} MODIFY COLUMN status ENUM('pending', 'paid') NOT NULL DEFAULT 'pending';`
+      `ALTER TABLE ${TABLE_NAME} MODIFY COLUMN status ENUM('unpaid', 'partial', 'paid') NOT NULL DEFAULT 'unpaid';`
     );
 
     await queryInterface.removeColumn(TABLE_NAME, 'notes');
