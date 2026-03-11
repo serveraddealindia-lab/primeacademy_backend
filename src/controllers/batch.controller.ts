@@ -2558,7 +2558,8 @@ export const checkFacultyAvailability = async (req: AuthRequest, res: Response):
               const batchTimeSlot = batchSchedule[day];
               
               // Check time overlap
-              if ((newTimeSlot as any).startTime && (newTimeSlot as any).endTime && 
+              const typedNewTimeSlot = newTimeSlot as { startTime: string; endTime: string };
+              if (typedNewTimeSlot.startTime && typedNewTimeSlot.endTime && 
                   batchTimeSlot.startTime && batchTimeSlot.endTime) {
                 
                 const newSlot = newTimeSlot as { startTime: string; endTime: string };

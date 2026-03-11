@@ -953,28 +953,16 @@ export const RoleManagement: React.FC = () => {
             <div className="flex gap-3">
               <button
                 onClick={() => {
-                  // Find the actual role from database by name
-                  console.log('Looking for role:', selectedPredefinedRole);
-                  console.log('Available roles:', roles.map(r => ({ id: r.id, name: r.name, isSystem: r.isSystem })));
-                  const dbRole = roles.find(r => r.name.toLowerCase().trim() === selectedPredefinedRole.toLowerCase().trim());
-                  if (!dbRole) {
-                    alert(`Role "${selectedPredefinedRole}" not found in database. Available roles: ${roles.map(r => r.name).join(', ')}`);
-                    return;
-                  }
-                  const permissions = rolePermissions.map((perm) => ({
-                    module: perm.module,
-                    canView: perm.canView,
-                    canAdd: perm.canAdd,
-                    canEdit: perm.canEdit,
-                    canDelete: perm.canDelete,
-                  }));
-                  updateRoleMutation.mutate({ id: dbRole.id, data: { permissions } });
+                  // Note: For predefined roles, we would need a backend endpoint to update them
+                  // For now, this is just a UI placeholder - you may want to implement backend support
+                  alert('Predefined role permissions update functionality needs to be implemented in the backend.');
+                  setIsEditModalOpen(false);
                   setSelectedPredefinedRole('');
+                  setRolePermissions([]);
                 }}
-                disabled={updateRoleMutation.isPending}
-                className="flex-1 px-4 py-2 bg-purple-600 text-white rounded-lg font-semibold hover:bg-purple-700 transition-colors disabled:opacity-50"
+                className="flex-1 px-4 py-2 bg-purple-600 text-white rounded-lg font-semibold hover:bg-purple-700 transition-colors"
               >
-                {updateRoleMutation.isPending ? 'Saving...' : 'Save Permissions'}
+                Save Permissions
               </button>
               <button
                 onClick={() => {

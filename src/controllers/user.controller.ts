@@ -463,7 +463,7 @@ export const getUserById = async (
                   }
                 }
                 
-                (user as any).facultyProfile = profileJson as any;
+                (user as any).facultyProfile = profileJson;
               }
             } catch (profileError: any) {
               logger.warn('Failed to fetch faculty profile separately:', profileError?.message);

@@ -4,8 +4,11 @@ import User from './User';
 
 export enum PaymentStatus {
   UNPAID = 'unpaid',
+  PENDING = 'pending',
   PARTIAL = 'partial',
   PAID = 'paid',
+  OVERDUE = 'overdue',
+  CANCELLED = 'cancelled',
 }
 
 export interface PaymentTransactionAttributes {
@@ -20,8 +23,6 @@ export interface PaymentTransactionAttributes {
   receiptUrl: string | null;
   paymentMethod?: string | null;
   transactionId?: string | null;
-  bankName?: string | null;
-  bankAccount?: string | null;
   notes?: string | null;
   createdAt?: Date;
   updatedAt?: Date;
@@ -40,8 +41,6 @@ export interface PaymentTransactionCreationAttributes
     | 'enrollmentId'
     | 'paymentMethod'
     | 'transactionId'
-    | 'bankName'
-    | 'bankAccount'
     | 'notes'
   > {}
 
@@ -60,8 +59,6 @@ class PaymentTransaction
   public receiptUrl!: string | null;
   public paymentMethod!: string | null;
   public transactionId!: string | null;
-  public bankName!: string | null;
-  public bankAccount!: string | null;
   public notes!: string | null;
   public readonly createdAt!: Date;
   public readonly updatedAt!: Date;
@@ -129,14 +126,6 @@ PaymentTransaction.init(
       allowNull: true,
     },
     transactionId: {
-      type: DataTypes.STRING,
-      allowNull: true,
-    },
-    bankName: {
-      type: DataTypes.STRING,
-      allowNull: true,
-    },
-    bankAccount: {
       type: DataTypes.STRING,
       allowNull: true,
     },

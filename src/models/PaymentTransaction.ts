@@ -4,8 +4,11 @@ import User from './User';
 
 export enum PaymentStatus {
   UNPAID = 'unpaid',
+  PENDING = 'pending',
   PARTIAL = 'partial',
   PAID = 'paid',
+  OVERDUE = 'overdue',
+  CANCELLED = 'cancelled',
 }
 
 export interface PaymentTransactionAttributes {
@@ -135,12 +138,10 @@ PaymentTransaction.init(
     bankName: {
       type: DataTypes.STRING,
       allowNull: true,
-      field: 'bankName',
     },
     bankAccount: {
       type: DataTypes.STRING,
       allowNull: true,
-      field: 'bankAccount',
     },
     notes: {
       type: DataTypes.TEXT,

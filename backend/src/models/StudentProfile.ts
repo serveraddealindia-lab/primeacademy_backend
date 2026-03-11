@@ -24,7 +24,7 @@ export interface StudentProfileAttributes {
 export interface StudentProfileCreationAttributes
   extends Optional<
     StudentProfileAttributes,
-    'id' | 'serialNo' | 'dob' | 'address' | 'documents' | 'photoUrl' | 'softwareList' | 'enrollmentDate' | 'status' | 'finishedBatches' | 'currentBatches' | 'pendingBatches' | 'createdAt' | 'updatedAt'
+    'id' | 'serialNo' | 'dob' | 'address' | 'documents' | 'photoUrl' | 'schedule' | 'softwareList' | 'enrollmentDate' | 'status' | 'finishedBatches' | 'currentBatches' | 'pendingBatches' | 'createdAt' | 'updatedAt'
   > {}
 
 class StudentProfile extends Model<StudentProfileAttributes, StudentProfileCreationAttributes> implements StudentProfileAttributes {

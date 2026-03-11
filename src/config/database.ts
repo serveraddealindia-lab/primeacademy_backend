@@ -3,7 +3,6 @@ import * as dotenv from 'dotenv';
 
 dotenv.config();
 
-// Create Sequelize instance using environment variables
 const sequelize = new Sequelize(
   process.env.DB_NAME || 'primeacademy_db',
   process.env.DB_USER || 'root',
@@ -21,9 +20,19 @@ const sequelize = new Sequelize(
     },
     dialectOptions: {
       // For MySQL 8+ with authentication issues
-      connectTimeout: 60000,
+      // connectTimeout: 60000,
     },
   }
 );
 
 export default sequelize;
+
+
+
+
+
+
+
+
+
+

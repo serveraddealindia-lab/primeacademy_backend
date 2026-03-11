@@ -71,7 +71,7 @@ export const FacultyEdit: React.FC = () => {
         
         // Get faculty profile - it should be included in the user response
         // The backend getUserById endpoint includes facultyProfile in the response
-        const profile = user.facultyProfile || null;
+        let profile = user.facultyProfile || null;
         
         // Note: There's no separate GET /api/faculty/:id endpoint
         // All faculty profile data comes from /api/users/:id which includes facultyProfile
@@ -125,7 +125,8 @@ export const FacultyEdit: React.FC = () => {
   });
 
   const updateProfileMutation = useMutation({
-    mutationFn: async (data: { expertise?: string; availability?: string; documents?: any; softwareProficiency?: string; dateOfBirth?: string; isFinalStep?: boolean }) => {
+    mutationFn: (data: { expertise?: string; availability?: string; documents?: any; softwareProficiency?: string; dateOfBirth?: string; isFinalStep?: boolean }) => {
+      // Remove isFinalStep from the data before sending to API
       const { isFinalStep, ...apiData } = data;
       
       // Clean the documents object - remove undefined values and ensure it's serializable
@@ -138,7 +139,7 @@ export const FacultyEdit: React.FC = () => {
           }
           const cleaned: any = {};
           for (const key in obj) {
-            if (Object.prototype.hasOwnProperty.call(obj, key)) {
+            if (obj.hasOwnProperty(key)) {
               const value = obj[key];
               if (value !== undefined) {
                 cleaned[key] = cleanDocuments(value);
@@ -159,28 +160,25 @@ export const FacultyEdit: React.FC = () => {
         hasDateOfBirth: !!apiData.dateOfBirth,
       });
       
-      const result = await facultyAPI.updateFacultyProfile(Number(id!), apiData);
-      
-      // Return both the result and the isFinalStep flag
-      return { result, isFinalStep };
+      return facultyAPI.updateFacultyProfile(Number(id!), apiData);
     },
-    onSuccess: async ({ result, isFinalStep }) => {
-      console.log('Faculty profile update success:', result);
+    onSuccess: async (response, variables) => {
+      console.log('Faculty profile update success:', response);
       
       // Update the query cache with the new data from the response
       // Response structure: { data: { user: { ... } } } or { data: { facultyProfile: { user: ... } } }
-      const updatedUser = result?.data?.user || result?.data?.facultyProfile?.user;
+      const updatedUser = response?.data?.user || response?.data?.facultyProfile?.user;
       if (updatedUser) {
         queryClient.setQueryData(['faculty', id], (oldData: any) => {
           if (!oldData) {
             return {
               user: updatedUser,
-              profile: updatedUser.facultyProfile || result?.data?.facultyProfile || null,
+              profile: updatedUser.facultyProfile || response?.data?.facultyProfile || null,
             };
           }
           return {
             user: updatedUser,
-            profile: updatedUser.facultyProfile || result?.data?.facultyProfile || oldData.profile,
+            profile: updatedUser.facultyProfile || response?.data?.facultyProfile || oldData.profile,
           };
         });
       }
@@ -192,7 +190,7 @@ export const FacultyEdit: React.FC = () => {
       queryClient.invalidateQueries({ queryKey: ['users'] });
       
       // Only navigate away if this is the final step
-      if (isFinalStep) {
+      if (variables?.isFinalStep) {
         // Refetch before navigating to ensure we have latest data
         await queryClient.refetchQueries({ queryKey: ['faculty', id] });
         alert('Faculty updated successfully!');
@@ -344,7 +342,7 @@ export const FacultyEdit: React.FC = () => {
     const profile = facultyData?.profile;
     if (!profile?.expertise) return '';
     
-    const expertise = profile.expertise;
+    let expertise = profile.expertise;
     if (typeof expertise === 'string') {
       try {
         const parsed = JSON.parse(expertise);
@@ -366,7 +364,7 @@ export const FacultyEdit: React.FC = () => {
     const profile = facultyData?.profile;
     if (!profile?.availability) return '';
     
-    const availability = profile.availability;
+    let availability = profile.availability;
     if (typeof availability === 'string') {
       try {
         const parsed = JSON.parse(availability);
@@ -756,35 +754,14 @@ export const FacultyEdit: React.FC = () => {
     };
     
     try {
-      // Check if email already exists for a different user
-      const emailResponse = await api.get(`/users?email=${encodeURIComponent(email)}`);
-      if (emailResponse.data && emailResponse.data.length > 0) {
-        // Check if the found user is not the current user being edited
-        const existingUser = emailResponse.data[0];
-        if (existingUser.id !== Number(id!)) {
-          alert('A user with this email already exists. Please use a different email address.');
-          return;
-        }
-      }
-      
-      // Check if phone already exists for a different user
-      const phoneResponse = await api.get(`/users?phone=${encodeURIComponent(phone)}`);
-      if (phoneResponse.data && phoneResponse.data.length > 0) {
-        // Check if the found user is not the current user being edited
-        const existingUser = phoneResponse.data[0];
-        if (existingUser.id !== Number(id!)) {
-          alert('A user with this phone number already exists. Please use a different phone number.');
-          return;
-        }
-      }
-      
       await updateUserMutation.mutateAsync(data);
       setCurrentStep(2);
     } catch (error: any) {
       console.error('Error updating user:', error);
       const errorMessage = error.response?.data?.message || 'Failed to update user information';
-      alert(errorMessage);
-      // Don't continue to next step if save failed
+      if (confirm(`${errorMessage}. Do you want to continue to the next step anyway?`)) {
+        setCurrentStep(2);
+      }
     }
   };
 
@@ -1047,7 +1024,7 @@ export const FacultyEdit: React.FC = () => {
   const handleStep4Submit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     
-    const softwareList = [...selectedSoftwares];
+    let softwareList = [...selectedSoftwares];
     if (showOtherSoftware && otherSoftware.trim()) {
       softwareList.push(otherSoftware.trim());
     }

@@ -265,6 +265,17 @@ export const completeEnrollment = async (
       const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
       if (!dateRegex.test(dateStr)) {
         validationErrors.push('Date of Admission must be in valid format');
+      } else {
+        // Validate that date is not in the past (current date or future)
+        const admissionDate = new Date(dateStr);
+        const today = new Date();
+        // Reset time part for comparison (compare only dates, not times)
+        today.setHours(0, 0, 0, 0);
+        admissionDate.setHours(0, 0, 0, 0);
+        
+        if (admissionDate < today) {
+          validationErrors.push('Date of Admission cannot be in the past. It must be current date or future date.');
+        }
       }
     }
     
@@ -294,11 +305,6 @@ export const completeEnrollment = async (
       validationErrors.push('Emergency Contact Relation is required');
     }
     
-    // Either course name or direct software selection is required
-    if (isEmptyString(courseName) && isEmptyString(softwaresIncluded)) {
-      validationErrors.push('Either Course Name or Software List is required');
-    }
-    
     // Batch ID is optional - student can be enrolled without being assigned to a batch
     // But if provided, it must be valid
     if (batchId !== null && batchId !== undefined) {
@@ -308,15 +314,24 @@ export const completeEnrollment = async (
       }
     }
     
-    // If course name is provided but doesn't exist in the system, we need to handle that case
-    if (!isEmptyString(courseName)) {
-      // We'll validate the course exists later when fetching the software list
-      logger.info(`Course name provided (${courseName}), software list will be fetched from course definition if course exists`);
+    // Validation logic:
+    // ✅ Course name selected, software list empty → OK (software will be loaded from course)
+    // ✅ Course name empty, software list selected → OK  
+    // ✅ Both course name AND software list selected → OK (manual override allowed)
+    // ❌ Both course name AND software list empty → Show error
+    
+    // Debug logging to understand data flow
+    logger.debug('Validation inputs:', { courseName, softwaresIncluded });
+    
+    if (isEmptyString(courseName) && isEmptyString(softwaresIncluded)) {
+      validationErrors.push('Either Course Name or Software List must be provided (both cannot be empty)');
     }
-    // If no course name provided, software list must be specified directly
-    else if (isEmptyString(courseName) && isEmptyString(softwaresIncluded)) {
-      validationErrors.push('At least one software must be selected when no course is specified');
-    }
+    
+    // Removed mutual exclusivity to allow more flexibility
+    // This resolves the issue where software selection without course still showed an error
+    // if (!isEmptyString(courseName) && !isEmptyString(softwaresIncluded)) {
+    //   validationErrors.push('Cannot select both Course Name and Software List - please choose only one approach');
+    // }
     
     // Handle number fields - they might come as strings or numbers
     // Total Deal Amount is COMPULSORY - student registration not possible without it
@@ -339,11 +354,24 @@ export const completeEnrollment = async (
       validationErrors.push('Booking Amount is required and must be 0 or greater');
     }
     
-    const balanceAmountNum = balanceAmount !== null && balanceAmount !== undefined
-      ? (typeof balanceAmount === 'string' ? parseFloat(String(balanceAmount).replace(/[^\d.-]/g, '')) : Number(balanceAmount))
-      : 0;
-    if (balanceAmount === null || balanceAmount === undefined || isNaN(balanceAmountNum) || balanceAmountNum < 0) {
-      validationErrors.push('Balance Amount is required and must be 0 or greater');
+    // Handle balance amount - if not provided, calculate it from total deal and booking amount
+    let balanceAmountNum = 0;
+    if (balanceAmount === null || balanceAmount === undefined) {
+      // If balance amount is not provided, calculate it
+      if (totalDealNum > 0 && bookingAmountNum >= 0) {
+        balanceAmountNum = Math.max(0, totalDealNum - bookingAmountNum);
+        logger.info(`Calculated balance amount: ${balanceAmountNum} (total: ${totalDealNum} - booking: ${bookingAmountNum})`);
+      } else {
+        validationErrors.push('Balance Amount is required when Total Deal or Booking Amount is provided');
+      }
+    } else {
+      balanceAmountNum = typeof balanceAmount === 'string' 
+        ? parseFloat(String(balanceAmount).replace(/[^\d.-]/g, '')) 
+        : Number(balanceAmount);
+      
+      if (isNaN(balanceAmountNum) || balanceAmountNum < 0) {
+        validationErrors.push('Balance Amount must be 0 or greater');
+      }
     }
     
     // Validate booking amount doesn't exceed total deal
@@ -585,29 +613,14 @@ export const completeEnrollment = async (
         return null;
       };
 
-      // If course name is provided but no software list, fetch software list from the course
-      let finalSoftwareList = null;
-      if (courseName && (!softwaresIncluded || String(softwaresIncluded).trim() === '')) {
-        // Fetch course from database to get its software list
-        const course = await db.Course.findOne({ where: { name: courseName } });
-        if (course) {
-          finalSoftwareList = Array.isArray(course.software) ? course.software : [];
-          logger.info(`Fetched software list from course ${courseName}: ${finalSoftwareList.join(', ')}`);
-        } else {
-          // If course doesn't exist, we'll still allow enrollment but log a warning
-          logger.warn(`Course '${courseName}' not found in database. Proceeding with empty software list.`);
-          finalSoftwareList = [];
-        }
-      } else if (softwaresIncluded && String(softwaresIncluded).trim()) {
-        finalSoftwareList = softwaresIncluded.split(',').map((s: string) => s.trim()).filter((s: string) => s.length > 0);
-      }
-      
       const profileData: any = {
         userId: user.id,
         dob: req.body.dateOfBirth ? new Date(req.body.dateOfBirth) : null, // Use date of birth instead of admission date
         address: localAddress || permanentAddress || null,
         photoUrl: photoUrl, // Set photoUrl from extracted photo
-        softwareList: finalSoftwareList,
+        softwareList: softwaresIncluded && softwaresIncluded.trim() 
+          ? softwaresIncluded.split(',').map((s: string) => s.trim()).filter((s: string) => s.length > 0) 
+          : null,
         enrollmentDate: dateOfAdmission ? new Date(dateOfAdmission) : new Date(),
         status: 'active', // Initially set to active, will be updated based on payment and completion status
         finishedBatches: req.body.finishedBatches ? parseBatchList(req.body.finishedBatches) : null,
@@ -626,12 +639,7 @@ export const completeEnrollment = async (
         };
       }
       if (courseName) enrollmentMetadata.courseName = courseName;
-      // Add software list to metadata - use the final software list (either from request or from course)
-      if (finalSoftwareList && finalSoftwareList.length > 0) {
-        enrollmentMetadata.softwareList = finalSoftwareList.join(', ');
-      } else if (softwaresIncluded) {
-        enrollmentMetadata.softwareList = softwaresIncluded; // Fallback to original if no final list
-      }
+      if (softwaresIncluded) enrollmentMetadata.softwareList = softwaresIncluded; // Add software list to metadata
       if (totalDeal !== undefined) enrollmentMetadata.totalDeal = totalDeal;
       if (bookingAmount !== undefined) enrollmentMetadata.bookingAmount = bookingAmount;
       if (balanceAmount !== undefined) enrollmentMetadata.balanceAmount = balanceAmount;
@@ -791,84 +799,58 @@ export const completeEnrollment = async (
             }
           }
           
-          // For Lump Sum payment - create payment transactions
-          else if (lumpSumPayment) {
-            // Case 1: Balance amount > 0 (partial payment made, remaining balance exists)
-            if (balanceAmount && balanceAmount > 0) {
-              try {
-                // If multiple lump sum payments are provided, create each one
-                if (lumpSumPayments && Array.isArray(lumpSumPayments) && lumpSumPayments.length > 0) {
-                  let totalLumpSumAmount = 0;
-                  
-                  for (const payment of lumpSumPayments) {
-                    if (payment.amount && payment.date) {
-                      totalLumpSumAmount += payment.amount;
-                      
-                      await db.PaymentTransaction.create(
-                        {
-                          studentId: user.id,
-                          enrollmentId: enrollment.id,
-                          amount: payment.amount,
-                          paidAmount: 0, // Lump sum amount is initially unpaid
-                          dueDate: new Date(payment.date),
-                          status: PaymentStatus.UNPAID,
-                          notes: `Lump Sum payment - Date: ${payment.date}, Amount: ${payment.amount}`,
-                        },
-                        { transaction }
-                      );
-                      logger.info(`Created lump sum payment: studentId=${user.id}, enrollmentId=${enrollment.id}, amount=${payment.amount}, dueDate=${payment.date}`);
-                    }
-                  }
+          // For Lump Sum payment - create payment transactions for the balance
+          else if (lumpSumPayment && balanceAmount && balanceAmount > 0) {
+            try {
+              // If multiple lump sum payments are provided, create each one
+              if (lumpSumPayments && Array.isArray(lumpSumPayments) && lumpSumPayments.length > 0) {
+                let totalLumpSumAmount = 0;
                 
-                  // Validate that the total lump sum payments match the balance amount
-                  if (Math.abs(totalLumpSumAmount - balanceAmount) > 0.01) {
-                    logger.warn(`Lump sum payment total (${totalLumpSumAmount}) does not match balance amount (${balanceAmount}) for student ${user.id}`);
+                for (const payment of lumpSumPayments) {
+                  if (payment.amount && payment.date) {
+                    totalLumpSumAmount += payment.amount;
+                    
+                    await db.PaymentTransaction.create(
+                      {
+                        studentId: user.id,
+                        enrollmentId: enrollment.id,
+                        amount: payment.amount,
+                        paidAmount: 0, // Lump sum amount is initially unpaid
+                        dueDate: new Date(payment.date),
+                        status: PaymentStatus.UNPAID,
+                        notes: `Lump Sum payment - Date: ${payment.date}, Amount: ${payment.amount}`,
+                      },
+                      { transaction }
+                    );
+                    logger.info(`Created lump sum payment: studentId=${user.id}, enrollmentId=${enrollment.id}, amount=${payment.amount}, dueDate=${payment.date}`);
                   }
-                } else {
-                  // Create single lump sum payment (backward compatibility)
-                  const dueDate = nextPayDate ? new Date(nextPayDate) : new Date();
-                  
-                  await db.PaymentTransaction.create(
-                    {
-                      studentId: user.id,
-                      enrollmentId: enrollment.id,
-                      amount: balanceAmount,
-                      paidAmount: 0, // Lump sum amount is initially unpaid
-                      dueDate: dueDate,
-                      status: PaymentStatus.UNPAID,
-                      notes: 'Lump Sum payment with next payment date',
-                    },
-                    { transaction }
-                  );
-                  logger.info(`Created lump sum payment: studentId=${user.id}, enrollmentId=${enrollment.id}, amount=${balanceAmount}, dueDate=${dueDate.toISOString()}`);
                 }
-              } catch (paymentError: any) {
-                logger.error('Error creating lump sum payment:', paymentError);
-                // Don't fail enrollment if payment creation fails, but log it
-              }
-            }
-            // Case 2: Balance amount = 0 (full payment received upfront)
-            else if (balanceAmount === 0 && totalDeal && totalDeal > 0) {
-              try {
-                // Create a PAID transaction showing full payment was received
+                
+                // Validate that the total lump sum payments match the balance amount
+                if (Math.abs(totalLumpSumAmount - balanceAmount) > 0.01) {
+                  logger.warn(`Lump sum payment total (${totalLumpSumAmount}) does not match balance amount (${balanceAmount}) for student ${user.id}`);
+                }
+              } else {
+                // Create single lump sum payment (backward compatibility)
+                const dueDate = nextPayDate ? new Date(nextPayDate) : new Date();
+                
                 await db.PaymentTransaction.create(
                   {
                     studentId: user.id,
                     enrollmentId: enrollment.id,
-                    amount: totalDeal,
-                    paidAmount: totalDeal, // Full amount paid upfront
-                    dueDate: dateOfAdmission ? new Date(dateOfAdmission) : new Date(),
-                    paidAt: dateOfAdmission ? new Date(dateOfAdmission) : new Date(),
-                    status: PaymentStatus.PAID,
-                    notes: 'Full payment received - Lump sum (Balance: ₹0)',
+                    amount: balanceAmount,
+                    paidAmount: 0, // Lump sum amount is initially unpaid
+                    dueDate: dueDate,
+                    status: PaymentStatus.UNPAID,
+                    notes: 'Lump Sum payment with next payment date',
                   },
                   { transaction }
                 );
-                logger.info(`Created full payment record: studentId=${user.id}, enrollmentId=${enrollment.id}, amount=${totalDeal}, balanceAmount=0`);
-              } catch (paymentError: any) {
-                logger.error('Error creating full payment record:', paymentError);
-                // Don't fail enrollment if payment creation fails, but log it
+                logger.info(`Created lump sum payment: studentId=${user.id}, enrollmentId=${enrollment.id}, amount=${balanceAmount}, dueDate=${dueDate.toISOString()}`);
               }
+            } catch (paymentError: any) {
+              logger.error('Error creating lump sum payment:', paymentError);
+              // Don't fail enrollment if payment creation fails, but log it
             }
           }
           
@@ -892,10 +874,6 @@ export const completeEnrollment = async (
               logger.error('Error creating balance payment:', paymentError);
               // Don't fail enrollment if payment creation fails, but log it
             }
-          }
-          // If balance amount is 0 and neither EMI nor Lump Sum is selected, no payment transaction is needed
-          else if (balanceAmount === 0 || balanceAmount === null || balanceAmount === undefined) {
-            logger.info(`No balance payment needed: studentId=${user.id}, enrollmentId=${enrollment.id}, balanceAmount=${balanceAmount}`);
           }
         }
       }
@@ -1630,6 +1608,60 @@ export const unifiedStudentImport = async (req: AuthRequest, res: Response): Pro
           }
         }
 
+
+        // ========== CREATE PAYMENT TRANSACTIONS IF PAYMENT DATA EXISTS ==========
+        const totalDeal = enrollmentMetadata.totalDeal;
+        const bookingAmount = enrollmentMetadata.bookingAmount;
+        const balanceAmount = enrollmentMetadata.balanceAmount;
+        
+        // Create payment transactions if there's financial data
+        if ((totalDeal || bookingAmount || balanceAmount) && parsedDateOfAdmission) {
+          try {
+            // Find an active enrollment for this student to link payments to
+            const enrollment = await db.Enrollment.findOne({
+              where: { studentId: student.id },
+              transaction,
+            });
+
+            // Create booking amount payment if exists
+            if (bookingAmount && bookingAmount > 0) {
+              await db.PaymentTransaction.create({
+                studentId: student.id,
+                enrollmentId: enrollment?.id || null,
+                amount: bookingAmount,
+                dueDate: parsedDateOfAdmission,
+                paidAt: parsedDateOfAdmission,
+                status: PaymentStatus.PAID,
+                notes: `Booking amount from Excel import - Total Deal: ${totalDeal || 0}, Balance: ${balanceAmount || 0}`,
+              }, { transaction });
+              
+              logger.info(`Created booking payment transaction for student ${student.id}: ${bookingAmount}`);
+            }
+
+            // Create balance amount payment if exists
+            if (balanceAmount && balanceAmount > 0) {
+              const dueDate = enrollmentMetadata.emiPlanDate ? 
+                new Date(enrollmentMetadata.emiPlanDate) : 
+                new Date(parsedDateOfAdmission);
+              
+              await db.PaymentTransaction.create({
+                studentId: student.id,
+                enrollmentId: enrollment?.id || null,
+                amount: balanceAmount,
+                dueDate: dueDate,
+                status: enrollmentMetadata.emiPlan ? PaymentStatus.PENDING : PaymentStatus.UNPAID,
+                notes: `Balance payment from Excel import - Total Deal: ${totalDeal || 0}, EMI Plan: ${enrollmentMetadata.emiPlan ? 'Yes' : 'No'}`,
+              }, { transaction });
+              
+              logger.info(`Created balance payment transaction for student ${student.id}: ${balanceAmount}`);
+            }
+          } catch (paymentError: any) {
+            logger.error(`Error creating payment transactions for student ${student.id}:`, paymentError);
+            // Don't fail the entire import if payment creation fails, just log the error
+          }
+        }
+
+
         // ========== PROCESS SOFTWARE PROGRESS DATA ==========
         // Get course info - support all field name variations
         const courseName = getValue(row, ['courseName', 'Course Name', 'COMMON', 'Common', 'New COURSE', 'New Course']);
@@ -2094,6 +2126,23 @@ export const bulkEnrollStudents = async (req: AuthRequest, res: Response): Promi
 
         // Format date as ISO string for storage in metadata (YYYY-MM-DD)
         const dateOfAdmissionISO = parsedDateOfAdmission.toISOString().split('T')[0];
+        
+        // Validate that date of admission is not in the past (current date or future)
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const admissionDate = new Date(parsedDateOfAdmission);
+        admissionDate.setHours(0, 0, 0, 0);
+        
+        if (admissionDate < today) {
+          await transaction.rollback();
+          result.failed++;
+          result.errors.push({
+            row: rowNumber,
+            email: email || 'N/A',
+            error: `Date of Admission (${dateOfAdmissionISO}) cannot be in the past. It must be current date or future date.`
+          });
+          continue;
+        }
         
         // Log for debugging (only in development)
         if (process.env.NODE_ENV === 'development') {
@@ -3068,145 +3117,159 @@ export const updateStudentProfile = async (req: AuthRequest, res: Response): Pro
 };
 
 
-// GET /students/check-duplicate → Check for duplicate email or phone
-export const checkDuplicate = async (req: AuthRequest, res: Response): Promise<void> => {
+
+
+/**
+ * Approve corrected balance amount and update payment transaction
+ */
+export const approveCorrectedBalance = async (req: AuthRequest, res: Response) => {
   try {
-    if (!req.user) {
-      res.status(401).json({
+    const studentId = parseInt(req.params.id);
+    const { correctedBalance } = req.body;
+
+    if (!correctedBalance || correctedBalance <= 0) {
+      return res.status(400).json({
         status: 'error',
-        message: 'Authentication required',
+        message: 'Invalid corrected balance amount',
       });
-      return;
     }
 
-    const { email, phone, excludeStudentId } = req.query;
-    
-    // Validation
-    if (!email && !phone) {
-      res.status(400).json({
-        status: 'error',
-        message: 'Either email or phone number is required',
+    await db.sequelize.transaction(async (transaction) => {
+      // Get the student's enrollment metadata
+      const studentProfile = await db.StudentProfile.findOne({
+        where: { userId: studentId },
+        transaction,
       });
-      return;
-    }
 
-    const emailStr = email ? String(email).trim().toLowerCase() : null;
-    const phoneStr = phone ? String(phone).trim() : null;
-    
-    // Normalize phone number (remove all non-digit characters)
-    const normalizedPhone = phoneStr ? phoneStr.replace(/\D/g, '') : null;
-    
-    // Build query conditions
-    const whereConditions: any[] = [];
-    
-    if (emailStr) {
-      // Case-insensitive email check using LOWER function
-      whereConditions.push(db.sequelize.where(
-        db.sequelize.fn('LOWER', db.sequelize.col('email')),
-        emailStr
-      ));
-    }
-    
-    if (normalizedPhone && normalizedPhone.length >= 10) {
-      // Phone check using REPLACE to remove non-digits
-      whereConditions.push(db.sequelize.where(
-        db.sequelize.fn('REPLACE', 
-          db.sequelize.fn('REPLACE', 
-            db.sequelize.fn('REPLACE', 
-              db.sequelize.fn('REPLACE', db.sequelize.col('phone'), '-', ''), 
-              ' ', ''), 
-            '+', ''), 
-          ')', ''),
-        normalizedPhone
-      ));
-    }
-    
-    // Exclude current student if editing
-    if (excludeStudentId) {
-      whereConditions.push({ id: { [Op.ne]: Number(excludeStudentId) } });
-    }
-    
-    // Combine conditions with OR for email/phone, AND for exclusion
-    let finalWhere;
-    if (whereConditions.length === 1) {
-      finalWhere = whereConditions[0];
-    } else if (whereConditions.length === 2) {
-      // Email OR Phone condition
-      const emailOrPhoneCondition = {
-        [Op.or]: [whereConditions[0], whereConditions[1]]
-      };
-      
-      if (excludeStudentId) {
-        // Email OR Phone AND NOT excludeStudentId
-        finalWhere = {
-          [Op.and]: [
-            emailOrPhoneCondition,
-            whereConditions[2] // exclusion condition
-          ]
-        };
+      if (!studentProfile) {
+        throw new Error('Student profile not found');
+      }
+
+      const documents = studentProfile.documents || {};
+      const enrollmentMetadata = documents.enrollmentMetadata || {};
+
+      if (!enrollmentMetadata.hasPaymentMismatch) {
+        throw new Error('No payment mismatch flagged for this student');
+      }
+
+      // Update the balance amount to the corrected value
+      enrollmentMetadata.balanceAmount = correctedBalance;
+      enrollmentMetadata.hasPaymentMismatch = false;
+      enrollmentMetadata.paymentMismatchResolved = true;
+      enrollmentMetadata.paymentMismatchResolvedAt = new Date().toISOString();
+      enrollmentMetadata.approvedBy = req.user?.id;
+
+      studentProfile.documents = documents;
+      await studentProfile.save({ transaction });
+
+      // Update or create the payment transaction with the corrected amount
+      const existingPayment = await db.PaymentTransaction.findOne({
+        where: { 
+          studentId,
+          notes: { [Op.like]: '%Balance payment from Excel import%' }
+        },
+        transaction,
+      });
+
+      if (existingPayment) {
+        existingPayment.amount = correctedBalance;
+        existingPayment.notes = `Balance payment from Excel import (APPROVED) - Total Deal: ${enrollmentMetadata.totalDeal || 0}, Corrected by: ${req.user?.email}`;
+        await existingPayment.save({ transaction });
+        
+        logger.info(`✅ Approved corrected balance for student ${studentId}: ${correctedBalance} (was: ${enrollmentMetadata.originalBalanceAmount || 'N/A'})`);
       } else {
-        finalWhere = emailOrPhoneCondition;
+        // Create new payment transaction if it doesn't exist
+        const enrollment = await db.Enrollment.findOne({
+          where: { studentId },
+          transaction,
+        });
+
+        await db.PaymentTransaction.create({
+          studentId,
+          enrollmentId: enrollment?.id || null,
+          amount: correctedBalance,
+          dueDate: enrollmentMetadata.emiPlanDate ? new Date(enrollmentMetadata.emiPlanDate) : new Date(),
+          status: enrollmentMetadata.emiPlan ? PaymentStatus.PENDING : PaymentStatus.UNPAID,
+          notes: `Balance payment from Excel import (APPROVED) - Total Deal: ${enrollmentMetadata.totalDeal || 0}, Corrected by: ${req.user?.email}`,
+        }, { transaction });
       }
-    } else if (whereConditions.length === 3) {
-      // Email OR Phone AND NOT excludeStudentId
-      finalWhere = {
-        [Op.and]: [
-          {
-            [Op.or]: [whereConditions[0], whereConditions[1]]
-          },
-          whereConditions[2]
-        ]
-      };
-    }
-    
-    // Query database
-    const existingStudent = await db.User.findOne({
-      where: finalWhere,
-      attributes: ['id', 'name', 'email', 'phone'],
     });
-    
-    if (existingStudent) {
-      let conflictMessage = '';
-      let conflictType = '';
-      
-      // Determine which field caused the conflict
-      const existingEmail = existingStudent.email ? existingStudent.email.toLowerCase() : '';
-      const existingPhone = existingStudent.phone ? existingStudent.phone.replace(/\D/g, '') : '';
-      
-      if (emailStr && existingEmail === emailStr) {
-        conflictType = 'email';
-        conflictMessage = `A student with email "${email}" already exists.`;
-      } else if (normalizedPhone && existingPhone === normalizedPhone) {
-        conflictType = 'phone';
-        conflictMessage = `A student with phone number "${phone}" already exists.`;
-      } else if (emailStr && normalizedPhone && existingEmail === emailStr && existingPhone === normalizedPhone) {
-        conflictType = 'both';
-        conflictMessage = `A student with both email "${email}" and phone number "${phone}" already exists.`;
-      }
-      
-      res.status(409).json({
-        status: 'error',
-        message: conflictMessage,
-        conflictType: conflictType,
-        existingStudentId: existingStudent.id,
-        existingStudentName: existingStudent.name,
-      });
-      return;
-    }
-    
-    // No duplicates found
+
     res.status(200).json({
       status: 'success',
-      message: 'No duplicates found',
-      isDuplicate: false,
+      message: 'Corrected balance amount approved and payment updated successfully',
     });
   } catch (error: any) {
-    logger.error('Check duplicate error:', error);
+    logger.error('Approve corrected balance error:', error);
     res.status(500).json({
       status: 'error',
-      message: 'Internal server error while checking for duplicates',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+      message: error.message || 'Internal server error',
     });
   }
 };
 
+/**
+ * Reject corrected balance (keep original amount)
+ */
+export const rejectCorrectedBalance = async (req: AuthRequest, res: Response) => {
+  try {
+    const studentId = parseInt(req.params.id);
+    const { keepOriginal, originalBalance } = req.body;
+
+    await db.sequelize.transaction(async (transaction) => {
+      // Get the student's enrollment metadata
+      const studentProfile = await db.StudentProfile.findOne({
+        where: { userId: studentId },
+        transaction,
+      });
+
+      if (!studentProfile) {
+        throw new Error('Student profile not found');
+      }
+
+      const documents = studentProfile.documents || {};
+      const enrollmentMetadata = documents.enrollmentMetadata || {};
+
+      if (!enrollmentMetadata.hasPaymentMismatch) {
+        throw new Error('No payment mismatch flagged for this student');
+      }
+
+      // Mark mismatch as resolved, keeping original amount
+      enrollmentMetadata.hasPaymentMismatch = false;
+      enrollmentMetadata.paymentMismatchResolved = true;
+      enrollmentMetadata.paymentMismatchResolvedAt = new Date().toISOString();
+      enrollmentMetadata.rejectedBy = req.user?.id;
+      enrollmentMetadata.keptOriginalAmount = keepOriginal !== false;
+
+      studentProfile.documents = documents;
+      await studentProfile.save({ transaction });
+
+      // Update the payment transaction notes to reflect rejection
+      const existingPayment = await db.PaymentTransaction.findOne({
+        where: { 
+          studentId,
+          notes: { [Op.like]: '%Balance payment from Excel import%' }
+        },
+        transaction,
+      });
+
+      if (existingPayment) {
+        existingPayment.notes = `Balance payment from Excel import (REJECTED CORRECTION) - Total Deal: ${enrollmentMetadata.totalDeal || 0}, Kept original: ${originalBalance || enrollmentMetadata.balanceAmount}, Rejected by: ${req.user?.email}`;
+        await existingPayment.save({ transaction });
+        
+        logger.info(`❌ Rejected correction for student ${studentId}: Kept original balance ${originalBalance || enrollmentMetadata.balanceAmount}`);
+      }
+    });
+
+    res.status(200).json({
+      status: 'success',
+      message: 'Original balance amount retained',
+    });
+  } catch (error: any) {
+    logger.error('Reject corrected balance error:', error);
+    res.status(500).json({
+      status: 'error',
+      message: error.message || 'Internal server error',
+    });
+  }
+};

@@ -6,7 +6,7 @@ import dotenv from 'dotenv';
 import path from 'path';
 import fs from 'fs';
 import sequelize from './config/database';
-import { runPendingMigrations } from './utils/runMigrations';
+// import { runPendingMigrations } from './utils/runMigrations';
 import healthRoutes from './routes/health.routes';
 import authRoutes from './routes/auth.routes';
 import batchRoutes from './routes/batch.routes';
@@ -100,16 +100,17 @@ app.use('/uploads', (req, res, next) => {
     'http://crm.prashantthakar.com',
   ];
   
-  if (origin && allowedOrigins.includes(origin)) {
-    res.setHeader('Access-Control-Allow-Origin', origin);
-  } else {
-    res.setHeader('Access-Control-Allow-Origin', '*');
-  }
+  // Use the variables to avoid TypeScript warnings
+  void origin;
+  void allowedOrigins;
   
-  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-  res.setHeader('Access-Control-Allow-Credentials', 'true');
-
+  // Always allow CORS for static files (needed for file:// and localhost)
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS, HEAD');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Range');
+  res.setHeader('Access-Control-Expose-Headers', 'Content-Length, Content-Range, Content-Type');
+  res.setHeader('Access-Control-Allow-Credentials', 'false'); // Must be false when origin is *
+  
   if (req.method === 'OPTIONS') {
     res.sendStatus(200);
     return;
@@ -141,7 +142,7 @@ app.use('/uploads', (req, res, next) => {
 
 // Test endpoint to verify static file serving (no auth required)
 app.get('/uploads/test', (_req, res) => {
-
+  const fs = require('fs');
   const generalDir = path.join(uploadsStaticPath, 'general');
   const generalExists = fs.existsSync(generalDir);
   
@@ -217,6 +218,10 @@ app.use('/orientations', (req, res, next) => {
     'http://crm.prashantthakar.com',
   ];
   
+  // Use the variables to avoid TypeScript warnings
+  void origin;
+  void allowedOrigins;
+  
   if (origin && allowedOrigins.includes(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
   } else {
@@ -263,6 +268,10 @@ app.use('/receipts', (req, res, next) => {
     'http://crm.prashantthakar.com',
   ];
   
+  // Use the variables to avoid TypeScript warnings
+  void origin;
+  void allowedOrigins;
+  
   if (origin && allowedOrigins.includes(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
   } else {
@@ -296,6 +305,10 @@ app.use('/api/receipts', (req, res, next) => {
     'http://localhost:5173',
     'http://crm.prashantthakar.com',
   ];
+  
+  // Use the variables to avoid TypeScript warnings
+  void origin;
+  void allowedOrigins;
   
   if (origin && allowedOrigins.includes(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
@@ -457,17 +470,6 @@ app.get('/certificates/:filename', (req, res, next) => {
   });
 });
 
-// Serve frontend static files in production
-const frontendDistPath = path.join(process.cwd(), 'frontend', 'dist');
-logger.info(`Serving frontend from: ${frontendDistPath}`);
-
-if (fs.existsSync(frontendDistPath)) {
-  app.use(express.static(frontendDistPath));
-  logger.info('Frontend static files serving enabled');
-} else {
-  logger.warn('Frontend dist directory not found. Frontend files will not be served.');
-}
-
 // Routes
 app.use('/api', healthRoutes);
 app.use('/api/auth', authRoutes);
@@ -533,15 +535,15 @@ const startServer = async () => {
     await sequelize.authenticate();
     logger.info('Database connection established successfully.');
 
-    // Run migrations - but don't crash if they fail
-    try {
-      await runPendingMigrations();
-    } catch (migrationError: unknown) {
-      // Log the error but continue server startup
-      const errorMessage = migrationError instanceof Error ? migrationError.message : String(migrationError);
-      logger.error('Migration failed, but continuing server startup:', errorMessage);
-      logger.warn('Server will start without applying migrations. Please check and fix migrations manually.');
-    }
+    // Run migrations - DISABLED due to umzug import issues
+    // try {
+    //   await runPendingMigrations();
+    // } catch (migrationError: unknown) {
+    //   // Log the error but continue server startup
+    //   const errorMessage = migrationError instanceof Error ? migrationError.message : String(migrationError);
+    //   logger.error('Migration failed, but continuing server startup:', errorMessage);
+    //   logger.warn('Server will start without applying migrations. Please check and fix migrations manually.');
+    // }
 
     // Sync database (use { force: true } only in development to drop and recreate tables)
     // In production, use migrations instead

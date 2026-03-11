@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import multer from 'multer';
 import * as studentController from '../controllers/student.controller';
+import * as paymentController from '../controllers/payment.controller';
 import { verifyTokenMiddleware, checkRole } from '../middleware/auth.middleware';
 import { UserRole } from '../models/User';
 
@@ -98,11 +99,36 @@ router.get(
   studentController.getStudentAttendance
 );
 
-// GET /students/check-duplicate → Check for duplicate email or phone
-router.get(
-  '/check-duplicate',
+// PUT /students/:id/profile → Update student profile (admin only)
+router.put(
+  '/:id/profile',
   verifyTokenMiddleware,
-  studentController.checkDuplicate
+  checkRole(UserRole.ADMIN, UserRole.SUPERADMIN),
+  studentController.updateStudentProfile
+);
+
+// POST /students/:id/update-status → Update student status (admin only)
+router.post(
+  '/:id/update-status',
+  verifyTokenMiddleware,
+  checkRole(UserRole.ADMIN, UserRole.SUPERADMIN),
+  paymentController.updateStudentStatusManually
+);
+
+// POST /students/:id/payment/approve → Approve corrected balance amount
+router.post(
+  '/:id/payment/approve',
+  verifyTokenMiddleware,
+  checkRole(UserRole.ADMIN, UserRole.SUPERADMIN),
+  studentController.approveCorrectedBalance
+);
+
+// POST /students/:id/payment/reject → Reject corrected balance (keep original)
+router.post(
+  '/:id/payment/reject',
+  verifyTokenMiddleware,
+  checkRole(UserRole.ADMIN, UserRole.SUPERADMIN),
+  studentController.rejectCorrectedBalance
 );
 
 export default router;

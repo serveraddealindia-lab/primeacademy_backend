@@ -6,7 +6,6 @@ import db from '../models';
 import { logger } from '../utils/logger';
 import { AuthRequest } from '../middleware/auth.middleware';
 import { emailService, emailTemplates } from '../utils/email';
-import { checkDuplicateEmailOrPhone } from './user.controller';
 
 export const register = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -36,22 +35,11 @@ export const register = async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    // Check for duplicate email or phone across all users
-    const duplicateCheck = await checkDuplicateEmailOrPhone(email, phone);
-    
-    if (duplicateCheck.isDuplicate && duplicateCheck.existingUser && duplicateCheck.duplicateFields) {
-      const conflictFields = duplicateCheck.duplicateFields.join(' and ');
+    const existingUser = await db.User.findOne({ where: { email } });
+    if (existingUser) {
       res.status(409).json({
         status: 'error',
-        message: `A user with this ${conflictFields} already exists.`,
-        existingUser: {
-          id: duplicateCheck.existingUser.id,
-          name: duplicateCheck.existingUser.name,
-          email: duplicateCheck.existingUser.email,
-          phone: duplicateCheck.existingUser.phone,
-          role: duplicateCheck.existingUser.role,
-        },
-        conflictFields: duplicateCheck.duplicateFields,
+        message: 'User with this email already exists',
       });
       return;
     }

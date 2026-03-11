@@ -137,6 +137,7 @@ export const completeEnrollment = async (
   req: AuthRequest & { body: CompleteEnrollmentBody },
   res: Response
 ): Promise<void> => {
+  logger.debug('CompleteEnrollment endpoint called with body:', req.body);
   const transaction = await db.sequelize.transaction();
   
   try {
@@ -322,6 +323,12 @@ export const completeEnrollment = async (
     
     // Debug logging to understand data flow
     logger.debug('Validation inputs:', { courseName, softwaresIncluded });
+    logger.debug('Full enrollment data received:', { 
+      courseName, 
+      softwaresIncluded, 
+      bodyKeys: Object.keys(req.body),
+      allBodyData: req.body 
+    });
     
     if (isEmptyString(courseName) && isEmptyString(softwaresIncluded)) {
       validationErrors.push('Either Course Name or Software List must be provided (both cannot be empty)');
@@ -3059,6 +3066,52 @@ export const updateStudentProfile = async (req: AuthRequest, res: Response): Pro
       message: 'Internal server error',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined,
     });
+  }
+};
+
+// Check for duplicate email or phone
+export const checkDuplicate = async (req: AuthRequest, res: Response) => {
+  try {
+    const { email, phone } = req.query;
+
+    // Convert query parameters to strings or undefined
+    const emailStr = typeof email === 'string' ? email : undefined;
+    const phoneStr = typeof phone === 'string' ? phone : undefined;
+
+    if (!emailStr && !phoneStr) {
+      return res.status(400).json({
+        status: 'error',
+        message: 'Email or phone is required for duplicate check',
+      });
+    }
+
+    const duplicateCheck = await checkDuplicateEmailOrPhone(emailStr, phoneStr);
+
+    res.status(200).json({
+      status: 'success',
+      data: {
+        isDuplicate: duplicateCheck.isDuplicate,
+        ...(duplicateCheck.existingUser && {
+          existingUser: {
+            id: duplicateCheck.existingUser.id,
+            email: duplicateCheck.existingUser.email,
+            phone: duplicateCheck.existingUser.phone,
+          }
+        }),
+        ...(duplicateCheck.duplicateFields && {
+          duplicateFields: duplicateCheck.duplicateFields
+        })
+      }
+    });
+    return; // Ensure all code paths return a value
+  } catch (error: any) {
+    logger.error('Check duplicate error:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Internal server error',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+    });
+    return; // Ensure all code paths return a value
   }
 };
 

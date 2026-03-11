@@ -160,17 +160,11 @@ export const StudentView: React.FC = () => {
   const profile = studentData.studentProfile;
   const documents = profile?.documents;
   
-  // Debug logging
-  console.log('🔍 StudentView Debug:');
-  console.log('  - documents type:', typeof documents);
-  console.log('  - documents value:', documents);
-  
   // Parse documents if it's a string (MySQL JSON fields sometimes come as strings)
   let parsedDocuments = documents;
   if (documents && typeof documents === 'string') {
     try {
       parsedDocuments = JSON.parse(documents);
-      console.log('  - Parsed documents:', parsedDocuments);
     } catch (e) {
       console.error('Error parsing documents string:', e);
       parsedDocuments = undefined;
@@ -180,10 +174,6 @@ export const StudentView: React.FC = () => {
   const enrollmentMetadata = parsedDocuments && typeof parsedDocuments === 'object' && 'enrollmentMetadata' in parsedDocuments
     ? (parsedDocuments as any).enrollmentMetadata
     : null;
-  
-  console.log('  - enrollmentMetadata:', enrollmentMetadata);
-  console.log('  - localAddress:', enrollmentMetadata?.localAddress);
-  console.log('  - permanentAddress:', enrollmentMetadata?.permanentAddress);
 
   // Format schedule data for display
   const schedule = enrollmentMetadata?.schedule || [];

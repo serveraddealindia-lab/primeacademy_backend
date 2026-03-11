@@ -10,8 +10,7 @@ import { facultyAPI } from '../api/faculty.api';
 import { courseAPI } from '../api/course.api';
 import { formatDateInputToDDMMYYYY } from '../utils/dateUtils';
 
-// JavaScript getDay() returns: 0=Sunday, 1=Monday, 2=Tuesday, etc.
-const DAYS_OF_WEEK = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+const DAYS_OF_WEEK = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
 interface DaySchedule {
   startTime: string;
@@ -801,6 +800,21 @@ export const BatchEdit: React.FC = () => {
                     <p className="mt-1 text-sm text-gray-600">Selected: {endDateDisplay}</p>
                   )}
                   <p className="mt-1 text-xs text-gray-500">Auto-calculated based on software sessions. You can manually override this date.</p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Max Capacity
+                  </label>
+                  <input
+                    type="number"
+                    name="maxCapacity"
+                    min="1"
+                    defaultValue={batch.maxCapacity || ''}
+                    placeholder="e.g., 30"
+                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                  />
+                  <p className="mt-1 text-xs text-gray-500">Maximum number of students allowed in this batch</p>
                 </div>
 
                 <div>
