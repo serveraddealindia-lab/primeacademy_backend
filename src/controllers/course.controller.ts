@@ -11,7 +11,7 @@ export const getAllCourses = async (_req: AuthRequest, res: Response): Promise<v
       order: [['name', 'ASC']],
     });
 
-    // Ensure software is always an array
+    // Ensure software/topics are always arrays
     const normalizedCourses = courses.map((course: any) => {
       let software = course.software;
       if (typeof software === 'string') {
@@ -25,9 +25,22 @@ export const getAllCourses = async (_req: AuthRequest, res: Response): Promise<v
       if (!Array.isArray(software)) {
         software = [];
       }
+
+      let lectureTopics = course.lectureTopics ?? [];
+      if (typeof lectureTopics === 'string') {
+        try {
+          lectureTopics = JSON.parse(lectureTopics);
+        } catch {
+          lectureTopics = lectureTopics.split(',').map((s: string) => s.trim()).filter((s: string) => s);
+        }
+      }
+      if (!Array.isArray(lectureTopics)) {
+        lectureTopics = [];
+      }
       return {
         ...course.toJSON(),
         software,
+        lectureTopics,
       };
     });
 
@@ -65,7 +78,7 @@ export const getCourseById = async (req: AuthRequest, res: Response): Promise<vo
       return;
     }
 
-    // Ensure software is always an array
+    // Ensure software/topics are always arrays
     let software = (course as any).software;
     if (typeof software === 'string') {
       try {
@@ -78,12 +91,25 @@ export const getCourseById = async (req: AuthRequest, res: Response): Promise<vo
       software = [];
     }
 
+    let lectureTopics = (course as any).lectureTopics ?? [];
+    if (typeof lectureTopics === 'string') {
+      try {
+        lectureTopics = JSON.parse(lectureTopics);
+      } catch {
+        lectureTopics = lectureTopics.split(',').map((s: string) => s.trim()).filter((s: string) => s);
+      }
+    }
+    if (!Array.isArray(lectureTopics)) {
+      lectureTopics = [];
+    }
+
     res.status(200).json({
       status: 'success',
       data: { 
         course: {
           ...course.toJSON(),
           software,
+          lectureTopics,
         }
       },
     });
@@ -116,7 +142,7 @@ export const createCourse = async (req: AuthRequest, res: Response): Promise<voi
       return;
     }
 
-    const { name, software } = req.body;
+    const { name, software, lectureTopics } = req.body as { name?: string; software?: unknown; lectureTopics?: unknown };
 
     if (!name || !name.trim()) {
       res.status(400).json({
@@ -147,6 +173,9 @@ export const createCourse = async (req: AuthRequest, res: Response): Promise<voi
     const course = await db.Course.create({
       name: name.trim(),
       software: software.map((s: string) => s.trim()).filter((s: string) => s),
+      lectureTopics: Array.isArray(lectureTopics)
+        ? lectureTopics.map((s: any) => String(s).trim()).filter((s: string) => s)
+        : [],
     });
 
     res.status(201).json({
@@ -174,11 +203,14 @@ export const updateCourse = async (req: AuthRequest, res: Response): Promise<voi
       return;
     }
 
-    // Only Admin or SuperAdmin can update courses
-    if (req.user.role !== UserRole.ADMIN && req.user.role !== UserRole.SUPERADMIN) {
+    // Allow Admin/Superadmin and also Faculty to customize course topics (as requested).
+    // Faculty can only update `lectureTopics` (not name/software) for safety.
+    const isAdmin = req.user.role === UserRole.ADMIN || req.user.role === UserRole.SUPERADMIN;
+    const isFaculty = req.user.role === UserRole.FACULTY;
+    if (!isAdmin && !isFaculty) {
       res.status(403).json({
         status: 'error',
-        message: 'Only admins can update courses',
+        message: 'Not allowed',
       });
       return;
     }
@@ -201,9 +233,13 @@ export const updateCourse = async (req: AuthRequest, res: Response): Promise<voi
       return;
     }
 
-    const { name, software } = req.body;
+    const { name, software, lectureTopics } = req.body as {
+      name?: unknown;
+      software?: unknown;
+      lectureTopics?: unknown;
+    };
 
-    if (name !== undefined && (!name || !name.trim())) {
+    if (name !== undefined && (!name || !String(name).trim())) {
       res.status(400).json({
         status: 'error',
         message: 'Course name cannot be empty',
@@ -219,9 +255,28 @@ export const updateCourse = async (req: AuthRequest, res: Response): Promise<voi
       return;
     }
 
-    // Check if new name conflicts with existing course
-    if (name && name.trim() !== course.name) {
-      const existingCourse = await db.Course.findOne({ where: { name: name.trim() } });
+    if (lectureTopics !== undefined && !Array.isArray(lectureTopics)) {
+      res.status(400).json({
+        status: 'error',
+        message: 'lectureTopics must be an array of strings',
+      });
+      return;
+    }
+
+    // Faculty is only allowed to update lectureTopics
+    if (isFaculty) {
+      if (name !== undefined || software !== undefined) {
+        res.status(403).json({
+          status: 'error',
+          message: 'Faculty can only update lecture topics',
+        });
+        return;
+      }
+    }
+
+    // Check if new name conflicts with existing course (admin only)
+    if (isAdmin && name && String(name).trim() !== course.name) {
+      const existingCourse = await db.Course.findOne({ where: { name: String(name).trim() } });
       if (existingCourse) {
         res.status(400).json({
           status: 'error',
@@ -232,8 +287,20 @@ export const updateCourse = async (req: AuthRequest, res: Response): Promise<voi
     }
 
     await course.update({
-      name: name !== undefined ? name.trim() : course.name,
-      software: software !== undefined ? software.map((s: string) => s.trim()).filter((s: string) => s) : course.software,
+      ...(isAdmin
+        ? {
+            name: name !== undefined ? String(name).trim() : course.name,
+            software:
+              software !== undefined
+                ? (software as any[]).map((s: any) => String(s).trim()).filter((s: string) => s)
+                : course.software,
+          }
+        : {}),
+      ...(lectureTopics !== undefined
+        ? {
+            lectureTopics: (lectureTopics as any[]).map((s: any) => String(s).trim()).filter((s: string) => s),
+          }
+        : {}),
     });
 
     res.status(200).json({

@@ -8,7 +8,7 @@ export interface PaymentTransaction {
   paidAmount?: number;
   dueDate?: string;
   paidDate?: string;
-  status: 'unpaid' | 'partial' | 'paid';
+  status: 'unpaid' | 'pending' | 'partial' | 'paid' | 'overdue' | 'cancelled';
   receiptUrl?: string | null;
   paymentMethod?: string | null;
   transactionId?: string | null;
@@ -46,7 +46,7 @@ export interface CreatePaymentRequest {
 }
 
 export interface UpdatePaymentRequest {
-  status?: 'unpaid' | 'partial' | 'paid';
+  status?: 'unpaid' | 'pending' | 'partial' | 'paid' | 'overdue' | 'cancelled';
   paidDate?: string;
   paymentMethod?: string;
   transactionId?: string;

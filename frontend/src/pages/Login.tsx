@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { getApiBaseUrl } from '../api/axios';
 
 export const Login: React.FC = () => {
   const [email, setEmail] = useState('');
@@ -79,7 +80,7 @@ export const Login: React.FC = () => {
     setForgotPasswordLoading(true);
 
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api'}/auth/forgot-password`, {
+      const response = await fetch(`${getApiBaseUrl()}/auth/forgot-password`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

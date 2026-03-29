@@ -26,8 +26,10 @@ export interface FacultyAttendanceSummary {
 }
 
 export interface StudentAttendanceFilters {
-  batchId: number;
+  batchId?: number;
   studentId?: number;
+  facultyId?: number;
+  software?: string;
   from?: string;
   to?: string;
 }
@@ -57,6 +59,24 @@ export interface PunchSummaryRow {
   punchInAt?: string;
   punchOutAt?: string;
   hours: string;
+}
+
+export interface LecturePunchFilters {
+  software?: string;
+  facultyId?: number;
+  batchId?: number;
+  from?: string;
+  to?: string;
+}
+
+export interface LecturePunchRow {
+  sessionId: number;
+  date: string;
+  software?: string | null;
+  facultyName: string;
+  batchTitle: string;
+  punchInAt?: string;
+  punchOutAt?: string;
 }
 
 const downloadCsv = async (url: string, params: Record<string, unknown> | undefined, filename: string) => {
@@ -119,6 +139,18 @@ export const attendanceReportAPI = {
   },
   downloadPunchSummaryCsv: (filters: PunchSummaryFilters) =>
     downloadCsv('/attendance-reports/punches', (filters as unknown) as Record<string, unknown>, 'punch-summary.csv'),
+  getLecturePunches: async (filters: LecturePunchFilters) => {
+    const response = await api.get<{
+      status: string;
+      data: {
+        rows: LecturePunchRow[];
+        summary: { sessions: number };
+      };
+    }>('/attendance-reports/lecture-punches', { params: filters });
+    return response.data.data;
+  },
+  downloadLecturePunchesCsv: (filters: LecturePunchFilters) =>
+    downloadCsv('/attendance-reports/lecture-punches', (filters as unknown) as Record<string, unknown>, 'lecture-punch-report.csv'),
 };
 
 

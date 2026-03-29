@@ -18,7 +18,7 @@ export interface BatchAttributes {
   mode: BatchMode;
   startDate: Date;
   endDate: Date;
-  maxCapacity: number;
+  maxCapacity?: number;
   schedule: any | null;
   createdByAdminId: number | null;
   status: string | null;
@@ -74,7 +74,7 @@ Batch.init(
     },
     maxCapacity: {
       type: DataTypes.INTEGER,
-      allowNull: false,
+      allowNull: true,
     },
     schedule: {
       type: DataTypes.JSON,

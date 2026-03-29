@@ -1608,6 +1608,60 @@ export const unifiedStudentImport = async (req: AuthRequest, res: Response): Pro
           }
         }
 
+
+        // ========== CREATE PAYMENT TRANSACTIONS IF PAYMENT DATA EXISTS ==========
+        const totalDeal = enrollmentMetadata.totalDeal;
+        const bookingAmount = enrollmentMetadata.bookingAmount;
+        const balanceAmount = enrollmentMetadata.balanceAmount;
+        
+        // Create payment transactions if there's financial data
+        if ((totalDeal || bookingAmount || balanceAmount) && parsedDateOfAdmission) {
+          try {
+            // Find an active enrollment for this student to link payments to
+            const enrollment = await db.Enrollment.findOne({
+              where: { studentId: student.id },
+              transaction,
+            });
+
+            // Create booking amount payment if exists
+            if (bookingAmount && bookingAmount > 0) {
+              await db.PaymentTransaction.create({
+                studentId: student.id,
+                enrollmentId: enrollment?.id || null,
+                amount: bookingAmount,
+                dueDate: parsedDateOfAdmission,
+                paidAt: parsedDateOfAdmission,
+                status: PaymentStatus.PAID,
+                notes: `Booking amount from Excel import - Total Deal: ${totalDeal || 0}, Balance: ${balanceAmount || 0}`,
+              }, { transaction });
+              
+              logger.info(`Created booking payment transaction for student ${student.id}: ${bookingAmount}`);
+            }
+
+            // Create balance amount payment if exists
+            if (balanceAmount && balanceAmount > 0) {
+              const dueDate = enrollmentMetadata.emiPlanDate ? 
+                new Date(enrollmentMetadata.emiPlanDate) : 
+                new Date(parsedDateOfAdmission);
+              
+              await db.PaymentTransaction.create({
+                studentId: student.id,
+                enrollmentId: enrollment?.id || null,
+                amount: balanceAmount,
+                dueDate: dueDate,
+                status: enrollmentMetadata.emiPlan ? PaymentStatus.PENDING : PaymentStatus.UNPAID,
+                notes: `Balance payment from Excel import - Total Deal: ${totalDeal || 0}, EMI Plan: ${enrollmentMetadata.emiPlan ? 'Yes' : 'No'}`,
+              }, { transaction });
+              
+              logger.info(`Created balance payment transaction for student ${student.id}: ${balanceAmount}`);
+            }
+          } catch (paymentError: any) {
+            logger.error(`Error creating payment transactions for student ${student.id}:`, paymentError);
+            // Don't fail the entire import if payment creation fails, just log the error
+          }
+        }
+
+
         // ========== PROCESS SOFTWARE PROGRESS DATA ==========
         // Get course info - support all field name variations
         const courseName = getValue(row, ['courseName', 'Course Name', 'COMMON', 'Common', 'New COURSE', 'New Course']);
@@ -3063,3 +3117,175 @@ export const updateStudentProfile = async (req: AuthRequest, res: Response): Pro
 };
 
 
+
+
+/**
+ * Approve corrected balance amount and update payment transaction
+ */
+export const approveCorrectedBalance = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const studentId = parseInt(req.params.id);
+    const { correctedBalance } = req.body;
+
+    if (!correctedBalance || correctedBalance <= 0) {
+      res.status(400).json({
+        status: 'error',
+        message: 'Invalid corrected balance amount',
+      });
+      return;
+    }
+
+    await db.sequelize.transaction(async (transaction) => {
+      // Get the student's enrollment metadata
+      const studentProfile = await db.StudentProfile.findOne({
+        where: { userId: studentId },
+        transaction,
+      });
+
+      if (!studentProfile) {
+        throw new Error('Student profile not found');
+      }
+
+      // documents can be object or JSON string depending on DB dialect/config
+      let documents: any = studentProfile.documents || {};
+      if (typeof documents === 'string') {
+        try {
+          documents = JSON.parse(documents);
+        } catch {
+          documents = {};
+        }
+      }
+      const enrollmentMetadata: any = documents.enrollmentMetadata || (documents.enrollmentMetadata = {});
+
+      if (!enrollmentMetadata.hasPaymentMismatch) {
+        throw new Error('No payment mismatch flagged for this student');
+      }
+
+      // Update the balance amount to the corrected value
+      enrollmentMetadata.balanceAmount = correctedBalance;
+      enrollmentMetadata.hasPaymentMismatch = false;
+      enrollmentMetadata.paymentMismatchResolved = true;
+      enrollmentMetadata.paymentMismatchResolvedAt = new Date().toISOString();
+      enrollmentMetadata.approvedBy = req.user?.userId;
+
+      studentProfile.documents = documents;
+      await studentProfile.save({ transaction });
+
+      // Update or create the payment transaction with the corrected amount
+      const existingPayment = await db.PaymentTransaction.findOne({
+        where: { 
+          studentId,
+          notes: { [Op.like]: '%Balance payment from Excel import%' }
+        },
+        transaction,
+      });
+
+      if (existingPayment) {
+        existingPayment.amount = correctedBalance;
+        existingPayment.notes = `Balance payment from Excel import (APPROVED) - Total Deal: ${enrollmentMetadata.totalDeal || 0}, Corrected by: ${req.user?.email}`;
+        await existingPayment.save({ transaction });
+        
+        logger.info(`✅ Approved corrected balance for student ${studentId}: ${correctedBalance} (was: ${enrollmentMetadata.originalBalanceAmount || 'N/A'})`);
+      } else {
+        // Create new payment transaction if it doesn't exist
+        const enrollment = await db.Enrollment.findOne({
+          where: { studentId },
+          transaction,
+        });
+
+        await db.PaymentTransaction.create({
+          studentId,
+          enrollmentId: enrollment?.id || null,
+          amount: correctedBalance,
+          dueDate: enrollmentMetadata.emiPlanDate ? new Date(enrollmentMetadata.emiPlanDate) : new Date(),
+          status: enrollmentMetadata.emiPlan ? PaymentStatus.PENDING : PaymentStatus.UNPAID,
+          notes: `Balance payment from Excel import (APPROVED) - Total Deal: ${enrollmentMetadata.totalDeal || 0}, Corrected by: ${req.user?.email}`,
+        }, { transaction });
+      }
+    });
+
+    res.status(200).json({
+      status: 'success',
+      message: 'Corrected balance amount approved and payment updated successfully',
+    });
+  } catch (error: any) {
+    logger.error('Approve corrected balance error:', error);
+    res.status(500).json({
+      status: 'error',
+      message: error.message || 'Internal server error',
+    });
+  }
+};
+
+/**
+ * Reject corrected balance (keep original amount)
+ */
+export const rejectCorrectedBalance = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const studentId = parseInt(req.params.id);
+    const { keepOriginal, originalBalance } = req.body;
+
+    await db.sequelize.transaction(async (transaction) => {
+      // Get the student's enrollment metadata
+      const studentProfile = await db.StudentProfile.findOne({
+        where: { userId: studentId },
+        transaction,
+      });
+
+      if (!studentProfile) {
+        throw new Error('Student profile not found');
+      }
+
+      let documents: any = studentProfile.documents || {};
+      if (typeof documents === 'string') {
+        try {
+          documents = JSON.parse(documents);
+        } catch {
+          documents = {};
+        }
+      }
+      const enrollmentMetadata: any = documents.enrollmentMetadata || (documents.enrollmentMetadata = {});
+
+      if (!enrollmentMetadata.hasPaymentMismatch) {
+        throw new Error('No payment mismatch flagged for this student');
+      }
+
+      // Mark mismatch as resolved, keeping original amount
+      enrollmentMetadata.hasPaymentMismatch = false;
+      enrollmentMetadata.paymentMismatchResolved = true;
+      enrollmentMetadata.paymentMismatchResolvedAt = new Date().toISOString();
+      enrollmentMetadata.rejectedBy = req.user?.userId;
+      enrollmentMetadata.keptOriginalAmount = keepOriginal !== false;
+
+      studentProfile.documents = documents;
+      await studentProfile.save({ transaction });
+
+      // Update the payment transaction notes to reflect rejection
+      const existingPayment = await db.PaymentTransaction.findOne({
+        where: { 
+          studentId,
+          notes: { [Op.like]: '%Balance payment from Excel import%' }
+        },
+        transaction,
+      });
+
+      if (existingPayment) {
+        existingPayment.notes = `Balance payment from Excel import (REJECTED CORRECTION) - Total Deal: ${enrollmentMetadata.totalDeal || 0}, Kept original: ${originalBalance || enrollmentMetadata.balanceAmount}, Rejected by: ${req.user?.email}`;
+        await existingPayment.save({ transaction });
+        
+        logger.info(`❌ Rejected correction for student ${studentId}: Kept original balance ${originalBalance || enrollmentMetadata.balanceAmount}`);
+      }
+    });
+
+    res.status(200).json({
+      status: 'success',
+      message: 'Original balance amount retained',
+    });
+  } catch (error: any) {
+    logger.error('Reject corrected balance error:', error);
+    res.status(500).json({
+      status: 'error',
+      message: error.message || 'Internal server error',
+    });
+  }
+};

@@ -66,6 +66,11 @@ export interface FacultyBatch {
     schedule?: BatchSchedule;
     status?: string;
     mode?: string;
+    studentCount?: number;
+    courseId?: number | null;
+    courseLectureTopics?: string[];
+    // Batch software list is used as "subjects" for faculty lectures/tasks
+    software?: unknown;
   };
   activeSession: SessionSummary | null;
 }
@@ -77,8 +82,12 @@ export interface SessionSummary {
   date: string;
   topic?: string | null;
   status: 'scheduled' | 'ongoing' | 'completed';
+  startTime?: string | null;
+  endTime?: string | null;
   actualStartAt?: string | null;
   actualEndAt?: string | null;
+  attendanceSubmittedAt?: string | null;
+  delayReason?: string | null;
 }
 
 export type AttendanceOption = 'present' | 'absent' | 'late' | 'online';
@@ -91,11 +100,33 @@ export interface StudentAttendanceEntry {
   present?: boolean;
 }
 
+export interface AttendanceDraftPayload {
+  version: 1;
+  sessionId: number;
+  batchId: number;
+  updatedAt: string; // ISO
+  attendance: Record<number, AttendanceOption | null>;
+}
+
 export interface SessionAttendancePayload {
   attendance: Array<{ studentId: number; status?: AttendanceOption; present?: boolean }>;
 }
 
 export const sessionAPI = {
+  getDashboardBatches: async (): Promise<FacultyBatch[]> => {
+    try {
+      const response = await api.get<{ status: string; data: FacultyBatch[] }>('/sessions/dashboard-batches');
+      return response.data.data;
+    } catch (e: any) {
+      // Backend route may not exist in some running environments; fallback to faculty endpoint.
+      const status = e?.response?.status;
+      if (status === 404) {
+        const fallback = await sessionAPI.getFacultyBatches();
+        return fallback;
+      }
+      throw e;
+    }
+  },
   getFacultyBatches: async (): Promise<FacultyBatch[]> => {
     const response = await api.get<{ status: string; data: FacultyBatch[] }>('/sessions/faculty/assigned');
     return response.data.data;
@@ -116,21 +147,23 @@ export const sessionAPI = {
     return response.data.data;
   },
   getBatchStudents: async (batchId: number): Promise<StudentAttendanceEntry[]> => {
+    // Use batch details endpoint because it reliably returns enrollments + student info.
+    // Some DB/enrollment join configurations can make `/batches/:id/enrollments` return empty for faculty UI.
     const response = await api.get<{
       status: string;
-      data: Array<{
-        student: {
-          id: number;
-          name: string;
-          email: string;
+      data: {
+        batch: {
+          enrollments?: Array<{ id: number; name: string; email: string }>;
         };
-      }>;
-    }>(`/batches/${batchId}/enrollments`);
+      };
+    }>(`/batches/${batchId}`);
 
-    return response.data.data.map((enrollment) => ({
-      studentId: enrollment.student.id,
-      name: enrollment.student.name,
-      email: enrollment.student.email,
+    const enrollments = response.data.data.batch.enrollments || [];
+
+    return enrollments.map((enrollment) => ({
+      studentId: enrollment.id,
+      name: enrollment.name,
+      email: enrollment.email,
       status: 'present',
       present: true,
     }));
@@ -158,6 +191,33 @@ export const sessionAPI = {
   checkOutSession: async (id: number): Promise<SessionResponse> => {
     const response = await api.post<SessionResponse>(`/sessions/${id}/checkout`);
     return response.data;
+  },
+  saveAttendanceDraft: async (sessionId: number, draft: AttendanceDraftPayload) => {
+    const response = await api.patch<{ status: string; data: any }>('/attendance/save-draft', {
+      sessionId,
+      payload: draft,
+    });
+    return response.data.data;
+  },
+  getAttendanceDraft: async (sessionId: number): Promise<AttendanceDraftPayload | null> => {
+    const response = await api.get<{ status: string; data: { sessionId: number; payload: AttendanceDraftPayload } | null }>(
+      '/attendance/draft',
+      { params: { sessionId } }
+    );
+    return response.data.data ? response.data.data.payload : null;
+  },
+  saveDelayReason: async (sessionId: number, delay_reason: string) => {
+    const response = await api.patch<{ status: string; data: any }>('/lectures/add-delay-reason', {
+      sessionId,
+      delay_reason,
+    });
+    return response.data.data;
+  },
+  updateSessionTopic: async (sessionId: number, topic: string) => {
+    const response = await api.patch<{ status: string; data: { sessionId: number; topic: string } }>(`/sessions/${sessionId}/topic`, {
+      topic,
+    });
+    return response.data.data;
   },
 };
 

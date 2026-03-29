@@ -1,25 +1,24 @@
 import axios from 'axios';
 
-// Get base URL from environment variable
-// In production, this should be set to the production API URL (e.g., https://api.prashantthakar.com/api)
-// In development, it defaults to http://localhost:3001/api
-const getBaseURL = () => {
-  // First try the environment variable
+// Get base URL from environment variable (used by axios and by raw fetch() calls).
+// In production set VITE_API_BASE_URL to your API origin (e.g. https://api.example.com); /api is appended.
+// In development defaults to http://localhost:3001/api.
+export const getApiBaseUrl = (): string => {
   const envUrl = import.meta.env.VITE_API_BASE_URL;
-  if (envUrl) {
-    // Ensure it ends with /api if it doesn't already
-    return envUrl.endsWith('/api') ? envUrl : `${envUrl}/api`;
+  if (envUrl && typeof envUrl === 'string' && envUrl.trim()) {
+    const base = envUrl.trim();
+    return base.endsWith('/api') ? base : `${base.replace(/\/+$/, '')}/api`;
   }
-
-  // If environment variable is not working, try to read from .env file directly
-  try {
-    // For development, use the correct port
-    return 'http://localhost:3001/api';
-  } catch (e) {
-    // Fallback to the correct URL
-    return 'http://localhost:3001/api';
-  }
+  return 'http://localhost:3001/api';
 };
+
+/** Origin for static assets (uploads, receipts) – no /api path. */
+export const getApiOrigin = (): string => {
+  const base = getApiBaseUrl();
+  return base.replace(/\/api\/?$/, '') || 'http://localhost:3001';
+};
+
+const getBaseURL = getApiBaseUrl;
 
 const api = axios.create({
   baseURL: getBaseURL(),
@@ -28,6 +27,17 @@ const api = axios.create({
   },
   timeout: 30000, // 30 second timeout
 });
+
+let isRefreshing = false;
+let refreshQueue: Array<(token: string | null) => void> = [];
+
+const enqueueRefresh = (cb: (token: string | null) => void) => {
+  refreshQueue.push(cb);
+};
+const resolveRefreshQueue = (token: string | null) => {
+  refreshQueue.forEach((cb) => cb(token));
+  refreshQueue = [];
+};
 
 // Request interceptor to add auth token
 api.interceptors.request.use(
@@ -53,7 +63,7 @@ api.interceptors.request.use(
 // Response interceptor for error handling
 api.interceptors.response.use(
   (response) => response,
-  (error) => {
+  async (error) => {
     // Enhanced error logging for debugging
     console.error('API Error:', {
       url: error.config?.url,
@@ -78,9 +88,47 @@ api.interceptors.response.use(
     }
 
     // Don't redirect on login endpoint 401 errors
-    if (error.response?.status === 401 && !error.config?.url?.includes('/auth/login')) {
+    if (error.response?.status === 401 && !error.config?.url?.includes('/auth/login') && !error.config?.url?.includes('/auth/refresh')) {
+      const originalRequest = error.config;
+      const refreshToken = localStorage.getItem('refreshToken');
+
+      if (refreshToken && !originalRequest.__isRetryRequest) {
+        if (isRefreshing) {
+          return new Promise((resolve, reject) => {
+            enqueueRefresh((newToken) => {
+              if (!newToken) {
+                reject(error);
+                return;
+              }
+              originalRequest.__isRetryRequest = true;
+              originalRequest.headers.Authorization = `Bearer ${newToken}`;
+              resolve(api(originalRequest));
+            });
+          });
+        }
+
+        isRefreshing = true;
+        try {
+          const refreshResponse = await api.post('/auth/refresh', { refreshToken });
+          const newToken = refreshResponse.data?.data?.token;
+          if (newToken) {
+            localStorage.setItem('token', newToken);
+            resolveRefreshQueue(newToken);
+            originalRequest.__isRetryRequest = true;
+            originalRequest.headers.Authorization = `Bearer ${newToken}`;
+            return api(originalRequest);
+          }
+          resolveRefreshQueue(null);
+        } catch (refreshError) {
+          resolveRefreshQueue(null);
+        } finally {
+          isRefreshing = false;
+        }
+      }
+
       // Unauthorized - clear token and redirect to login
       localStorage.removeItem('token');
+      localStorage.removeItem('refreshToken');
       // Only redirect if not already on login page
       if (window.location.pathname !== '/login') {
         window.location.href = '/login';

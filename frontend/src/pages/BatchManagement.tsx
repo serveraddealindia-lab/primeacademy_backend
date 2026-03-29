@@ -6,6 +6,7 @@ import { Layout } from '../components/Layout';
 import { batchAPI, Batch } from '../api/batch.api';
 import { reportAPI } from '../api/report.api';
 import { formatDateDDMMYYYY } from '../utils/dateUtils';
+import { SyncedHorizontalScroll } from '../components/SyncedHorizontalScroll';
 
 export const BatchManagement: React.FC = () => {
   const { user } = useAuth();
@@ -507,7 +508,7 @@ export const BatchManagement: React.FC = () => {
                 )}
               </div>
             ) : (
-              <div className="overflow-x-auto -mx-4 sm:mx-0">
+              <SyncedHorizontalScroll className="-mx-4 sm:mx-0" contentClassName="overflow-x-auto">
                 <div className="inline-block min-w-full align-middle sm:px-0">
                   <table className="min-w-full divide-y divide-gray-200">
                     <thead className="bg-gray-50">
@@ -773,7 +774,7 @@ export const BatchManagement: React.FC = () => {
                       </tbody>
                     </table>
                   </div>
-                </div>
+              </SyncedHorizontalScroll>
             )}
               </>
             )}

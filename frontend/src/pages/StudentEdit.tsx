@@ -14,6 +14,7 @@ import { facultyAPI } from '../api/faculty.api';
 import { courseAPI } from '../api/course.api';
 import { paymentAPI, PaymentTransaction, CreatePaymentRequest } from '../api/payment.api';
 import { formatDateDDMMYYYY } from '../utils/dateUtils';
+import { getApiBaseUrl, getApiOrigin } from '../api/axios';
 
 const ALL_SOFTWARES = [
   'Photoshop',
@@ -426,7 +427,7 @@ const { data: courseNamesData } = useQuery({
     queryFn: async () => {
       if (!id) return { data: [] };
       try {
-        const response = await fetch(`${import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000'}/api/enrollments?studentId=${id}`, {
+        const response = await fetch(`${getApiBaseUrl()}/enrollments?studentId=${id}`, {
           headers: {
             'Authorization': `Bearer ${localStorage.getItem('token')}`,
           },
@@ -1979,7 +1980,7 @@ The payment will appear in the Payment History section below.`);
                                 <div>
                                   {payment.receiptUrl && (
                                     <a
-                                      href={`${import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000'}${payment.receiptUrl}`}
+                                      href={`${getApiOrigin()}${payment.receiptUrl}`}
                                       target="_blank"
                                       rel="noopener noreferrer"
                                       className="text-xs text-blue-600 hover:text-blue-800 underline"

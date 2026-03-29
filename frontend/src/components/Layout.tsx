@@ -225,9 +225,7 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
       </aside>
 
       {/* Main Content */}
-      <div className={`flex-1 transition-all duration-300 min-h-screen w-full ${
-        sidebarOpen ? 'lg:ml-64' : 'lg:ml-20'
-      }`}>
+      <div className="flex-1 transition-all duration-300 min-h-screen w-full lg:ml-64">
         {/* Top Bar */}
         <header className="bg-white shadow-sm sticky top-0 z-30">
           <div className="px-4 sm:px-6 py-4 flex items-center justify-between">

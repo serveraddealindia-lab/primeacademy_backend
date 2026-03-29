@@ -4,15 +4,52 @@ import { useAuth } from '../context/AuthContext';
 import { Layout } from '../components/Layout';
 import { attendanceAPI, PunchInRequest, PunchOutRequest } from '../api/attendance.api';
 import { sessionAPI, FacultyBatch, StudentAttendanceEntry, AttendanceOption, SessionSummary } from '../api/session.api';
+import { taskAPI, Task, TaskAttendanceStatus } from '../api/task.api';
+import { studentAPI } from '../api/student.api';
 import { formatDateDDMMYYYY } from '../utils/dateUtils';
 
-type AttendanceState = Record<number, AttendanceOption>;
+type AttendanceState = Record<number, AttendanceOption | null>;
 const ATTENDANCE_OPTIONS: AttendanceOption[] = ['present', 'absent', 'late', 'online'];
+
+const getTodayScheduleTimes = (batch: FacultyBatch['batch']) => {
+  const schedule = batch.schedule;
+  if (!schedule) return null;
+  const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'] as const;
+  const todayKey = dayNames[new Date().getDay()];
+  const times = (schedule as any)[todayKey];
+  if (!times?.startTime && !times?.endTime) return null;
+  return { startTime: times?.startTime || null, endTime: times?.endTime || null };
+};
+
+const timeToMinutes = (t?: string | null) => {
+  if (!t) return null;
+  const parts = t.split(':').map((x) => Number(x));
+  if (parts.length < 2 || parts.some((n) => Number.isNaN(n))) return null;
+  const [h, m] = parts;
+  return h * 60 + m;
+};
+
+const completedSubjectKey = (batchId: number) => `completedSubjects:${batchId}`;
+const extractSubjectsFromSoftware = (software: unknown): string[] => {
+  if (!software) return [];
+  if (Array.isArray(software)) return software.map((s) => String(s).trim()).filter(Boolean);
+  if (typeof software === 'string') return software.split(',').map((s) => s.trim()).filter(Boolean);
+  return [];
+};
+
+const getBatchTopicOptions = (batch: FacultyBatch['batch']): string[] => {
+  const fromCourse = Array.isArray((batch as any).courseLectureTopics)
+    ? ((batch as any).courseLectureTopics as any[]).map((s) => String(s).trim()).filter(Boolean)
+    : [];
+  if (fromCourse.length > 0) return fromCourse;
+  return extractSubjectsFromSoftware((batch as any).software);
+};
 
 export const UnifiedAttendance: React.FC = () => {
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const isFaculty = user?.role === 'faculty';
+  const canManageBatches = user?.role === 'faculty' || user?.role === 'admin' || user?.role === 'superadmin';
   const isEmployee = user?.role === 'employee';
 
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
@@ -51,12 +88,22 @@ export const UnifiedAttendance: React.FC = () => {
   const [selectedBatch, setSelectedBatch] = useState<FacultyBatch | null>(null);
   const [attendanceState, setAttendanceState] = useState<AttendanceState>({});
   const [showStudentList, setShowStudentList] = useState(false);
+  const [attendanceSubmitted, setAttendanceSubmitted] = useState(false);
+  const [delayReasonInput, setDelayReasonInput] = useState('');
+  const [delayReasonSaving, setDelayReasonSaving] = useState(false);
+  const [showStartModal, setShowStartModal] = useState(false);
+  const [startModalBatch, setStartModalBatch] = useState<FacultyBatch['batch'] | null>(null);
+  const [startUseCustomTopic, setStartUseCustomTopic] = useState(false);
+  const [startSubjectOptions, setStartSubjectOptions] = useState<string[]>([]);
+  const [startSelectedSubject, setStartSelectedSubject] = useState<string>('');
+  const [startCustomTopic, setStartCustomTopic] = useState<string>('');
   const [isFetchingStudents, setIsFetchingStudents] = useState(false);
   const [students, setStudents] = useState<StudentAttendanceEntry[]>([]);
+  const attendancePanelRef = useRef<HTMLDivElement | null>(null);
   const [selectedBatchForHistory, setSelectedBatchForHistory] = useState<number | null>(null);
   const [activeTab, setActiveTab] = useState<'punch' | 'history' | 'batches'>(() => {
     // Initialize tab based on user role
-    if (user?.role === 'faculty') return 'batches';
+    if (user?.role === 'faculty' || user?.role === 'admin' || user?.role === 'superadmin') return 'batches';
     if (user?.role === 'employee') return 'punch';
     return 'punch';
   });
@@ -82,11 +129,25 @@ export const UnifiedAttendance: React.FC = () => {
     retry: 1,
   });
 
-  // Fetch faculty batches (only for faculty)
+  // Fetch dashboard batches (assigned for faculty; all for admin/superadmin)
   const { data: facultyBatches, error: batchesError } = useQuery({
     queryKey: ['faculty-batches'],
-    queryFn: () => sessionAPI.getFacultyBatches(),
-    enabled: isFaculty,
+    queryFn: () => {
+      if (user?.role === 'faculty') return sessionAPI.getFacultyBatches();
+      return sessionAPI.getDashboardBatches();
+    },
+    enabled: canManageBatches,
+    retry: 1,
+  });
+
+  type TaskStudentPoolEntry = { id: number; name: string; email: string };
+  const [taskStudentPool, setTaskStudentPool] = useState<TaskStudentPoolEntry[]>([]);
+  const [isLoadingTaskStudents, setIsLoadingTaskStudents] = useState(false);
+
+  const { data: myTasks } = useQuery({
+    queryKey: ['tasks', 'faculty-dashboard'],
+    queryFn: () => taskAPI.facultyDashboard(),
+    enabled: !!user && (user.role === 'faculty' || user.role === 'admin' || user.role === 'superadmin'),
     retry: 1,
   });
 
@@ -162,7 +223,10 @@ export const UnifiedAttendance: React.FC = () => {
       if (!localBatch) {
         const fetchedBatches = await queryClient.fetchQuery({
           queryKey: ['faculty-batches'],
-          queryFn: () => sessionAPI.getFacultyBatches(),
+          queryFn: () => {
+            if (user?.role === 'faculty') return sessionAPI.getFacultyBatches();
+            return sessionAPI.getDashboardBatches();
+          },
         });
         localBatch = fetchedBatches?.find((b) => b.batch.id === variables.batchId);
       }
@@ -184,6 +248,18 @@ export const UnifiedAttendance: React.FC = () => {
   const endSessionMutation = useMutation({
     mutationFn: (sessionId: number) => sessionAPI.endSession(sessionId),
     onSuccess: (sessionSummary) => {
+      try {
+        if (sessionSummary?.batchId && sessionSummary?.topic) {
+          const key = completedSubjectKey(sessionSummary.batchId);
+          const current = JSON.parse(localStorage.getItem(key) || '[]') as string[];
+          const topic = String(sessionSummary.topic).trim();
+          if (topic && !current.includes(topic)) {
+            localStorage.setItem(key, JSON.stringify([...current, topic]));
+          }
+        }
+      } catch {
+        // ignore storage failures
+      }
       queryClient.invalidateQueries({ queryKey: ['faculty-batches'] });
       setShowStudentList(false);
       setSelectedBatch(null);
@@ -204,17 +280,59 @@ export const UnifiedAttendance: React.FC = () => {
   const submitAttendanceMutation = useMutation({
     mutationFn: ({ sessionId, payload }: { sessionId: number; payload: AttendanceState }) =>
       sessionAPI.submitAttendance(sessionId, {
-      attendance: Object.entries(payload).map(([studentId, status]) => ({
-        studentId: Number(studentId),
-        status,
-        })),
+        attendance: Object.entries(payload)
+          .filter(([, status]) => status !== null)
+          .map(([studentId, status]) => ({
+            studentId: Number(studentId),
+            status: status as AttendanceOption,
+          })),
       }),
     onSuccess: () => {
       showToast('Attendance submitted!');
+      setAttendanceSubmitted(true);
+      // Update local session view so UI can unlock End Session immediately
+      setSelectedBatch((prev) => {
+        if (!prev?.activeSession) return prev;
+        return {
+          ...prev,
+          activeSession: {
+            ...prev.activeSession,
+            attendanceSubmittedAt: prev.activeSession.attendanceSubmittedAt ?? new Date().toISOString(),
+          },
+        };
+      });
       queryClient.invalidateQueries({ queryKey: ['faculty-batches'] });
     },
     onError: (error: any) => {
       showToast(error.response?.data?.message || 'Failed to submit attendance', 'error');
+    },
+  });
+
+  const submitTaskAttendanceMutation = useMutation({
+    mutationFn: (payload: { taskId: number; attendance: Array<{ studentId: number; status: TaskAttendanceStatus | null }> }) =>
+      taskAPI.submitAttendance(payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['tasks', 'faculty-dashboard'] });
+      setShowTaskModal(false);
+      setSelectedTask(null);
+      setTaskAttendance({});
+      showToast('Task attendance submitted!');
+    },
+    onError: (error: any) => {
+      showToast(error.response?.data?.message || 'Failed to submit task attendance', 'error');
+    },
+  });
+
+  const createTaskMutation = useMutation({
+    mutationFn: (payload: { subject: string; date: string; time: string; studentIds: number[] }) => taskAPI.create(payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['tasks', 'faculty-dashboard'] });
+      setShowTaskCreateModal(false);
+      setTaskCreate({ subject: '', date: '', time: '', studentIds: [] });
+      showToast('Task created (pending superadmin approval).');
+    },
+    onError: (error: any) => {
+      showToast(error.response?.data?.message || 'Failed to create task', 'error');
     },
   });
 
@@ -255,17 +373,34 @@ export const UnifiedAttendance: React.FC = () => {
   const loadStudents = useCallback(async (batch: FacultyBatch) => {
     try {
       setIsFetchingStudents(true);
-      const batchStudents = await sessionAPI.getBatchStudents(batch.batch.id);
+      let batchStudents = await sessionAPI.getBatchStudents(batch.batch.id);
+
+      // Some environments can return empty enrollments on the first call (race with session/batch creation).
+      // If batch card shows students but the list is empty, retry once to keep faculty flow working.
+      const hasStudentsAccordingToCard = Number((batch.batch as any).studentCount ?? 0) > 0;
+      if (batchStudents.length === 0 && hasStudentsAccordingToCard) {
+        await new Promise((r) => setTimeout(r, 600));
+        batchStudents = await sessionAPI.getBatchStudents(batch.batch.id);
+      }
+
       setStudents(batchStudents);
+
+      // STRICT: initialize as NULL until faculty marks it
       const nextState: AttendanceState = {};
       batchStudents.forEach((student) => {
-        const defaultStatus = student.status ?? (student.present ? 'present' : 'absent');
-        nextState[student.studentId] = defaultStatus || 'present';
+        nextState[student.studentId] = null;
       });
       setAttendanceState(nextState);
+      setAttendanceSubmitted(!!batch.activeSession?.attendanceSubmittedAt);
+      setDelayReasonInput('');
       setSelectedBatch(batch);
       setShowStudentList(true);
       setActiveTab('batches');
+
+      // Ensure the attendance panel is visible (users often think click didn't work)
+      window.setTimeout(() => {
+        attendancePanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 50);
     } catch (error: any) {
       showToast(error.response?.data?.message || 'Failed to load students', 'error');
     } finally {
@@ -273,12 +408,59 @@ export const UnifiedAttendance: React.FC = () => {
     }
   }, []);
 
-  const handleStudentStatusChange = (studentId: number, status: AttendanceOption) => {
+  const handleStudentStatusChange = (studentId: number, status: AttendanceOption | null) => {
     setAttendanceState((prev) => ({
       ...prev,
       [studentId]: status,
     }));
   };
+
+  const isAttendanceComplete = useMemo(() => {
+    if (!showStudentList) return false;
+    if (!students.length) return false;
+    return students.every((s) => attendanceState[s.studentId] !== null);
+  }, [attendanceState, showStudentList, students]);
+
+  // Tasks UI state (faculty creates, superadmin approves elsewhere)
+  const [showTaskCreateModal, setShowTaskCreateModal] = useState(false);
+  const [taskCreate, setTaskCreate] = useState<{ subject: string; date: string; time: string; studentIds: number[] }>({
+    subject: '',
+    date: '',
+    time: '',
+    studentIds: [],
+  });
+  const [showTaskModal, setShowTaskModal] = useState(false);
+  const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  const [taskAttendance, setTaskAttendance] = useState<Record<number, TaskAttendanceStatus | null>>({});
+
+  useEffect(() => {
+    if (!showTaskCreateModal) return;
+
+    let cancelled = false;
+    const loadPool = async () => {
+      setIsLoadingTaskStudents(true);
+      try {
+        // Load total student list for task creation (faculty now has access).
+        const resp = await studentAPI.getAllStudents();
+        const pool = (resp.data.students || [])
+          .map((s) => ({ id: s.id, name: s.name, email: s.email }))
+          .filter((s) => !!s.id && !!s.name)
+          .sort((a, b) => a.name.localeCompare(b.name));
+        if (!cancelled) setTaskStudentPool(pool);
+      } catch {
+        if (!cancelled) showToast('Failed to load students for task creation.', 'error');
+        if (!cancelled) setTaskStudentPool([]);
+      } finally {
+        if (!cancelled) setIsLoadingTaskStudents(false);
+      }
+    };
+
+    void loadPool();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showTaskCreateModal, facultyBatches]);
 
   // Get user location
   const getLocation = useCallback(() => {
@@ -495,8 +677,24 @@ export const UnifiedAttendance: React.FC = () => {
 
   const activeSession = useMemo(() => selectedBatch?.activeSession ?? null, [selectedBatch]);
 
+  const isLateLecture = useMemo(() => {
+    if (!selectedBatch?.batch || !activeSession?.actualStartAt) return false;
+    const times = getTodayScheduleTimes(selectedBatch.batch);
+    const scheduledStartMin = timeToMinutes(times?.startTime ?? null);
+    if (scheduledStartMin === null) return false;
+    const actual = new Date(activeSession.actualStartAt);
+    const actualMin = actual.getHours() * 60 + actual.getMinutes();
+    return actualMin - scheduledStartMin > 5;
+  }, [selectedBatch?.batch, activeSession?.actualStartAt]);
+
+  const delayReasonRequired = useMemo(() => {
+    if (!activeSession) return false;
+    if (!isLateLecture) return false;
+    return !activeSession.delayReason;
+  }, [activeSession, isLateLecture]);
+
   // Safety check - ensure user is faculty or employee
-  if (!user || (!isFaculty && !isEmployee)) {
+  if (!user || (!canManageBatches && !isEmployee)) {
     return (
       <Layout>
         <div className="max-w-7xl mx-auto">
@@ -524,7 +722,7 @@ export const UnifiedAttendance: React.FC = () => {
           <div className="bg-gradient-to-r from-orange-600 to-orange-500 px-8 py-6">
             <h1 className="text-3xl font-bold text-white">Attendance</h1>
             <p className="mt-2 text-orange-100">
-              {isFaculty ? 'Manage your attendance and student batch attendance' : 'Punch in and punch out (photo and fingerprint optional)'}
+              {canManageBatches ? 'Manage your attendance and student batch attendance' : 'Punch in and punch out (photo and fingerprint optional)'}
             </p>
           </div>
 
@@ -542,7 +740,7 @@ export const UnifiedAttendance: React.FC = () => {
             )}
 
             {/* Tabs for Faculty */}
-            {isFaculty && (
+            {canManageBatches && (
               <div className="mb-6 border-b border-gray-200">
                 <nav className="flex space-x-8">
                   <button
@@ -608,8 +806,78 @@ export const UnifiedAttendance: React.FC = () => {
             )}
 
             {/* Faculty Batches Tab */}
-            {isFaculty && activeTab === 'batches' && (
+            {canManageBatches && activeTab === 'batches' && (
               <div className="space-y-6">
+                {/* Tasks Section */}
+                {(user?.role === 'faculty' || user?.role === 'superadmin') && (
+                  <div className="bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm">
+                    <div className="bg-gradient-to-r from-red-600 to-red-500 px-6 py-4 flex items-center justify-between">
+                      <div>
+                        <h2 className="text-lg font-bold text-white">Tasks</h2>
+                        <p className="text-red-100 text-sm">Create tasks, wait for superadmin approval, then complete with attendance.</p>
+                      </div>
+                      <button
+                        onClick={() => setShowTaskCreateModal(true)}
+                        className="px-4 py-2 bg-white text-red-700 rounded-lg font-semibold hover:bg-red-50 transition-colors"
+                      >
+                        Create Task
+                      </button>
+                    </div>
+                    <div className="p-6">
+                      {(myTasks || []).length === 0 ? (
+                        <div className="text-gray-500 text-sm">No tasks yet.</div>
+                      ) : (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          {(myTasks || []).map((t) => (
+                            <div key={t.id} className="border border-gray-200 rounded-lg p-4">
+                              <div className="flex items-start justify-between">
+                                <div>
+                                  <div className="font-semibold text-gray-900">{t.subject}</div>
+                                  <div className="text-xs text-gray-600 mt-1">
+                                    {t.date} • {t.time}
+                                  </div>
+                                </div>
+                                <span
+                                  className={`px-2 py-1 rounded text-xs font-semibold ${
+                                    t.status === 'approved'
+                                      ? 'bg-green-100 text-green-700'
+                                      : t.status === 'completed'
+                                      ? 'bg-blue-100 text-blue-700'
+                                      : 'bg-yellow-100 text-yellow-700'
+                                  }`}
+                                >
+                                  {t.status}
+                                </span>
+                              </div>
+                              <div className="mt-3 text-xs text-gray-500">Students: {(t.taskStudents || []).length}</div>
+                              <div className="mt-3">
+                                <button
+                                  onClick={() => {
+                                    setSelectedTask(t);
+                                    const next: Record<number, TaskAttendanceStatus | null> = {};
+                                    (t.taskStudents || []).forEach((ls) => {
+                                      next[ls.studentId] = ls.attendanceStatus;
+                                    });
+                                    setTaskAttendance(next);
+                                    setShowTaskModal(true);
+                                  }}
+                                  disabled={t.status !== 'approved'}
+                                  className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                                >
+                                  Mark Task Attendance
+                                </button>
+                                {t.status !== 'approved' && (
+                                  <div className="text-xs text-gray-500 mt-1">Task must be approved by superadmin first.</div>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
                 {batchesError ? (
                   <div className="bg-red-50 p-4 rounded-lg border border-red-200">
                     <p className="text-red-800 text-sm font-semibold mb-2">Error loading batches</p>
@@ -641,8 +909,23 @@ export const UnifiedAttendance: React.FC = () => {
                         const session = item.activeSession || optimisticSessions[item.batch.id];
                         return session && session.status === 'ongoing' && !session.actualEndAt;
                       });
+
+                      const now = new Date();
+                      const nowMin = now.getHours() * 60 + now.getMinutes();
+
+                      const sorted = [...facultyBatches].sort((a, b) => {
+                        const aTimes = getTodayScheduleTimes(a.batch);
+                        const bTimes = getTodayScheduleTimes(b.batch);
+                        const aDue = timeToMinutes(aTimes?.startTime ?? null) ?? 24 * 60 + 1;
+                        const bDue = timeToMinutes(bTimes?.startTime ?? null) ?? 24 * 60 + 1;
+                        if (aDue !== bDue) return aDue - bDue;
+                        const aIsUpcoming = aDue >= nowMin;
+                        const bIsUpcoming = bDue >= nowMin;
+                        if (aIsUpcoming !== bIsUpcoming) return aIsUpcoming ? -1 : 1;
+                        return a.batch.title.localeCompare(b.batch.title);
+                      });
                       
-                      return facultyBatches?.map((batchItem) => {
+                      return sorted.map((batchItem) => {
                         const selectedBatchSession =
                           selectedBatch && selectedBatch.batch.id === batchItem.batch.id
                             ? selectedBatch.activeSession
@@ -658,6 +941,19 @@ export const UnifiedAttendance: React.FC = () => {
                       // Get schedule for today
                       const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
                       const todaySchedule = batchItem.batch.schedule?.[dayNames[new Date().getDay()]];
+
+                      const times = getTodayScheduleTimes(batchItem.batch);
+                      const scheduledStartMin = timeToMinutes(times?.startTime ?? null);
+                      const scheduledEndMin = timeToMinutes(times?.endTime ?? null);
+
+                      const statusLabel = (() => {
+                        if (isOngoing) return { label: 'Running', cls: 'bg-green-100 text-green-700' };
+                        if (scheduledStartMin === null || scheduledEndMin === null) {
+                          return { label: 'Not Scheduled', cls: 'bg-gray-100 text-gray-600' };
+                        }
+                        if (nowMin <= scheduledEndMin) return { label: 'Due', cls: 'bg-yellow-100 text-yellow-800' };
+                        return { label: 'Not Attended', cls: 'bg-red-100 text-red-700' };
+                      })();
                       
                         return (
                           <div key={batchItem.batch.id} className="border border-gray-200 rounded-lg p-5 space-y-4 shadow-sm">
@@ -668,12 +964,8 @@ export const UnifiedAttendance: React.FC = () => {
                                 Batch #{batchItem.batch.id} • {batchItem.batch.mode || 'N/A'}
                               </p>
                             </div>
-                            <span
-                              className={`px-3 py-1 rounded-full text-xs font-semibold ${
-                                isOngoing ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
-                              }`}
-                            >
-                              {isOngoing ? 'Running' : 'Idle'}
+                            <span className={`px-3 py-1 rounded-full text-xs font-semibold ${statusLabel.cls}`}>
+                              {statusLabel.label}
                             </span>
                           </div>
 
@@ -688,14 +980,8 @@ export const UnifiedAttendance: React.FC = () => {
                             </div>
                             
                             <div className="bg-gray-50 rounded-lg p-3">
-                              <div className="font-medium text-gray-700 mb-1">Status</div>
-                              <div>
-                                <span className={`px-2 py-1 rounded text-xs font-semibold ${
-                                  batchItem.batch.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
-                                }`}>
-                                  {batchItem.batch.status || 'Unknown'}
-                                </span>
-                              </div>
+                              <div className="font-medium text-gray-700 mb-1">Students</div>
+                              <div className="text-gray-600">{batchItem.batch.studentCount ?? 0}</div>
                             </div>
 
                             {/* Note: Detailed enrollment and faculty info not available in FacultyBatch interface */}
@@ -736,8 +1022,22 @@ export const UnifiedAttendance: React.FC = () => {
                               <>
                                 <button
                                   onClick={() => {
-                                    const topic = prompt('Enter session topic (optional):');
-                                    startSessionMutation.mutate({ batchId: batchItem.batch.id, topicValue: topic || undefined });
+                                    const subjects = getBatchTopicOptions(batchItem.batch);
+                                    let completed: string[] = [];
+                                    try {
+                                      completed = JSON.parse(localStorage.getItem(completedSubjectKey(batchItem.batch.id)) || '[]') as string[];
+                                    } catch {
+                                      completed = [];
+                                    }
+                                    const available = subjects.filter((s) => !completed.includes(s));
+
+                                    const initialSubject = (available[0] || subjects[0] || '').trim();
+                                    setStartModalBatch(batchItem.batch);
+                                    setStartUseCustomTopic(false);
+                                    setStartSubjectOptions(subjects);
+                                    setStartSelectedSubject(initialSubject);
+                                    setStartCustomTopic('');
+                                    setShowStartModal(true);
                                   }}
                                   disabled={!canStartSession}
                                   className={`flex-1 px-4 py-2 rounded-lg font-semibold transition-colors ${
@@ -758,21 +1058,12 @@ export const UnifiedAttendance: React.FC = () => {
                             )}
                             {session && (
                               <>
-                                {session.status === 'completed' ? (
-                                  <button
-                                    onClick={() => loadStudents(batchItem)}
-                                    className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition-colors"
-                                  >
-                                    Mark Attendance
-                                  </button>
-                                ) : (
-                                  <button
-                                    onClick={() => endSessionMutation.mutate(session.id)}
-                                    className="w-full px-4 py-2 bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700 transition-colors"
-                                  >
-                                    End Session
-                                  </button>
-                                )}
+                                <button
+                                  onClick={() => loadStudents(batchItem)}
+                                  className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition-colors"
+                                >
+                                  Mark Attendance / End
+                                </button>
                               </>
                             )}
                           </div>
@@ -793,7 +1084,7 @@ export const UnifiedAttendance: React.FC = () => {
 
                 {/* Student List for Attendance */}
                 {showStudentList && selectedBatch && (
-                  <div className="mt-6 bg-white border border-gray-200 rounded-lg p-6 shadow-sm">
+                  <div ref={attendancePanelRef} className="mt-6 bg-white border border-gray-200 rounded-lg p-6 shadow-sm">
                     <div className="flex items-center justify-between mb-4">
                       <div>
                         <h2 className="text-2xl font-bold text-gray-900">{selectedBatch.batch.title} - Attendance</h2>
@@ -802,6 +1093,63 @@ export const UnifiedAttendance: React.FC = () => {
                             Session started at {activeSession.actualStartAt ? new Date(activeSession.actualStartAt).toLocaleTimeString() : 'N/A'}
                           </p>
                         )}
+                      {activeSession && (
+                        <div className="mt-3">
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Lecture Topic</label>
+                          {(() => {
+                            const subjectOptions = getBatchTopicOptions(selectedBatch.batch);
+                            if (!subjectOptions.length) return null;
+
+                            let completed: string[] = [];
+                            try {
+                              completed = JSON.parse(localStorage.getItem(completedSubjectKey(selectedBatch.batch.id)) || '[]') as string[];
+                            } catch {
+                              completed = [];
+                            }
+
+                            const currentTopic = (activeSession.topic || '').trim();
+                            const isLocked = !!activeSession.actualEndAt || activeSession.status === 'completed';
+
+                            return (
+                              <select
+                                value={currentTopic}
+                                onChange={(e) => {
+                                  const next = e.target.value;
+                                  if (!next || !activeSession) return;
+                                  void (async () => {
+                                    try {
+                                      await sessionAPI.updateSessionTopic(activeSession.id, next);
+                                      setSelectedBatch((prev) => {
+                                        if (!prev?.activeSession) return prev;
+                                        return { ...prev, activeSession: { ...prev.activeSession, topic: next } };
+                                      });
+                                      showToast('Topic updated!', 'success');
+                                    } catch (err: any) {
+                                      showToast(err?.response?.data?.message || 'Failed to update topic', 'error');
+                                    }
+                                  })();
+                                }}
+                                disabled={isLocked}
+                                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500 disabled:opacity-60"
+                              >
+                                {subjectOptions.map((s) => {
+                                  const disabled = completed.includes(s) && s !== currentTopic;
+                                  return (
+                                    <option key={s} value={s} disabled={disabled}>
+                                      {s}
+                                    </option>
+                                  );
+                                })}
+                              </select>
+                            );
+                          })()}
+                          {(() => {
+                            const subjectOptions = getBatchTopicOptions(selectedBatch.batch);
+                            if (!subjectOptions.length) return null;
+                            return <div className="text-xs text-gray-500 mt-1">Completed topics are disabled. Ended sessions are locked.</div>;
+                          })()}
+                        </div>
+                      )}
                       </div>
                       <button
                         onClick={() => {
@@ -836,13 +1184,24 @@ export const UnifiedAttendance: React.FC = () => {
                                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{student.email}</td>
                                   <td className="px-6 py-4 whitespace-nowrap text-center">
                                     <div className="flex items-center justify-center gap-4">
+                                      <label className="flex items-center space-x-1 text-sm cursor-pointer">
+                                        <input
+                                          type="radio"
+                                          name={`attendance-${student.studentId}`}
+                                          value="__null__"
+                                          checked={attendanceState[student.studentId] === null}
+                                          onChange={() => handleStudentStatusChange(student.studentId, null)}
+                                          className="text-orange-600 focus:ring-orange-500"
+                                        />
+                                        <span className="capitalize text-gray-500">not marked</span>
+                                      </label>
                                       {ATTENDANCE_OPTIONS.map((option) => (
                                         <label key={option} className="flex items-center space-x-1 text-sm cursor-pointer">
                                           <input
                                             type="radio"
                                             name={`attendance-${student.studentId}`}
                                             value={option}
-                                            checked={(attendanceState[student.studentId] ?? 'present') === option}
+                                            checked={attendanceState[student.studentId] === option}
                                             onChange={() => handleStudentStatusChange(student.studentId, option)}
                                             className="text-orange-600 focus:ring-orange-500"
                                           />
@@ -856,22 +1215,76 @@ export const UnifiedAttendance: React.FC = () => {
                             </tbody>
                           </table>
                         </div>
+                        {delayReasonRequired && activeSession && (
+                          <div className="mb-4 border border-red-200 bg-red-50 rounded-lg p-3">
+                            <div className="text-red-800 font-semibold mb-2">Late Lecture: Delay reason is required</div>
+                            <div className="flex gap-3 items-end">
+                              <div className="flex-1">
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Delay Reason</label>
+                                <input
+                                  type="text"
+                                  value={delayReasonInput}
+                                  onChange={(e) => setDelayReasonInput(e.target.value)}
+                                  className="w-full px-3 py-2 border border-red-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500"
+                                  placeholder="Enter delay reason..."
+                                />
+                              </div>
+                              <button
+                                onClick={async () => {
+                                  if (!activeSession) return;
+                                  const trimmed = delayReasonInput.trim();
+                                  if (!trimmed) {
+                                    showToast('Delay reason is mandatory.', 'error');
+                                    return;
+                                  }
+                                  setDelayReasonSaving(true);
+                                  try {
+                                    await sessionAPI.saveDelayReason(activeSession.id, trimmed);
+                                    setSelectedBatch((prev) => {
+                                      if (!prev?.activeSession) return prev;
+                                      return {
+                                        ...prev,
+                                        activeSession: {
+                                          ...prev.activeSession,
+                                          delayReason: trimmed,
+                                        },
+                                      };
+                                    });
+                                    setDelayReasonInput('');
+                                  } catch (e: any) {
+                                    showToast(e?.response?.data?.message || 'Failed to save delay reason', 'error');
+                                  } finally {
+                                    setDelayReasonSaving(false);
+                                  }
+                                }}
+                                disabled={delayReasonSaving}
+                                className="px-4 py-2 bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700 transition-colors disabled:opacity-50"
+                              >
+                                {delayReasonSaving ? 'Saving...' : 'Save Delay Reason'}
+                              </button>
+                            </div>
+                          </div>
+                        )}
+
                         {activeSession && (
                           <div className="flex justify-end gap-3">
                             <button
                               onClick={() => endSessionMutation.mutate(activeSession.id)}
-                              className="px-4 py-2 bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700 transition-colors"
+                              disabled={!attendanceSubmitted || delayReasonRequired || delayReasonSaving}
+                              className="px-4 py-2 bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700 transition-colors disabled:opacity-50"
                             >
                               End Session
                             </button>
                             <button
                               onClick={() =>
-                                submitAttendanceMutation.mutate({
-                                  sessionId: activeSession.id,
-                                  payload: attendanceState,
-                                })
+                                (isAttendanceComplete
+                                  ? submitAttendanceMutation.mutate({
+                                      sessionId: activeSession.id,
+                                      payload: attendanceState,
+                                    })
+                                  : showToast('Please mark attendance for all students before saving.', 'error'))
                               }
-                              disabled={submitAttendanceMutation.isPending}
+                              disabled={submitAttendanceMutation.isPending || !isAttendanceComplete}
                               className="px-6 py-2 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700 transition-colors disabled:opacity-50"
                             >
                               {submitAttendanceMutation.isPending ? 'Saving...' : 'Save Attendance'}
@@ -984,6 +1397,120 @@ export const UnifiedAttendance: React.FC = () => {
                           ))}
                         </div>
                       )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Start Session Modal (Subject/Topic lecture-wise) */}
+                {showStartModal && startModalBatch && (
+                  <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-60 p-4">
+                    <div className="bg-white rounded-lg p-6 max-w-2xl w-full max-h-[85vh] overflow-y-auto">
+                      <div className="flex items-center justify-between mb-4">
+                        <div>
+                          <h3 className="text-xl font-bold text-gray-900">Start Lecture</h3>
+                          <div className="text-sm text-gray-600 mt-1">{startModalBatch.title}</div>
+                        </div>
+                        <button
+                          onClick={() => setShowStartModal(false)}
+                          className="text-gray-500 hover:text-gray-700 text-sm"
+                        >
+                          Close ✕
+                        </button>
+                      </div>
+
+                      <div className="mb-4 grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                        <div className="bg-gray-50 rounded-lg p-3">
+                          <div className="font-medium text-gray-700">Students</div>
+                          <div className="text-gray-700">{(startModalBatch as any).studentCount ?? 0}</div>
+                        </div>
+                        <div className="bg-gray-50 rounded-lg p-3">
+                          <div className="font-medium text-gray-700">Today's Schedule</div>
+                          <div className="text-gray-700">
+                            {(() => {
+                              const t = getTodayScheduleTimes(startModalBatch);
+                              return t ? `${t.startTime || '-'} - ${t.endTime || '-'}` : 'No schedule';
+                            })()}
+                          </div>
+                        </div>
+                      </div>
+
+                      {startSubjectOptions.length > 0 && (
+                        <label className="inline-flex items-center gap-2 text-sm font-medium text-gray-700 mb-3">
+                          <input
+                            type="checkbox"
+                            checked={startUseCustomTopic}
+                            onChange={(e) => setStartUseCustomTopic(e.target.checked)}
+                          />
+                          Use custom topic (instead of software subject list)
+                        </label>
+                      )}
+
+                      {!startUseCustomTopic && startSubjectOptions.length > 0 ? (
+                        <div className="mb-4">
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Subject/Topic</label>
+                          <select
+                            value={startSelectedSubject}
+                            onChange={(e) => setStartSelectedSubject(e.target.value)}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
+                          >
+                            {(() => {
+                              let completed: string[] = [];
+                              try {
+                                completed = JSON.parse(localStorage.getItem(completedSubjectKey(startModalBatch.id)) || '[]') as string[];
+                              } catch {
+                                completed = [];
+                              }
+                              return startSubjectOptions.map((s) => (
+                                <option key={s} value={s} disabled={completed.includes(s) && s !== startSelectedSubject}>
+                                  {s}
+                                </option>
+                              ));
+                            })()}
+                          </select>
+                          <div className="text-xs text-gray-500 mt-1">Completed subjects are disabled.</div>
+                        </div>
+                      ) : (
+                        <div className="mb-4">
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Custom Topic</label>
+                          <input
+                            type="text"
+                            value={startCustomTopic}
+                            onChange={(e) => setStartCustomTopic(e.target.value)}
+                            placeholder="Enter topic..."
+                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
+                          />
+                        </div>
+                      )}
+
+                      <div className="flex justify-end gap-3">
+                        <button
+                          onClick={() => setShowStartModal(false)}
+                          className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg font-semibold hover:bg-gray-300"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          onClick={() => {
+                            if (!startModalBatch) return;
+                            const topicValue = startUseCustomTopic ? startCustomTopic.trim() : startSelectedSubject.trim();
+
+                            if (!topicValue && startSubjectOptions.length > 0) {
+                              showToast('Please select a subject/topic to start the lecture.', 'error');
+                              return;
+                            }
+
+                            setShowStartModal(false);
+                            startSessionMutation.mutate({
+                              batchId: startModalBatch.id,
+                              topicValue: topicValue || undefined,
+                            });
+                          }}
+                          disabled={startSessionMutation.isPending}
+                          className="px-5 py-2 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700 disabled:opacity-50"
+                        >
+                          {startSessionMutation.isPending ? 'Starting...' : 'Start'}
+                        </button>
+                      </div>
                     </div>
                   </div>
                 )}
@@ -1268,6 +1795,213 @@ export const UnifiedAttendance: React.FC = () => {
                           className="px-4 py-2 bg-yellow-600 text-white rounded-lg font-semibold hover:bg-yellow-700 transition-colors disabled:opacity-50"
                         >
                           Start Break
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Create Task Modal */}
+                {showTaskCreateModal && (
+                  <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                    <div className="bg-white rounded-lg p-6 max-w-3xl w-full max-h-[90vh] overflow-y-auto">
+                      <div className="flex items-center justify-between mb-4">
+                        <div>
+                          <h3 className="text-xl font-bold text-gray-900">Create Task (Pending Superadmin Approval)</h3>
+                          <p className="text-sm text-gray-600">Select subject, date/time, and students.</p>
+                        </div>
+                        <button
+                          onClick={() => setShowTaskCreateModal(false)}
+                          className="text-gray-500 hover:text-gray-700"
+                        >
+                          ✕
+                        </button>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Subject</label>
+                          <input
+                            type="text"
+                            value={taskCreate.subject}
+                            onChange={(e) => setTaskCreate((p) => ({ ...p, subject: e.target.value }))}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
+                            placeholder="Enter subject..."
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Date</label>
+                          <input
+                            type="date"
+                            value={taskCreate.date}
+                            onChange={(e) => setTaskCreate((p) => ({ ...p, date: e.target.value }))}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Time</label>
+                          <input
+                            type="time"
+                            value={taskCreate.time}
+                            onChange={(e) => setTaskCreate((p) => ({ ...p, time: e.target.value }))}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="mb-4">
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Select Students</label>
+                        <div className="border border-gray-200 rounded-lg p-3 max-h-64 overflow-y-auto">
+                          {isLoadingTaskStudents ? (
+                            <div className="text-sm text-gray-500">Loading students...</div>
+                          ) : taskStudentPool.length === 0 ? (
+                            <div className="text-sm text-gray-500">No students available for your batches.</div>
+                          ) : (
+                            <div className="space-y-2">
+                              {taskStudentPool.map((s) => {
+                                const checked = taskCreate.studentIds.includes(s.id);
+                                return (
+                                  <label key={s.id} className="flex items-center gap-2 text-sm">
+                                    <input
+                                      type="checkbox"
+                                      checked={checked}
+                                      onChange={(e) => {
+                                        const next = e.target.checked
+                                          ? [...taskCreate.studentIds, s.id]
+                                          : taskCreate.studentIds.filter((id) => id !== s.id);
+                                        setTaskCreate((p) => ({ ...p, studentIds: next }));
+                                      }}
+                                    />
+                                    <span className="text-gray-900">{s.name}</span>
+                                    <span className="text-gray-500">({s.email})</span>
+                                  </label>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                        <div className="text-xs text-gray-500 mt-1">Selected: {taskCreate.studentIds.length}</div>
+                      </div>
+
+                      <div className="flex justify-end gap-3">
+                        <button
+                          onClick={() => setShowTaskCreateModal(false)}
+                          className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg font-semibold hover:bg-gray-300"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          onClick={() => {
+                            const subject = taskCreate.subject.trim();
+                            if (!subject || !taskCreate.date || !taskCreate.time || taskCreate.studentIds.length === 0) {
+                              showToast('Please fill subject, date, time and select students.', 'error');
+                              return;
+                            }
+                            createTaskMutation.mutate({
+                              subject,
+                              date: taskCreate.date,
+                              time: taskCreate.time,
+                              studentIds: taskCreate.studentIds,
+                            });
+                          }}
+                          disabled={createTaskMutation.isPending}
+                          className="px-5 py-2 bg-orange-600 text-white rounded-lg font-semibold hover:bg-orange-700 disabled:opacity-50"
+                        >
+                          {createTaskMutation.isPending ? 'Creating...' : 'Create Task'}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Task Attendance Modal */}
+                {showTaskModal && selectedTask && (
+                  <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                    <div className="bg-white rounded-lg p-6 max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+                      <div className="flex items-center justify-between mb-4">
+                        <div>
+                          <h3 className="text-xl font-bold text-gray-900">Task Attendance</h3>
+                          <div className="text-sm text-gray-600 mt-1">
+                            {selectedTask.subject} • {selectedTask.date} • {selectedTask.time}
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => {
+                            setShowTaskModal(false);
+                            setSelectedTask(null);
+                            setTaskAttendance({});
+                          }}
+                          className="text-gray-500 hover:text-gray-700"
+                        >
+                          ✕
+                        </button>
+                      </div>
+
+                      <div className="overflow-x-auto mb-4">
+                        <table className="min-w-full divide-y divide-gray-200">
+                          <thead className="bg-gray-50">
+                            <tr>
+                              <th className="px-4 py-2 text-left text-xs font-semibold text-gray-500 uppercase">Student</th>
+                              <th className="px-4 py-2 text-center text-xs font-semibold text-gray-500 uppercase">Status</th>
+                            </tr>
+                          </thead>
+                          <tbody className="bg-white divide-y divide-gray-200">
+                            {(selectedTask.taskStudents || []).map((ls) => (
+                              <tr key={ls.studentId}>
+                                <td className="px-4 py-2 text-sm text-gray-900">
+                                  {ls.student?.name || `Student #${ls.studentId}`}
+                                </td>
+                                <td className="px-4 py-2 text-center">
+                                  {(['P', 'A', 'LATE', 'ONLINE'] as TaskAttendanceStatus[]).map((opt) => (
+                                    <label key={opt} className="inline-flex items-center gap-1 text-sm mx-2">
+                                      <input
+                                        type="radio"
+                                        name={`task-att-${ls.studentId}`}
+                                        checked={taskAttendance[ls.studentId] === opt}
+                                        onChange={() => setTaskAttendance((p) => ({ ...p, [ls.studentId]: opt }))}
+                                      />
+                                      <span>{opt}</span>
+                                    </label>
+                                  ))}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      <div className="flex justify-end gap-3">
+                        <button
+                          onClick={() => {
+                            setShowTaskModal(false);
+                            setSelectedTask(null);
+                            setTaskAttendance({});
+                          }}
+                          className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg font-semibold hover:bg-gray-300"
+                        >
+                          Close
+                        </button>
+                        <button
+                          onClick={() => {
+                            const links = selectedTask.taskStudents || [];
+                            if (!links.length) {
+                              showToast('No students linked to this task.', 'error');
+                              return;
+                            }
+                            const attendance = links.map((ls) => ({
+                              studentId: ls.studentId,
+                              status: taskAttendance[ls.studentId] ?? null,
+                            }));
+                            if (attendance.some((a) => a.status === null)) {
+                              showToast('Please mark attendance for all task students.', 'error');
+                              return;
+                            }
+                            submitTaskAttendanceMutation.mutate({ taskId: selectedTask.id, attendance });
+                          }}
+                          disabled={submitTaskAttendanceMutation.isPending}
+                          className="px-5 py-2 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700 disabled:opacity-50"
+                        >
+                          {submitTaskAttendanceMutation.isPending ? 'Saving...' : 'Save Task Attendance'}
                         </button>
                       </div>
                     </div>

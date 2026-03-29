@@ -115,5 +115,21 @@ router.post(
   paymentController.updateStudentStatusManually
 );
 
+// POST /students/:id/payment/approve → Approve corrected balance amount
+router.post(
+  '/:id/payment/approve',
+  verifyTokenMiddleware,
+  checkRole(UserRole.ADMIN, UserRole.SUPERADMIN),
+  studentController.approveCorrectedBalance
+);
+
+// POST /students/:id/payment/reject → Reject corrected balance (keep original)
+router.post(
+  '/:id/payment/reject',
+  verifyTokenMiddleware,
+  checkRole(UserRole.ADMIN, UserRole.SUPERADMIN),
+  studentController.rejectCorrectedBalance
+);
+
 export default router;
 

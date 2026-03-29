@@ -1,20 +1,31 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../context/AuthContext';
 import { Layout } from '../components/Layout';
 import { approvalAPI, ChangeRequest, ApproveRequestRequest } from '../api/approval.api';
 import { formatDateDDMMYYYY } from '../utils/dateUtils';
+import { taskAPI, Task } from '../api/task.api';
 
 export const ApprovalManagement: React.FC = () => {
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const [selectedRequest, setSelectedRequest] = useState<ChangeRequest | null>(null);
   const [isApproveModalOpen, setIsApproveModalOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<'change-requests' | 'tasks'>('change-requests');
+  const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
 
   // Fetch change requests
   const { data: requestsData, isLoading } = useQuery({
     queryKey: ['change-requests'],
     queryFn: () => approvalAPI.getAllChangeRequests({ status: 'pending' }),
+    enabled: activeTab === 'change-requests',
+  });
+
+  const { data: tasksData, isLoading: isLoadingTasks } = useQuery({
+    queryKey: ['tasks', 'pending'],
+    queryFn: () => taskAPI.facultyDashboard({}), // backend returns all for admin/superadmin
+    enabled: activeTab === 'tasks',
   });
 
   const approveRequestMutation = useMutation({
@@ -32,6 +43,20 @@ export const ApprovalManagement: React.FC = () => {
   });
 
   const requests = requestsData?.data.changeRequests || [];
+  const pendingTasks = useMemo(() => (tasksData || []).filter((t) => t.status === 'pending'), [tasksData]);
+
+  const approveTaskMutation = useMutation({
+    mutationFn: ({ taskId, approve }: { taskId: number; approve: boolean }) => taskAPI.approve({ taskId, approve }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['tasks', 'pending'] });
+      setIsTaskModalOpen(false);
+      setSelectedTask(null);
+      alert('Task processed successfully!');
+    },
+    onError: (error: any) => {
+      alert(error.response?.data?.message || 'Failed to process task');
+    },
+  });
 
   const handleApproveRequest = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -68,7 +93,26 @@ export const ApprovalManagement: React.FC = () => {
           </div>
 
           <div className="p-6">
-            {requests.length === 0 ? (
+            <div className="flex gap-2 mb-6">
+              <button
+                onClick={() => setActiveTab('change-requests')}
+                className={`px-4 py-2 rounded-lg font-semibold transition-colors ${
+                  activeTab === 'change-requests' ? 'bg-orange-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
+              >
+                Change Requests
+              </button>
+              <button
+                onClick={() => setActiveTab('tasks')}
+                className={`px-4 py-2 rounded-lg font-semibold transition-colors ${
+                  activeTab === 'tasks' ? 'bg-orange-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
+              >
+                Tasks
+              </button>
+            </div>
+
+            {activeTab === 'change-requests' && (requests.length === 0 ? (
               <div className="text-center py-12">
                 <p className="text-gray-500 text-lg">No pending approval requests found</p>
               </div>
@@ -127,6 +171,44 @@ export const ApprovalManagement: React.FC = () => {
                     )}
                   </div>
                 ))}
+              </div>
+            ))}
+
+            {activeTab === 'tasks' && (
+              <div>
+                {isLoadingTasks ? (
+                  <div className="flex justify-center items-center py-12">
+                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-orange-500"></div>
+                  </div>
+                ) : pendingTasks.length === 0 ? (
+                  <div className="text-center py-12">
+                    <p className="text-gray-500 text-lg">No pending tasks found</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {pendingTasks.map((task) => (
+                      <div key={task.id} className="border border-gray-200 rounded-lg p-6 hover:shadow-md transition-shadow">
+                        <div className="flex items-start justify-between mb-2">
+                          <h3 className="text-lg font-semibold text-gray-900">{task.subject}</h3>
+                          <span className="px-2 py-1 rounded text-xs font-semibold bg-yellow-100 text-yellow-800">
+                            pending
+                          </span>
+                        </div>
+                        <p className="text-sm text-gray-600">Date: {task.date}</p>
+                        <p className="text-sm text-gray-600">Time: {task.time}</p>
+                        <button
+                          onClick={() => {
+                            setSelectedTask(task);
+                            setIsTaskModalOpen(true);
+                          }}
+                          className="w-full mt-4 px-3 py-2 bg-orange-600 text-white rounded text-sm hover:bg-orange-700 transition-colors"
+                        >
+                          Review
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -191,6 +273,45 @@ export const ApprovalManagement: React.FC = () => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {isTaskModalOpen && selectedTask && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+            <h2 className="text-2xl font-bold mb-4">Review Task</h2>
+            <div className="mb-4 text-sm text-gray-700 space-y-1">
+              <div><span className="font-medium">Subject:</span> {selectedTask.subject}</div>
+              <div><span className="font-medium">Date:</span> {selectedTask.date}</div>
+              <div><span className="font-medium">Time:</span> {selectedTask.time}</div>
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={() => approveTaskMutation.mutate({ taskId: selectedTask.id, approve: true })}
+                disabled={user?.role !== 'superadmin' || approveTaskMutation.isPending}
+                className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700 transition-colors disabled:opacity-50"
+              >
+                Approve
+              </button>
+              <button
+                onClick={() => approveTaskMutation.mutate({ taskId: selectedTask.id, approve: false })}
+                disabled={user?.role !== 'superadmin' || approveTaskMutation.isPending}
+                className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700 transition-colors disabled:opacity-50"
+              >
+                Reject
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsTaskModalOpen(false);
+                  setSelectedTask(null);
+                }}
+                className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg font-semibold hover:bg-gray-300 transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
           </div>
         </div>
       )}

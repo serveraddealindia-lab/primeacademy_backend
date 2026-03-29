@@ -12,6 +12,9 @@ export const CourseModuleManagement: React.FC = () => {
   const queryClient = useQueryClient();
   const [courseName, setCourseName] = useState('');
   const [selectedSoftware, setSelectedSoftware] = useState<string[]>([]);
+  const [customSoftware, setCustomSoftware] = useState<string>('');
+  const [lectureTopics, setLectureTopics] = useState<string[]>([]);
+  const [customTopic, setCustomTopic] = useState<string>('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingCourse, setEditingCourse] = useState<Course | null>(null);
 
@@ -35,7 +38,7 @@ export const CourseModuleManagement: React.FC = () => {
 
   // Save mutation
   const saveMutation = useMutation({
-    mutationFn: async (data: { name: string; software: string[] }) => {
+    mutationFn: async (data: { name: string; software: string[]; lectureTopics: string[] }) => {
       if (editingCourse) {
         return await courseAPI.updateCourse(editingCourse.id, data);
       }
@@ -74,10 +77,17 @@ export const CourseModuleManagement: React.FC = () => {
         ? (course.software as string).split(',').map((s: string) => s.trim()).filter((s: string) => s)
         : [];
       setSelectedSoftware(softwareList);
+      const topicsList = Array.isArray((course as any).lectureTopics)
+        ? ((course as any).lectureTopics as any[]).map((s) => String(s).trim()).filter(Boolean)
+        : typeof (course as any).lectureTopics === 'string'
+          ? ((course as any).lectureTopics as string).split(',').map((s) => s.trim()).filter(Boolean)
+          : [];
+      setLectureTopics(topicsList);
     } else {
       setEditingCourse(null);
       setCourseName('');
       setSelectedSoftware([]);
+      setLectureTopics([]);
     }
     setIsModalOpen(true);
   };
@@ -87,6 +97,9 @@ export const CourseModuleManagement: React.FC = () => {
     setEditingCourse(null);
     setCourseName('');
     setSelectedSoftware([]);
+    setCustomSoftware('');
+    setLectureTopics([]);
+    setCustomTopic('');
   };
 
   const handleSave = () => {
@@ -101,6 +114,7 @@ export const CourseModuleManagement: React.FC = () => {
     saveMutation.mutate({
       name: courseName.trim(),
       software: selectedSoftware,
+      lectureTopics: lectureTopics.map((t) => t.trim()).filter((t) => t),
     });
   };
 
@@ -116,6 +130,20 @@ export const CourseModuleManagement: React.FC = () => {
         ? prev.filter(s => s !== software)
         : [...prev, software]
     );
+  };
+
+  const addCustomSoftware = () => {
+    const value = customSoftware.trim();
+    if (!value) return;
+    setSelectedSoftware((prev) => (prev.includes(value) ? prev : [...prev, value]));
+    setCustomSoftware('');
+  };
+
+  const addCustomTopic = () => {
+    const value = customTopic.trim();
+    if (!value) return;
+    setLectureTopics((prev) => (prev.includes(value) ? prev : [...prev, value]));
+    setCustomTopic('');
   };
 
   // Permission check - hide from students and employees
@@ -313,6 +341,87 @@ export const CourseModuleManagement: React.FC = () => {
                     <p className="mt-2 text-sm text-gray-600">
                       Selected: {selectedSoftware.join(', ')}
                     </p>
+                  )}
+
+                  <div className="mt-4">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Add Custom Software</label>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={customSoftware}
+                        onChange={(e) => setCustomSoftware(e.target.value)}
+                        placeholder="e.g., Adobe Audition"
+                        className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
+                      />
+                      <button
+                        type="button"
+                        onClick={addCustomSoftware}
+                        className="bg-orange-600 text-white px-4 py-2 rounded-md font-semibold hover:bg-orange-700"
+                      >
+                        Add
+                      </button>
+                    </div>
+                    {selectedSoftware.length > 0 && (
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {selectedSoftware.map((s) => (
+                          <button
+                            key={s}
+                            type="button"
+                            onClick={() => toggleSoftware(s)}
+                            className="bg-blue-100 text-blue-800 px-2 py-1 rounded text-sm hover:bg-blue-200"
+                            title="Remove"
+                          >
+                            {s} ✕
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="mb-6">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Lecture Topics (Subject list per lecture)
+                  </label>
+                  <p className="text-xs text-gray-500 mb-2">
+                    These topics will be available for faculty to select during attendance.
+                  </p>
+
+                  <div className="flex gap-2 mb-3">
+                    <input
+                      type="text"
+                      value={customTopic}
+                      onChange={(e) => setCustomTopic(e.target.value)}
+                      placeholder="e.g., Introduction, Tools, Export Settings"
+                      className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
+                    />
+                    <button
+                      type="button"
+                      onClick={addCustomTopic}
+                      className="bg-orange-600 text-white px-4 py-2 rounded-md font-semibold hover:bg-orange-700"
+                    >
+                      Add
+                    </button>
+                  </div>
+
+                  {lectureTopics.length === 0 ? (
+                    <div className="text-sm text-gray-500 border border-dashed border-gray-300 rounded-lg p-3">
+                      No topics added. Faculty will still be able to enter a custom topic per lecture.
+                    </div>
+                  ) : (
+                    <div className="flex flex-wrap gap-2">
+                      {lectureTopics.map((t) => (
+                        <button
+                          key={t}
+                          type="button"
+                          onClick={() => setLectureTopics((prev) => prev.filter((x) => x !== t))}
+                          className="bg-green-100 text-green-800 px-2 py-1 rounded text-sm hover:bg-green-200"
+                          title="Remove"
+                        >
+                          {t} ✕
+                        </button>
+                      ))}
+                    </div>
                   )}
                 </div>
 

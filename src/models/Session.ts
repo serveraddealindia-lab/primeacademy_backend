@@ -29,6 +29,9 @@ export interface SessionAttributes {
   status: SessionStatus;
   actualStartAt: Date | null;
   actualEndAt: Date | null;
+  attendanceSubmittedAt: Date | null;
+  attendanceSubmittedBy: number | null;
+  delayReason: string | null;
   createdAt?: Date;
   updatedAt?: Date;
 }
@@ -48,6 +51,9 @@ class Session extends Model<SessionAttributes, SessionCreationAttributes> implem
   public status!: SessionStatus;
   public actualStartAt!: Date | null;
   public actualEndAt!: Date | null;
+  public attendanceSubmittedAt!: Date | null;
+  public attendanceSubmittedBy!: number | null;
+  public delayReason!: string | null;
   public readonly createdAt!: Date;
   public readonly updatedAt!: Date;
 
@@ -116,6 +122,18 @@ Session.init(
     },
     actualEndAt: {
       type: DataTypes.DATE,
+      allowNull: true,
+    },
+    attendanceSubmittedAt: {
+      type: DataTypes.DATE,
+      allowNull: true,
+    },
+    attendanceSubmittedBy: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+    },
+    delayReason: {
+      type: DataTypes.TEXT,
       allowNull: true,
     },
   },

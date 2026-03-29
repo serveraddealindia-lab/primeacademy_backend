@@ -12,11 +12,12 @@ import authRoutes from './routes/auth.routes';
 import batchRoutes from './routes/batch.routes';
 import sessionRoutes from './routes/session.routes';
 import attendanceReportRoutes from './routes/attendanceReport.routes';
+import attendanceDraftRoutes from './routes/attendanceDraft.routes';
 import portfolioRoutes from './routes/portfolio.routes';
 import paymentRoutes from './routes/payment.routes';
 
 // __dirname is available in CommonJS
-// import reportRoutes from './routes/report.routes';
+import reportRoutes from './routes/report.routes';
 import facultyRoutes from './routes/faculty.routes';
 // import approvalRoutes from './routes/approval.routes';
 import uploadRoutes from './routes/upload.routes';
@@ -38,6 +39,8 @@ import certificateRoutes from './routes/certificate.routes';
 import courseRoutes from './routes/course.routes';
 import biometricRoutes from './routes/biometric.routes';
 import studentSoftwareProgressRoutes from './routes/studentSoftwareProgress.routes';
+import lectureRoutes from './routes/lecture.routes';
+import taskRoutes from './routes/task.routes';
 import { notFoundHandler, errorHandler } from './middleware/error.middleware';
 import { logger } from './utils/logger';
 
@@ -480,7 +483,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/faculty', facultyRoutes);
 app.use('/api/batches', batchRoutes);
 app.use('/api/sessions', sessionRoutes);
-// app.use('/api/reports', reportRoutes);
+app.use('/api/reports', reportRoutes);
 app.use('/api', portfolioRoutes);
 app.use('/api/payments', paymentRoutes);
 // app.use('/api/approvals', approvalRoutes);
@@ -500,6 +503,7 @@ app.use('/api/users', userRoutes);
 // app.use('/api/employee-attendance', employeeAttendanceRoutes);
 app.use('/api/student-attendance', studentAttendanceRoutes);
 app.use('/api/attendance-reports', attendanceReportRoutes);
+app.use('/api/attendance', attendanceDraftRoutes);
 app.use('/api/enrollments', enrollmentRoutes);
 app.use('/api/students', studentRoutes);
 // Certificate API routes (must be after static file serving)
@@ -507,6 +511,8 @@ app.use('/api/certificates', certificateRoutes);
 app.use('/api/courses', courseRoutes);
 app.use('/api/biometric', biometricRoutes);
 app.use('/api/student-software-progress', studentSoftwareProgressRoutes);
+app.use('/api/lectures', lectureRoutes);
+app.use('/api/tasks', taskRoutes);
 
 // Log registered routes for debugging
 logger.info('=== Registered API Routes ===');
@@ -533,6 +539,102 @@ const startServer = async () => {
     await sequelize.authenticate();
     logger.info('Database connection established successfully.');
 
+    // Ensure attendance/delay columns exist in `sessions` table.
+    // This prevents 500 errors on faculty batch fetch when an older DB is missing new columns.
+    try {
+      const dbName =
+        (sequelize as any).config?.database ||
+        process.env.DB_NAME ||
+        'primeacademy_db';
+
+      const needed = [
+        { name: 'attendanceSubmittedAt', ddl: 'DATETIME NULL' },
+        { name: 'attendanceSubmittedBy', ddl: 'INTEGER NULL' },
+        { name: 'delayReason', ddl: 'TEXT NULL' },
+      ];
+
+      const columnNames = needed.map((c) => c.name);
+      const placeholders = columnNames.map(() => '?').join(', ');
+
+      const querySql = `
+        SELECT COLUMN_NAME
+        FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = ?
+          AND TABLE_NAME = 'sessions'
+          AND COLUMN_NAME IN (${placeholders})
+      `;
+
+      const existingQueryResult = await sequelize.query(querySql, {
+        replacements: [dbName, ...columnNames],
+      });
+
+      // sequelize.query returns [rows, metadata] in most configs.
+      const rows = Array.isArray(existingQueryResult)
+        ? (existingQueryResult[0] as any)
+        : (existingQueryResult as any);
+
+      const existing = Array.isArray(rows)
+        ? rows
+        : [];
+
+      const existingSet = new Set(existing.map((r: any) => r.COLUMN_NAME || r.column_name));
+
+      for (const col of needed) {
+        if (existingSet.has(col.name)) continue;
+        await sequelize.query(`ALTER TABLE sessions ADD COLUMN ${col.name} ${col.ddl}`);
+        logger.info(`Added missing sessions column: ${col.name}`);
+      }
+    } catch (ensureErr: unknown) {
+      logger.warn('Failed to ensure sessions attendance columns exist. UI may still break.', ensureErr);
+    }
+
+    // Ensure course lecture topics column exists in `courses` table.
+    // This prevents runtime errors on older DBs when UI requests course-level topic list.
+    try {
+      const dbName =
+        (sequelize as any).config?.database ||
+        process.env.DB_NAME ||
+        'primeacademy_db';
+
+      const needed = [{ name: 'lectureTopics', ddl: 'JSON NOT NULL DEFAULT (JSON_ARRAY())' }];
+      const columnNames = needed.map((c) => c.name);
+      const placeholders = columnNames.map(() => '?').join(', ');
+
+      const querySql = `
+        SELECT COLUMN_NAME
+        FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = ?
+          AND TABLE_NAME = 'courses'
+          AND COLUMN_NAME IN (${placeholders})
+      `;
+
+      const existingQueryResult = await sequelize.query(querySql, {
+        replacements: [dbName, ...columnNames],
+      });
+
+      const rows = Array.isArray(existingQueryResult)
+        ? (existingQueryResult[0] as any)
+        : (existingQueryResult as any);
+
+      const existing = Array.isArray(rows) ? rows : [];
+      const existingSet = new Set(existing.map((r: any) => r.COLUMN_NAME || r.column_name));
+
+      for (const col of needed) {
+        if (existingSet.has(col.name)) continue;
+        // MySQL JSON default expression may not be supported in all versions; try safest fallback.
+        try {
+          await sequelize.query(`ALTER TABLE courses ADD COLUMN ${col.name} ${col.ddl}`);
+        } catch {
+          await sequelize.query(`ALTER TABLE courses ADD COLUMN ${col.name} JSON NULL`);
+          await sequelize.query(`UPDATE courses SET ${col.name} = JSON_ARRAY() WHERE ${col.name} IS NULL`);
+          await sequelize.query(`ALTER TABLE courses MODIFY COLUMN ${col.name} JSON NOT NULL`);
+        }
+        logger.info(`Added missing courses column: ${col.name}`);
+      }
+    } catch (ensureErr: unknown) {
+      logger.warn('Failed to ensure courses lectureTopics column exists. Topics UI may break.', ensureErr);
+    }
+
     // Run migrations - DISABLED due to umzug import issues
     // try {
     //   await runPendingMigrations();
@@ -550,18 +652,26 @@ const startServer = async () => {
       logger.info('Database models synchronized.');
     }
 
-    // Start server - listen on 0.0.0.0 for production (allows external connections via nginx)
-    if (process.env.NODE_ENV === 'production') {
-      app.listen(PORT, '0.0.0.0', () => {
-        logger.info(`Server is running on 0.0.0.0:${PORT}`);
-        logger.info(`Environment: ${process.env.NODE_ENV || 'development'}`);
-      });
-    } else {
-      app.listen(PORT, () => {
+    // Start server with graceful error handling for port conflicts
+    const startListening = () => {
+      const server = app.listen(PORT, '0.0.0.0', () => {
         logger.info(`Server is running on port ${PORT}`);
         logger.info(`Environment: ${process.env.NODE_ENV || 'development'}`);
       });
-    }
+
+      server.on('error', (err: NodeJS.ErrnoException) => {
+        if (err.code === 'EADDRINUSE') {
+          logger.error(`Port ${PORT} is already in use. Please close the existing process first.`);
+          logger.error('Run: "Stop-Process -Name node -Force -ErrorAction SilentlyContinue" to stop all node processes.');
+          process.exit(1);
+        } else {
+          logger.error('Server error:', err);
+          process.exit(1);
+        }
+      });
+    };
+
+    startListening();
   } catch (error) {
     logger.error('Unable to start server:', error);
     // Only exit if it's a critical error (database connection failure)

@@ -5,6 +5,7 @@ export interface CourseAttributes {
   id: number;
   name: string; // Course name (e.g., "Graphics Beginner", "Video Editing")
   software: string[]; // Array of software names
+  lectureTopics?: string[]; // Optional custom lecture topics per course
   createdAt?: Date;
   updatedAt?: Date;
 }
@@ -15,6 +16,7 @@ class Course extends Model<CourseAttributes, CourseCreationAttributes> implement
   public id!: number;
   public name!: string;
   public software!: string[];
+  public lectureTopics!: string[];
 
   public readonly createdAt!: Date;
   public readonly updatedAt!: Date;
@@ -33,6 +35,11 @@ Course.init(
       unique: true,
     },
     software: {
+      type: DataTypes.JSON,
+      allowNull: false,
+      defaultValue: [],
+    },
+    lectureTopics: {
       type: DataTypes.JSON,
       allowNull: false,
       defaultValue: [],

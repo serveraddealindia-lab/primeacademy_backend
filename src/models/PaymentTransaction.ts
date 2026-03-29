@@ -4,8 +4,11 @@ import User from './User';
 
 export enum PaymentStatus {
   UNPAID = 'unpaid',
+  PENDING = 'pending',
   PARTIAL = 'partial',
   PAID = 'paid',
+  OVERDUE = 'overdue',
+  CANCELLED = 'cancelled',
 }
 
 export interface PaymentTransactionAttributes {

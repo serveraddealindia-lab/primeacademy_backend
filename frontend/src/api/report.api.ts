@@ -282,6 +282,79 @@ export interface StudentsWiseReport {
   filterType?: string;
 }
 
+export interface FacultyOccupancyRow {
+  facultyId: number;
+  facultyName: string;
+  workingHours: number;
+  occupiedHours: number;
+  freeHours: number;
+  occupancyPercent: number;
+}
+
+export interface FacultyOccupancyReport {
+  filters: { from?: string; to?: string; facultyId?: number };
+  rows: FacultyOccupancyRow[];
+  summary: {
+    workingHours: number;
+    occupiedHours: number;
+    freeHours: number;
+    occupancyPercent: number;
+  };
+}
+
+export interface BatchDetailsRow {
+  batchId: number;
+  batchName: string;
+  numberOfStudents: number;
+  schedule: {
+    days?: string;
+    time?: string;
+    [key: string]: any;
+  };
+  assignedFaculty: Array<{
+    id: number;
+    name: string;
+    email?: string;
+  }>;
+}
+
+export interface SavedReport {
+  id: number;
+  reportType: string;
+  reportName: string;
+  generatedBy: number;
+  parameters?: Record<string, any>;
+  data: Record<string, any>;
+  summary?: Record<string, any>;
+  recordCount?: number;
+  fileUrl?: string;
+  status: 'pending' | 'completed' | 'failed';
+  errorMessage?: string;
+  createdAt: string;
+  updatedAt: string;
+  generator?: {
+    id: number;
+    name: string;
+    email: string;
+    role: string;
+  };
+}
+
+export interface SavedReportsResponse {
+  reports: SavedReport[];
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
+}
+
+export interface BatchDetailsReport {
+  filters: { type?: 'present' | 'future'; facultyId?: number; days?: string };
+  rows: BatchDetailsRow[];
+}
+
 export const reportAPI = {
   getStudentsWithoutBatch: async (): Promise<{ status: string; data: StudentsWithoutBatchReport }> => {
     const response = await api.get('/attendance-reports/students-without-batch');
@@ -301,6 +374,14 @@ export const reportAPI = {
   },
   getAllAnalysisReports: async (): Promise<{ status: string; data: AllAnalysisReport }> => {
     const response = await api.get('/reports/all-analysis');
+    return response.data;
+  },
+  getFacultyOccupancy: async (params?: { from?: string; to?: string; facultyId?: number }): Promise<{ status: string; data: FacultyOccupancyReport }> => {
+    const response = await api.get('/reports/faculty-occupancy', { params });
+    return response.data;
+  },
+  getBatchDetails: async (params?: { type?: 'present' | 'future'; facultyId?: number; days?: string }): Promise<{ status: string; data: BatchDetailsReport }> => {
+    const response = await api.get('/reports/batch-details', { params });
     return response.data;
   },
   getStudentsEnrolledBatchNotStarted: async (): Promise<{ status: string; data: StudentsEnrolledBatchNotStarted }> => {
@@ -325,6 +406,27 @@ export const reportAPI = {
     endDate?: string;
   }): Promise<{ status: string; data: StudentsWiseReport }> => {
     const response = await api.get('/attendance-reports/students-wise', { params });
+    return response.data;
+  },
+  // Saved Reports API
+  getSavedReports: async (params?: {
+    reportType?: string;
+    page?: number;
+    limit?: number;
+    from?: string;
+    to?: string;
+  }): Promise<{ status: string; data: SavedReportsResponse }> => {
+    const response = await api.get('/reports/saved', { params });
+    return response.data;
+  },
+  getSavedReportDetails: async (id: number): Promise<{ status: string; data: SavedReport }> => {
+    const response = await api.get(`/reports/saved/${id}`);
+    return response.data;
+  },
+  downloadReportCSV: async (id: number): Promise<Blob> => {
+    const response = await api.get(`/reports/saved/${id}/download`, {
+      responseType: 'blob',
+    });
     return response.data;
   },
 };

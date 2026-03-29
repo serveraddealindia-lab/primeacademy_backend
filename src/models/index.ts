@@ -30,6 +30,10 @@ import AttendanceLog from './AttendanceLog';
 import StudentOrientation from './StudentOrientation';
 import StudentSoftwareProgress from './StudentSoftwareProgress';
 import Course from './Course';
+import AttendanceDraft from './AttendanceDraft';
+import Task from './Task';
+import TaskStudent from './TaskStudent';
+import Report from './Report';
 
 const db = {
   sequelize,
@@ -62,6 +66,10 @@ const db = {
   StudentOrientation,
   StudentSoftwareProgress,
   Course,
+  AttendanceDraft,
+  Task,
+  TaskStudent,
+  Report,
 };
 
 // Define associations
@@ -144,6 +152,12 @@ Enrollment.hasMany(PaymentTransaction, { foreignKey: 'enrollmentId', as: 'paymen
 Session.belongsTo(Batch, { foreignKey: 'batchId', as: 'batch' });
 Session.belongsTo(User, { foreignKey: 'facultyId', as: 'faculty' });
 Session.hasMany(Attendance, { foreignKey: 'sessionId', as: 'attendances' });
+
+// AttendanceDraft associations
+AttendanceDraft.belongsTo(Session, { foreignKey: 'sessionId', as: 'session' });
+AttendanceDraft.belongsTo(User, { foreignKey: 'facultyId', as: 'faculty' });
+Session.hasMany(AttendanceDraft, { foreignKey: 'sessionId', as: 'attendanceDrafts' });
+User.hasMany(AttendanceDraft, { foreignKey: 'facultyId', as: 'attendanceDrafts' });
 
 // Attendance associations
 Attendance.belongsTo(Session, { foreignKey: 'sessionId', as: 'session' });
@@ -234,6 +248,19 @@ Batch.hasMany(StudentSoftwareProgress, { foreignKey: 'batchId', as: 'studentSoft
 
 // Course associations
 Course.hasMany(Batch, { foreignKey: 'courseId', as: 'batches' });
+
+// Task associations
+Task.belongsTo(User, { foreignKey: 'facultyId', as: 'faculty' });
+Task.belongsTo(User, { foreignKey: 'approvedBy', as: 'approver' });
+Task.hasMany(TaskStudent, { foreignKey: 'taskId', as: 'taskStudents' });
+TaskStudent.belongsTo(Task, { foreignKey: 'taskId', as: 'task' });
+TaskStudent.belongsTo(User, { foreignKey: 'studentId', as: 'student' });
+User.hasMany(Task, { foreignKey: 'facultyId', as: 'tasks' });
+User.hasMany(TaskStudent, { foreignKey: 'studentId', as: 'taskStudentLinks' });
+
+// Report associations
+Report.belongsTo(User, { foreignKey: 'generatedBy', as: 'generator' });
+User.hasMany(Report, { foreignKey: 'generatedBy', as: 'generatedReports' });
 
 export default db;
 

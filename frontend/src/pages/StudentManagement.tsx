@@ -10,11 +10,14 @@ import { softwareCompletionAPI } from '../api/softwareCompletion.api';
 import { studentSoftwareProgressAPI, StudentSoftwareProgress } from '../api/studentSoftwareProgress.api';
 import { userAPI } from '../api/user.api';
 import { getImageUrl } from '../utils/imageUtils';
+import { getApiOrigin } from '../api/axios';
 import { orientationAPI, OrientationLanguage } from '../api/orientation.api';
 import { paymentAPI, PaymentTransaction } from '../api/payment.api';
 import { formatDateDDMMYYYY } from '../utils/dateUtils';
 import { StudentSoftware } from '../components/StudentSoftware';
 import { courseAPI } from '../api/course.api';
+import { getApiBaseUrl } from '../api/axios';
+import { SyncedHorizontalScroll } from '../components/SyncedHorizontalScroll';
 
 // Payment Detail Card Component
 const PaymentDetailCard: React.FC<{
@@ -220,7 +223,7 @@ const PaymentDetailCard: React.FC<{
                       {downloadingReceipt ? 'Downloading...' : '📥 Download Receipt'}
                     </button>
                     <a
-                      href={`${import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000'}${payment.receiptUrl.split('/').map((part, index) => {
+                      href={`${getApiOrigin()}${payment.receiptUrl.split('/').map((part, index) => {
                         // Keep the first part (empty string or '/receipts') as-is, encode the rest
                         if (index === 0 || part === '') return part;
                         return encodeURIComponent(part);
@@ -295,7 +298,7 @@ export const StudentManagement: React.FC = () => {
   const [orientationStatusMap, setOrientationStatusMap] = useState<Record<number, { isEligible: boolean; english: boolean; gujarati: boolean }>>({});
 
   // Fetch students
-  const { data: studentsData, isLoading } = useQuery({
+  const { data: studentsData, isLoading, refetch: refetchStudents } = useQuery({
     queryKey: ['students'],
     queryFn: () => studentAPI.getAllStudents(),
   });
@@ -975,6 +978,55 @@ export const StudentManagement: React.FC = () => {
     setIsDeleteModalOpen(true);
   };
 
+  const handleApproveCorrectedBalance = async (studentId: number, correctedBalance: number) => {
+    try {
+      const response = await fetch(`${getApiBaseUrl()}/students/${studentId}/payment/approve`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+        },
+        body: JSON.stringify({ correctedBalance }),
+      });
+      
+      if (!response.ok) throw new Error('Failed to update payment');
+      
+      alert('✓ Corrected balance amount approved! Payment transaction updated.');
+      await queryClient.invalidateQueries({ queryKey: ['students'] });
+      await queryClient.invalidateQueries({ queryKey: ['student-profile', studentId] });
+      await queryClient.invalidateQueries({ queryKey: ['student-payments', studentId] });
+      refetchStudents();
+    } catch (error: any) {
+      alert('Error: ' + error.message);
+    }
+  };
+
+  const handleRejectCorrectedBalance = async (studentId: number, originalBalance: number) => {
+    try {
+      const response = await fetch(`${getApiBaseUrl()}/students/${studentId}/payment/reject`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+        },
+        body: JSON.stringify({ 
+          keepOriginal: true,
+          originalBalance 
+        }),
+      });
+      
+      if (!response.ok) throw new Error('Failed to reject correction');
+      
+      alert('✓ Original balance amount retained. Mismatch flag removed.');
+      await queryClient.invalidateQueries({ queryKey: ['students'] });
+      await queryClient.invalidateQueries({ queryKey: ['student-profile', studentId] });
+      await queryClient.invalidateQueries({ queryKey: ['student-payments', studentId] });
+      refetchStudents();
+    } catch (error: any) {
+      alert('Error: ' + error.message);
+    }
+  };
+
 
   const handleConfirmDelete = () => {
     if (selectedStudent) {
@@ -1121,8 +1173,8 @@ export const StudentManagement: React.FC = () => {
                   </p>
                 ) : null}
                 
-                <div className="overflow-x-auto -mx-4 sm:mx-0">
-                  <div className="inline-block min-w-full align-middle sm:px-0">
+                <SyncedHorizontalScroll className="-mx-4 sm:mx-0" contentClassName="overflow-x-auto" >
+                  <div className="inline-block min-w-full align-middle sm:px-0" style={{ minWidth: '1800px' }}>
                     <table className="min-w-full divide-y divide-gray-200">
                     <thead className="bg-gray-50">
                       <tr>
@@ -1406,7 +1458,7 @@ export const StudentManagement: React.FC = () => {
                     </tbody>
                   </table>
                   </div>
-                </div>
+                </SyncedHorizontalScroll>
                 {searchQuery && students.length === 0 && (
                   <div className="text-center py-8">
                     <p className="text-gray-500 text-lg">No students found matching your search</p>
@@ -1974,6 +2026,28 @@ export const StudentManagement: React.FC = () => {
                                     : '-'}
                                 </p>
                               </div>
+                              {/* Payment Mismatch Warning */}
+{enrollmentMetadata?.hasPaymentMismatch && (
+  <div className="col-span-1 md:col-span-2 mt-4 p-4 bg-red-50 border border-red-200 rounded-lg">
+    <div className="flex items-start">
+      <h5 className="font-semibold text-red-800 text-sm">⚠️ Payment Amount Mismatch Detected</h5>
+      <div className="mt-2 text-xs text-red-700 space-y-1">
+        <p><strong>Total:</strong> ₹{Number(enrollmentMetadata.totalDeal).toFixed(2)}</p>
+        <p><strong>Booking:</strong> ₹{Number(enrollmentMetadata.bookingAmount).toFixed(2)}</p>
+        <p><strong>Original Balance:</strong> ₹{Number(enrollmentMetadata.balanceAmount).toFixed(2)}</p>
+        <p><strong>Calculated:</strong> ₹{Number(enrollmentMetadata.calculatedBalance).toFixed(2)}</p>
+        <div className="mt-3 flex gap-2">
+          <button onClick={() => handleApproveCorrectedBalance(selectedStudent.id, enrollmentMetadata.calculatedBalance)} className="px-3 py-1.5 bg-green-600 text-white text-xs rounded">
+            ✓ Accept Corrected (₹{Number(enrollmentMetadata.calculatedBalance).toFixed(2)})
+          </button>
+          <button onClick={() => handleRejectCorrectedBalance(selectedStudent.id, enrollmentMetadata.balanceAmount)} className="px-3 py-1.5 bg-gray-600 text-white text-xs rounded">
+            ✗ Keep Original (₹{Number(enrollmentMetadata.balanceAmount).toFixed(2)})
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+)}
                               <div>
                                 <label className="block text-sm font-medium text-gray-700">EMI Plan</label>
                                 <p className="mt-1">

@@ -9,6 +9,7 @@ import { enrollmentAPI } from '../api/enrollment.api';
 import { uploadAPI } from '../api/upload.api';
 import { formatDateDDMMYYYY } from '../utils/dateUtils';
 import { getImageUrl } from '../utils/imageUtils';
+import { getApiBaseUrl } from '../api/axios';
 
 export const PortfolioManagement: React.FC = () => {
   const { user } = useAuth();
@@ -570,7 +571,7 @@ export const PortfolioManagement: React.FC = () => {
                                         
                                         // If it's a relative path, try different base URLs
                                         if (!url.startsWith('http://') && !url.startsWith('https://') && !url.startsWith('data:')) {
-                                          const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api';
+                                          const apiBase = getApiBaseUrl();
                                           const baseUrl = apiBase.replace('/api', '').replace(/\/$/, '');
                                           
                                           // Try with API base URL
@@ -712,7 +713,7 @@ export const PortfolioManagement: React.FC = () => {
                                         
                                         // If it's a relative path, try different base URLs
                                         if (!imgUrl.startsWith('http://') && !imgUrl.startsWith('https://') && !imgUrl.startsWith('data:')) {
-                                          const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api';
+                                          const apiBase = getApiBaseUrl();
                                           const baseUrl = apiBase.replace('/api', '').replace(/\/$/, '');
                                           
                                           // Try with API base URL

@@ -4,6 +4,7 @@ export interface Course {
   id: number;
   name: string;
   software: string[];
+  lectureTopics?: string[];
   createdAt?: string;
   updatedAt?: string;
 }
@@ -24,11 +25,13 @@ export interface CourseResponse {
 export interface CreateCourseRequest {
   name: string;
   software: string[];
+  lectureTopics?: string[];
 }
 
 export interface UpdateCourseRequest {
   name?: string;
   software?: string[];
+  lectureTopics?: string[];
 }
 
 export const courseAPI = {

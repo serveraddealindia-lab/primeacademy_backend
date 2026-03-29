@@ -974,7 +974,7 @@ export const BatchCreate: React.FC = () => {
                 
                 {showSuggestions && (
                   <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-                    <h4 className="font-semibold text-blue-900 mb-2">Suggested Students (based on software)</h4>
+                    <h4 className="font-semibold text-blue-900 mb-2">Suggested Students (based on software, time slot ±30min & complimentary software)</h4>
                     {suggestedCandidates.length > 0 ? (
                       <div className="max-h-40 overflow-y-auto space-y-2">
                         {suggestedCandidates.map((candidate) => (
@@ -1002,6 +1002,20 @@ export const BatchCreate: React.FC = () => {
                                 <span className="font-medium">{candidate.name || `Student #${candidate.studentId}`}</span>
                                 {candidate.email && (
                                   <span className="text-xs text-gray-600 ml-2">({candidate.email})</span>
+                                )}
+                                {/* Enhanced matching information */}
+                                {candidate.statusMessage && candidate.statusMessage.includes('Enhanced match') && (
+                                  <div className="mt-1">
+                                    <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                                      <svg className="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
+                                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                                      </svg>
+                                      Enhanced Match
+                                    </span>
+                                    <p className="text-xs text-blue-700 mt-1 ml-1">
+                                      {candidate.statusMessage.replace('Enhanced match - ', '')}
+                                    </p>
+                                  </div>
                                 )}
                               </div>
                               <div className="flex items-center gap-2">
@@ -1054,10 +1068,10 @@ export const BatchCreate: React.FC = () => {
                     ) : (
                       <div className="p-3 bg-white border border-blue-200 rounded">
                         <p className="text-sm text-gray-600">
-                          No students found with matching software "{selectedSoftware}".
+                          No students found with matching software, time slot, or complimentary software "{selectedSoftware}".
                         </p>
                         <p className="text-xs text-gray-500 mt-2">
-                          Students need to have the software selected in their profile to appear here.
+                          Students need to have the software selected in their profile, be in the same time slot (±30 minutes), or have complimentary software to appear here.
                         </p>
                       </div>
                     )}

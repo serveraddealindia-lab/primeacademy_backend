@@ -62,13 +62,7 @@ export const createBatch = async (req: AuthRequest, res: Response): Promise<void
       return;
     }
 
-    if (!maxCapacity) {
-      res.status(400).json({
-        status: 'error',
-        message: 'Max capacity is required',
-      });
-      return;
-    }
+    // Max capacity is now optional - removed validation
 
     // Validate status - required
     if (!status || !status.trim()) {

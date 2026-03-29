@@ -143,12 +143,21 @@ export const login = async (req: Request, res: Response): Promise<void> => {
       email: user.email,
       role: user.role,
     });
+    const refreshToken = generateToken(
+      {
+        userId: user.id,
+        email: user.email,
+        role: user.role,
+      },
+      process.env.JWT_REFRESH_EXPIRES_IN || '30d'
+    );
 
     res.status(200).json({
       status: 'success',
       message: 'Login successful',
       data: {
         token,
+        refreshToken,
         user: {
           id: user.id,
           name: user.name,
@@ -167,6 +176,44 @@ export const login = async (req: Request, res: Response): Promise<void> => {
       status: 'error',
       message: 'Internal server error during login',
     });
+  }
+};
+
+export const refresh = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { refreshToken } = req.body as { refreshToken?: string };
+    if (!refreshToken) {
+      res.status(400).json({ status: 'error', message: 'refreshToken is required' });
+      return;
+    }
+
+    let decoded: any;
+    try {
+      decoded = verifyToken(refreshToken);
+    } catch {
+      res.status(401).json({ status: 'error', message: 'Invalid or expired refresh token' });
+      return;
+    }
+
+    const user = await db.User.findByPk(decoded.userId);
+    if (!user || !user.isActive) {
+      res.status(401).json({ status: 'error', message: 'User not found or inactive' });
+      return;
+    }
+
+    const token = generateToken({
+      userId: user.id,
+      email: user.email,
+      role: user.role,
+    });
+
+    res.status(200).json({
+      status: 'success',
+      data: { token },
+    });
+  } catch (error) {
+    logger.error('Refresh token error:', error);
+    res.status(500).json({ status: 'error', message: 'Internal server error' });
   }
 };
 

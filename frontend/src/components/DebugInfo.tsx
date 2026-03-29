@@ -1,6 +1,8 @@
+import { getApiBaseUrl } from '../api/axios';
+
 const DebugInfo = (): JSX.Element => {
+  const apiUrl = getApiBaseUrl();
   const viteApiUrl = import.meta.env.VITE_API_BASE_URL;
-  const apiUrl = viteApiUrl || 'http://localhost:5000/api';
   
   return (
     <div style={{ 

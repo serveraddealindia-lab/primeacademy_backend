@@ -8,6 +8,7 @@ const router = express.Router();
 const requireFaculty = [verifyTokenMiddleware, checkRole(UserRole.FACULTY, UserRole.ADMIN, UserRole.SUPERADMIN)];
 
 router.get('/faculty/assigned', requireFaculty, sessionController.getFacultyAssignedBatches);
+router.get('/dashboard-batches', requireFaculty, sessionController.getDashboardBatches);
 
 // Debug endpoint to check faculty assignments (admin only)
 router.get('/faculty/:facultyId/assignments', verifyTokenMiddleware, checkRole(UserRole.ADMIN, UserRole.SUPERADMIN), sessionController.getFacultyAssignmentsDebug);
@@ -20,6 +21,7 @@ router.post('/:batchId/start', requireFaculty, sessionController.startSession);
 router.post('/:sessionId/end', requireFaculty, sessionController.endSession);
 
 router.post('/:sessionId/attendance', requireFaculty, sessionController.submitSessionAttendance);
+router.patch('/:sessionId/topic', requireFaculty, sessionController.updateSessionTopic);
 
 export default router;
 

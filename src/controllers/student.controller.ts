@@ -11,6 +11,7 @@ import { Response } from 'express';
 import { checkDuplicateEmailOrPhone } from './user.controller';
 import { logger } from '../utils/logger';
 
+
 /**
  * Parse date from Excel - handles Excel serial dates, various string formats, and Date objects
  * @param dateValue - Date value from Excel (can be number, string, or Date)
@@ -661,6 +662,19 @@ export const completeEnrollment = async (
       if (enrollmentDocuments && Array.isArray(enrollmentDocuments) && enrollmentDocuments.length > 0) {
         enrollmentMetadata.enrollmentDocuments = enrollmentDocuments;
       }
+      
+      // Add additional payment-related fields that may be referenced later
+      if (req.body.paymentMode) enrollmentMetadata.paymentMode = req.body.paymentMode;
+      if (req.body.paymentDate) enrollmentMetadata.paymentDate = req.body.paymentDate;
+      if (req.body.paymentStatus) enrollmentMetadata.paymentStatus = req.body.paymentStatus;
+      if (req.body.receiptNumber) enrollmentMetadata.receiptNumber = req.body.receiptNumber;
+      if (req.body.emiAmount) enrollmentMetadata.emiAmount = req.body.emiAmount;
+      if (req.body.nextPaymentDate) enrollmentMetadata.nextPaymentDate = req.body.nextPaymentDate;
+      if (req.body.discountAmount) enrollmentMetadata.discountAmount = req.body.discountAmount;
+      if (req.body.taxAmount) enrollmentMetadata.taxAmount = req.body.taxAmount;
+      if (req.body.admissionFee) enrollmentMetadata.admissionFee = req.body.admissionFee;
+      if (req.body.cautionDeposit) enrollmentMetadata.cautionDeposit = req.body.cautionDeposit;
+      if (req.body.registrationFee) enrollmentMetadata.registrationFee = req.body.registrationFee;
 
       // Always store documents with enrollmentMetadata wrapper (matching bulk upload structure)
       profileData.documents = {
@@ -725,6 +739,19 @@ export const completeEnrollment = async (
         } else {
           if (nextPayDate) paymentPlan.nextPayDate = nextPayDate;
         }
+        
+        // Add additional payment fields from request body or local variables
+        if (req.body.paymentMode) paymentPlan.paymentMode = req.body.paymentMode;
+        if (req.body.paymentDate) paymentPlan.paymentDate = req.body.paymentDate;
+        if (req.body.paymentStatus) paymentPlan.paymentStatus = req.body.paymentStatus;
+        if (req.body.receiptNumber) paymentPlan.receiptNumber = req.body.receiptNumber;
+        if (req.body.emiAmount) paymentPlan.emiAmount = req.body.emiAmount;
+        if (req.body.nextPaymentDate) paymentPlan.nextPaymentDate = req.body.nextPaymentDate;
+        if (req.body.discountAmount) paymentPlan.discountAmount = req.body.discountAmount;
+        if (req.body.taxAmount) paymentPlan.taxAmount = req.body.taxAmount;
+        if (req.body.admissionFee) paymentPlan.admissionFee = req.body.admissionFee;
+        if (req.body.cautionDeposit) paymentPlan.cautionDeposit = req.body.cautionDeposit;
+        if (req.body.registrationFee) paymentPlan.registrationFee = req.body.registrationFee;
 
         enrollment = await db.Enrollment.create(
           {
@@ -739,7 +766,7 @@ export const completeEnrollment = async (
 
         // Create payment transactions based on enrollment payment details
         if (enrollment) {
-          // Create payment for booking amount (if provided) - this is always required
+          // Create payment for booking amount (compulsory field) - this is always required
           if (bookingAmount !== undefined && bookingAmount !== null && bookingAmount >= 0) {
             try {
               await db.PaymentTransaction.create(
@@ -1441,6 +1468,41 @@ export const unifiedStudentImport = async (req: AuthRequest, res: Response): Pro
           });
           continue;
         }
+        
+        // Validate compulsory payment fields
+        const paymentMode = getValue(row, ['paymentMode', 'Payment Mode', 'payment_mode']);
+        const paymentDate = getValue(row, ['paymentDate', 'Payment Date', 'payment_date']);
+        const bookingAmount = getValue(row, ['bookingAmount', 'Booking Amount', 'booking_amount']);
+        
+        if (!paymentMode) {
+          await transaction.rollback();
+          result.failed++;
+          result.errors.push({
+            row: rowNumber,
+            error: 'Payment Mode is required',
+          });
+          continue;
+        }
+        
+        if (!paymentDate) {
+          await transaction.rollback();
+          result.failed++;
+          result.errors.push({
+            row: rowNumber,
+            error: 'Payment Date is required',
+          });
+          continue;
+        }
+        
+        if (!bookingAmount) {
+          await transaction.rollback();
+          result.failed++;
+          result.errors.push({
+            row: rowNumber,
+            error: 'Booking Amount is required',
+          });
+          continue;
+        }
 
         // Normalize phone if provided
         const normalizedPhone = phone ? normalizePhone(phone) : null;
@@ -1546,21 +1608,74 @@ export const unifiedStudentImport = async (req: AuthRequest, res: Response): Pro
           localAddress: getValue(row, ['localAddress', 'Local Address', 'local_address']),
           permanentAddress: getValue(row, ['permanentAddress', 'Permanent Address', 'permanent_address']),
           courseName: getValue(row, ['courseName', 'Course Name', 'COMMON', 'Common', 'New COURSE', 'New Course']),
-          totalDeal: getValue(row, ['totalDeal', 'Total Deal', 'total_deal']) ? 
-            (typeof getValue(row, ['totalDeal', 'Total Deal']) === 'string' ? 
-              parseFloat(getValue(row, ['totalDeal', 'Total Deal'])) : 
-              getValue(row, ['totalDeal', 'Total Deal'])) : null,
+          
+          // Compulsory payment information
+          paymentMode: getValue(row, ['paymentMode', 'Payment Mode', 'payment_mode']) || null,
+          paymentDate: getValue(row, ['paymentDate', 'Payment Date', 'payment_date']) ?
+            (parseExcelDate(getValue(row, ['paymentDate', 'Payment Date']))?.toISOString().split('T')[0] || null) : null,
           bookingAmount: getValue(row, ['bookingAmount', 'Booking Amount', 'booking_amount']) ?
             (typeof getValue(row, ['bookingAmount', 'Booking Amount']) === 'string' ?
               parseFloat(getValue(row, ['bookingAmount', 'Booking Amount'])) :
               getValue(row, ['bookingAmount', 'Booking Amount'])) : null,
+          totalDeal: getValue(row, ['totalDeal', 'Total Deal', 'total_deal']) ? 
+            (typeof getValue(row, ['totalDeal', 'Total Deal']) === 'string' ? 
+              parseFloat(getValue(row, ['totalDeal', 'Total Deal'])) : 
+              getValue(row, ['totalDeal', 'Total Deal'])) : null,
           balanceAmount: getValue(row, ['balanceAmount', 'Balance Amount', 'balance_amount']) ?
             (typeof getValue(row, ['balanceAmount', 'Balance Amount']) === 'string' ?
               parseFloat(getValue(row, ['balanceAmount', 'Balance Amount'])) :
               getValue(row, ['balanceAmount', 'Balance Amount'])) : null,
+          paymentStatus: getValue(row, ['paymentStatus', 'Payment Status', 'payment_status']) || null,
+          receiptNumber: getValue(row, ['receiptNumber', 'Receipt Number', 'receipt_number']) || null,
+          
+          // Course vs individual software enrollment
+          enrollmentType: getValue(row, ['enrollmentType', 'Enrollment Type', 'enrollment_type']) || 'Course',
+          softwaresIncluded: getValue(row, ['softwaresIncluded', 'Softwares Included', 'softwares_included']),
+          
+          // Schedule information
+          scheduleType: getValue(row, ['scheduleType', 'Schedule Type', 'schedule_type']) || null,
+          startTime: getValue(row, ['startTime', 'Start Time', 'start_time']) || null,
+          endTime: getValue(row, ['endTime', 'End Time', 'end_time']) || null,
+          classDays: getValue(row, ['classDays', 'Class Days', 'class_days']) || null,
+          batchName: getValue(row, ['batchName', 'Batch Name', 'batch_name']) || null,
+          
+          // Financial details
           emiPlan: parseBoolean(getValue(row, ['emiPlan', 'EMI Plan', 'emi_plan'])),
           emiPlanDate: getValue(row, ['emiPlanDate', 'EMI Plan Date', 'emi_plan_date']) ?
             (parseExcelDate(getValue(row, ['emiPlanDate', 'EMI Plan Date']))?.toISOString().split('T')[0] || null) : null,
+          emiInstallments: getValue(row, ['emiInstallments', 'EMI Installments', 'emi_installments']) ?
+            (typeof getValue(row, ['emiInstallments', 'EMI Installments']) === 'string' ?
+              parseInt(getValue(row, ['emiInstallments', 'EMI Installments'])) :
+              getValue(row, ['emiInstallments', 'EMI Installments'])) : null,
+          emiAmount: getValue(row, ['emiAmount', 'EMI Amount', 'emi_amount']) ?
+            (typeof getValue(row, ['emiAmount', 'EMI Amount']) === 'string' ?
+              parseFloat(getValue(row, ['emiAmount', 'EMI Amount'])) :
+              getValue(row, ['emiAmount', 'EMI Amount'])) : null,
+          nextPaymentDate: getValue(row, ['nextPaymentDate', 'Next Payment Date', 'next_payment_date']) ?
+            (parseExcelDate(getValue(row, ['nextPaymentDate', 'Next Payment Date']))?.toISOString().split('T')[0] || null) : null,
+          lumpSumPayment: parseBoolean(getValue(row, ['lumpSumPayment', 'Lump Sum Payment', 'lump_sum_payment'])),
+          discountAmount: getValue(row, ['discountAmount', 'Discount Amount', 'discount_amount']) ?
+            (typeof getValue(row, ['discountAmount', 'Discount Amount']) === 'string' ?
+              parseFloat(getValue(row, ['discountAmount', 'Discount Amount'])) :
+              getValue(row, ['discountAmount', 'Discount Amount'])) : null,
+          taxAmount: getValue(row, ['taxAmount', 'Tax Amount', 'tax_amount']) ?
+            (typeof getValue(row, ['taxAmount', 'Tax Amount']) === 'string' ?
+              parseFloat(getValue(row, ['taxAmount', 'Tax Amount'])) :
+              getValue(row, ['taxAmount', 'Tax Amount'])) : null,
+          admissionFee: getValue(row, ['admissionFee', 'Admission Fee', 'admission_fee']) ?
+            (typeof getValue(row, ['admissionFee', 'Admission Fee']) === 'string' ?
+              parseFloat(getValue(row, ['admissionFee', 'Admission Fee'])) :
+              getValue(row, ['admissionFee', 'Admission Fee'])) : null,
+          cautionDeposit: getValue(row, ['cautionDeposit', 'Caution Deposit', 'caution_deposit']) ?
+            (typeof getValue(row, ['cautionDeposit', 'Caution Deposit']) === 'string' ?
+              parseFloat(getValue(row, ['cautionDeposit', 'Caution Deposit'])) :
+              getValue(row, ['cautionDeposit', 'Caution Deposit'])) : null,
+          registrationFee: getValue(row, ['registrationFee', 'Registration Fee', 'registration_fee']) ?
+            (typeof getValue(row, ['registrationFee', 'Registration Fee']) === 'string' ?
+              parseFloat(getValue(row, ['registrationFee', 'Registration Fee'])) :
+              getValue(row, ['registrationFee', 'Registration Fee'])) : null,
+          
+          // Additional information
           complimentarySoftware: getValue(row, ['complimentarySoftware', 'Complimentary Software']),
           complimentaryGift: getValue(row, ['complimentaryGift', 'Complimentary Gift']),
           hasReference: parseBoolean(getValue(row, ['hasReference', 'Has Reference', 'has_reference'])),
@@ -1570,6 +1685,9 @@ export const unifiedStudentImport = async (req: AuthRequest, res: Response): Pro
           walkinDate: getValue(row, ['walkinDate', 'Walk-in Date', 'walkin_date']) ?
             (parseExcelDate(getValue(row, ['walkinDate', 'Walk-in Date']))?.toISOString().split('T')[0] || null) : null,
           masterFaculty: getValue(row, ['masterFaculty', 'Master Faculty', 'master_faculty']),
+          studentStatus: getValue(row, ['studentStatus', 'Student Status', 'student_status']) || 'active',
+          enrollmentDate: getValue(row, ['enrollmentDate', 'Enrollment Date', 'enrollment_date']) ?
+            (parseExcelDate(getValue(row, ['enrollmentDate', 'Enrollment Date']))?.toISOString().split('T')[0] || null) : null,
         };
 
         // Emergency contact
@@ -1584,8 +1702,44 @@ export const unifiedStudentImport = async (req: AuthRequest, res: Response): Pro
         }
 
         // Software list and batch status
-        const softwareList = getValue(row, ['softwaresIncluded', 'Softwares Included', 'softwares_included']) ?
-          String(getValue(row, ['softwaresIncluded', 'Softwares Included'])).split(',').map((s: string) => s.trim()).filter((s: string) => s.length > 0) : [];
+        const softwareList = [];
+
+        // Define software status columns for extracting software names
+        const softwareStatusColumns = [
+          'SOFTWARE_PHOTOSHOP_STATUS', 'SOFTWARE_ILLUSTRATOR_STATUS', 'SOFTWARE_INDESIGN_STATUS',
+          'SOFTWARE_AFTEREFFECTS_STATUS', 'SOFTWARE_PREMIEREPRO_STATUS', 'SOFTWARE_ANIMATECC_STATUS',
+          'SOFTWARE_FIGMA_STATUS', 'SOFTWARE_XD_STATUS', 'SOFTWARE_COREL_STATUS',
+          'SOFTWARE_AUTOCAD_STATUS', 'SOFTWARE_3DSMAX_STATUS', 'SOFTWARE_MAYA_STATUS',
+          'SOFTWARE_BLENDER_STATUS', 'SOFTWARE_UNREAL_STATUS', 'SOFTWARE_CINEMA4D_STATUS',
+          'SOFTWARE_HOUDINI_STATUS', 'SOFTWARE_ZBRUSH_STATUS', 'SOFTWARE_SUBSTANCEPAINTER_STATUS',
+          'SOFTWARE_FUSION_STATUS', 'SOFTWARE_NUKE_STATUS', 'SOFTWARE_DAVINCIRESOLVE_STATUS',
+          'SOFTWARE_SKETCHUP_STATUS', 'SOFTWARE_LUMION_STATUS', 'SOFTWARE_VUE_STATUS'
+        ];
+
+        // Extract software from softwaresIncluded field
+        if (getValue(row, ['softwaresIncluded', 'Softwares Included', 'softwares_included'])) {
+          const softwaresFromField = String(getValue(row, ['softwaresIncluded', 'Softwares Included'])).split(',').map((s: string) => s.trim()).filter((s: string) => s.length > 0);
+          softwareList.push(...softwaresFromField);
+        }
+
+        // Extract software names from the new software status columns
+        for (const statusColumn of softwareStatusColumns) {
+          const statusValue = row[statusColumn];
+          if (statusValue) { // If there's any status value for this software
+            const softwareNameMatch = statusColumn.match(/^SOFTWARE_(.+)_STATUS$/);
+            if (softwareNameMatch) {
+              const softwareName = softwareNameMatch[1]
+                .replace(/_/g, ' ')
+                .replace(/\w\S*/g, txt => txt.charAt(0).toUpperCase() + txt.substr(1).toLowerCase());
+              
+              if (!softwareList.includes(softwareName)) {
+                softwareList.push(softwareName);
+              }
+            }
+          }
+        }
+
+
 
         const parseBatchList = (value: any): string[] | null => {
           if (!value || value === '') return null;
@@ -1630,13 +1784,68 @@ export const unifiedStudentImport = async (req: AuthRequest, res: Response): Pro
           }
         }
 
-        // ========== PROCESS SOFTWARE PROGRESS DATA ==========
-        // Get course info - support all field name variations
-        const courseName = getValue(row, ['courseName', 'Course Name', 'COMMON', 'Common', 'New COURSE', 'New Course']);
-        const courseType = getValue(row, ['courseType', 'Course Type', 'TYPE', 'Type', 'COURSE', 'Course', 'Tyoe']);
-        const studentStatus = getValue(row, ['studentStatus', 'Student Status', 'STATUS', 'Status']);
-        const batchTiming = getValue(row, ['batchTiming', 'Batch Timing', 'TIME', 'Time', 'TIME COMMITMENT', 'Time Commitment']);
+        // Create Enrollment record if not exists
+        const existingEnrollment = await db.Enrollment.findOne({
+          where: { studentId: student.id },
+          transaction
+        });
 
+        if (!existingEnrollment && enrollmentMetadata.totalDeal && enrollmentMetadata.bookingAmount !== undefined) {
+          try {
+            await db.Enrollment.create({
+              studentId: student.id,
+              batchId: 1, // Default batch
+              enrollmentDate: parsedDateOfAdmission || new Date(),
+              status: 'active',
+              paymentPlan: {
+                totalDeal: enrollmentMetadata.totalDeal,
+                bookingAmount: enrollmentMetadata.bookingAmount,
+                balanceAmount: enrollmentMetadata.balanceAmount || (enrollmentMetadata.totalDeal - enrollmentMetadata.bookingAmount),
+                paymentStatus: enrollmentMetadata.paymentStatus || 'Partial Paid'
+              }
+            }, { transaction });
+            logger.info(`Created enrollment record for student ${student.id}`);
+          } catch (enrollError: any) {
+            logger.warn(`Failed to create enrollment for student ${student.id}:`, enrollError.message);
+            // Continue without enrollment if batch constraint fails
+          }
+        }
+
+        // Create PaymentTransaction records if not exists
+        const existingPayments = await db.PaymentTransaction.findAll({
+          where: { studentId: student.id },
+          transaction
+        });
+
+        if (existingPayments.length === 0 && enrollmentMetadata.totalDeal && enrollmentMetadata.bookingAmount !== undefined) {
+          // Create booking payment (paid)
+          await db.PaymentTransaction.create({
+            studentId: student.id,
+            amount: enrollmentMetadata.bookingAmount,
+            paidAmount: enrollmentMetadata.bookingAmount,
+            dueDate: parsedDateOfAdmission || new Date(),
+            paidAt: parsedDateOfAdmission || new Date(),
+            status: PaymentStatus.PAID,
+            notes: 'Initial booking amount from Excel import'
+          }, { transaction });
+          logger.info(`Created booking payment for student ${student.id}`);
+
+          // Create balance payment (unpaid) if there's a balance
+          const balanceAmount = enrollmentMetadata.balanceAmount || (enrollmentMetadata.totalDeal - enrollmentMetadata.bookingAmount);
+          if (balanceAmount > 0) {
+            await db.PaymentTransaction.create({
+              studentId: student.id,
+              amount: balanceAmount,
+              paidAmount: 0,
+              dueDate: new Date(new Date(parsedDateOfAdmission || new Date()).getTime() + 30 * 24 * 60 * 60 * 1000), // 30 days from enrollment
+              status: PaymentStatus.UNPAID,
+              notes: 'Balance amount from Excel import'
+            }, { transaction });
+            logger.info(`Created balance payment for student ${student.id}`);
+          }
+        }
+
+        // ========== PROCESS SOFTWARE PROGRESS DATA ==========
         // Get software section details - support all field name variations
         const firstSoftwareStartDate = parseExcelDate(getValue(row, ['1st Software START DATE', '1st Software Start Date', 'Start Dt', 'Start Date']));
         const firstSoftwareEndDate = parseExcelDate(getValue(row, ['1st Software END DATE', '1st Software End Date', 'End']));
@@ -1651,6 +1860,20 @@ export const unifiedStudentImport = async (req: AuthRequest, res: Response): Pro
         const secondSoftwareFaculty = getValue(row, ['2nd Software FACULTY', '2nd Software Faculty', 'FACULTY']);
         const secondSoftwareStatus = getValue(row, ['2nd Software CURRENT', '2nd Software Current', 'CURRENT SOFTARE']);
         const secondSoftwareName = getValue(row, ['2nd Software', 'Second Software']);
+
+        // Get course info - support all field name variations
+        const courseName = getValue(row, ['courseName', 'Course Name', 'COMMON', 'Common', 'New COURSE', 'New Course']);
+        const courseType = getValue(row, ['courseType', 'Course Type', 'TYPE', 'Type', 'COURSE', 'Course', 'Tyoe']);
+        const studentStatus = getValue(row, ['studentStatus', 'Student Status', 'STATUS', 'Status']);
+        const batchTiming = getValue(row, ['batchTiming', 'Batch Timing', 'TIME', 'Time', 'TIME COMMITMENT', 'Time Commitment']);
+
+        // Extract from first and second software fields
+        if (firstSoftwareName && !softwareList.includes(firstSoftwareName.trim())) {
+          softwareList.push(firstSoftwareName.trim());
+        }
+        if (secondSoftwareName && !softwareList.includes(secondSoftwareName.trim())) {
+          softwareList.push(secondSoftwareName.trim());
+        }
 
         // Future batch fields - stored in metadata for future use
         const futureBatchStartDate = parseExcelDate(getValue(row, ['Future Batch START DATE', 'Future Batch Start Date']));
@@ -1685,6 +1908,8 @@ export const unifiedStudentImport = async (req: AuthRequest, res: Response): Pro
           'UNREAL', 'BLENDER PRO', 'CINEAMA 4D', 'SUBSTANCE PAINTER', '3D EQUALIZER',
           'Photography ', 'Auto-Cad', 'Wordpress', 'Vuforia SDK', 'Davinci '
         ];
+
+
         
         for (const code of softwareColumns) {
           const statusValue = row[code];
@@ -1876,6 +2101,84 @@ export const unifiedStudentImport = async (req: AuthRequest, res: Response): Pro
                 schedule,
                 metadata,
               }, { transaction });
+            }
+          }
+        }
+
+        // Process new software status columns (SOFTWARE_PHOTOSHOP_STATUS, SOFTWARE_ILLUSTRATOR_STATUS, etc.)
+        // Use the same softwareStatusColumns defined earlier (around line 1887) to avoid duplication
+        for (const statusColumn of softwareStatusColumns) {
+          const statusValue = row[statusColumn];
+          if (statusValue && (statusValue === 'Pending' || statusValue === 'In Progress' || statusValue === 'Finished' || statusValue === 'XX' || statusValue === 'IP' || statusValue === 'NO')) {
+            // Extract software name from the column name (e.g., SOFTWARE_PHOTOSHOP_STATUS -> Photoshop)
+            const softwareNameMatch = statusColumn.match(/^SOFTWARE_(.+)_STATUS$/);
+            if (softwareNameMatch) {
+              const softwareName = softwareNameMatch[1]
+                .replace(/_/g, ' ')
+                .replace(/\w\S*/g, txt => txt.charAt(0).toUpperCase() + txt.substr(1).toLowerCase());
+              
+              // Determine batch dates and faculty from software sections
+              let batchStartDate = null;
+              let batchEndDate = null;
+              let facultyName = null;
+              let batchTimingValue = batchTiming;
+              
+              // Check if this matches 1st or 2nd software
+              if (firstSoftwareName && softwareName.toLowerCase().includes(String(firstSoftwareName).toLowerCase().substring(0, 5))) {
+                batchStartDate = firstSoftwareStartDate;
+                batchEndDate = firstSoftwareEndDate;
+                facultyName = firstSoftwareFaculty;
+                batchTimingValue = firstSoftwareBatchTime || batchTiming;
+              } else if (secondSoftwareName && softwareName.toLowerCase().includes(String(secondSoftwareName).toLowerCase().substring(0, 5))) {
+                batchStartDate = secondSoftwareStartDate;
+                batchEndDate = secondSoftwareEndDate;
+                facultyName = secondSoftwareFaculty;
+                batchTimingValue = secondSoftwareBatchTime || batchTiming;
+              }
+              
+              const schedule = futureBatchSchedule || getValue(row, ['schedule', 'Schedule', 'MWF/TTS']);
+
+              const existing = await db.StudentSoftwareProgress.findOne({
+                where: { studentId: student.id, softwareName },
+                transaction
+              });
+
+              // Use future batch metadata if available
+              const metadata = Object.keys(futureBatchMetadata).some(key => futureBatchMetadata[key as keyof typeof futureBatchMetadata] !== null && futureBatchMetadata[key as keyof typeof futureBatchMetadata] !== undefined)
+                ? { futureBatch: futureBatchMetadata }
+                : undefined;
+
+              if (existing) {
+                await existing.update({
+                  status: statusValue,
+                  enrollmentDate: parsedDateOfAdmission,
+                  courseName,
+                  courseType,
+                  studentStatus,
+                  batchTiming: batchTimingValue,
+                  batchStartDate: batchStartDate || existing.batchStartDate,
+                  batchEndDate: batchEndDate || existing.batchEndDate,
+                  facultyName: facultyName || existing.facultyName,
+                  schedule: schedule || existing.schedule,
+                  metadata: metadata || existing.metadata,
+                }, { transaction });
+              } else {
+                await db.StudentSoftwareProgress.create({
+                  studentId: student.id,
+                  softwareName,
+                  status: statusValue,
+                  enrollmentDate: parsedDateOfAdmission,
+                  courseName,
+                  courseType,
+                  studentStatus,
+                  batchTiming: batchTimingValue,
+                  batchStartDate,
+                  batchEndDate,
+                  facultyName,
+                  schedule,
+                  metadata,
+                }, { transaction });
+              }
             }
           }
         }
@@ -2356,7 +2659,7 @@ export const getStudentAttendance = async (req: AuthRequest, res: Response): Pro
 
 export const downloadUnifiedTemplate = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    logger.info('Download unified template request received');
+    logger.info('Download enhanced unified template request received');
     
     if (!req.user) {
       logger.warn('Download template: Authentication required');
@@ -2379,375 +2682,218 @@ export const downloadUnifiedTemplate = async (req: AuthRequest, res: Response): 
       return;
     }
 
-    logger.info('Creating unified Excel template with ALL fields...');
+    logger.info('Creating enhanced unified Excel template with software status tracking...');
 
-    // Create comprehensive sample data with ALL fields from enrollment and software progress
-    // Merged duplicate fields (e.g., DATE/dateOfAdmission, NAME/studentName, NUMBER/phone, etc.)
-    // DATE must be the FIRST column
+    // Create enhanced sample data with individual software status tracking
     const sampleData = [
       {
-        // ========== BASIC STUDENT INFORMATION (DATE FIRST) ==========
-        DATE: '2024-01-15',              // FIRST COLUMN - Merged: DATE, dateOfAdmission
-        NAME: 'John Doe',                 // Merged: NAME, studentName
-        NUMBER: '9876543210',             // Merged: NUMBER, phone
-        email: 'john.doe@example.com',
-        dob: '1995-05-20',
-        
-        // ========== CONTACT INFORMATION ==========
-        whatsappNumber: '9876543210',
-        localAddress: '123 Main St, City, State',
-        permanentAddress: '123 Main St, City, State',
-        
-        // ========== EMERGENCY CONTACT ==========
-        emergencyContactNumber: '9876543211',
-        emergencyName: 'Jane Doe',
-        emergencyRelation: 'Mother',
-        
-        // ========== COURSE INFORMATION (Merged duplicates) ==========
-        'New COURSE': 'Graphic Design',   // Merged: New COURSE, COMMON, courseName
-        COMMON: 'Graphic Design',         // Alternative name
-        courseName: 'Graphic Design',     // Alternative name
-        Tyoe: 'Regular',                  // Merged: Tyoe, TYPE, courseType, COURSE
-        TYPE: 'Regular',                  // Alternative name
-        COURSE: 'Regular',                // Alternative name
-        courseType: 'Regular',            // Alternative name
-        Status: 'Active',                 // Merged: Status, STATUS, studentStatus
-        STATUS: 'Active',                 // Alternative name
-        studentStatus: 'Active',          // Alternative name
-        'TIME COMMITMENT': '7 to 9',      // Merged: TIME COMMITMENT, TIME, batchTiming
-        TIME: '7 to 9',                   // Alternative name
-        batchTiming: '7 to 9',            // Alternative name
-        PLUS: '',
-        
-        // ========== BATCH STATUS ==========
-        softwaresIncluded: 'Photoshop, Illustrator, InDesign',
-        finishedBatches: 'Photoshop, Illustrator',
-        currentBatches: 'InDesign',
-        pendingBatches: 'After Effects, Premiere Pro',
-        
-        // ========== FINANCIAL DETAILS ==========
-        totalDeal: 50000,
-        bookingAmount: 10000,
-        balanceAmount: 40000,
-        emiPlan: 'Yes',
-        emiPlanDate: '2024-02-15',
-        
+        // ========== COMPULSORY BASIC INFORMATION ==========
+        DATE: '15/01/2024',              // COMPULSORY: Date of admission (DD/MM/YYYY)
+        NAME: 'John Doe',                // COMPULSORY: Student name
+        NUMBER: '9876543210',            // COMPULSORY: Phone number
+        EMAIL: 'john.doe@example.com',   // COMPULSORY: Email address
+        WHATSAPP_NUMBER: '9876543210',   // COMPULSORY: WhatsApp number
+
+        // ========== PERSONAL INFORMATION (Some Compulsory) ==========
+        DOB: '20/05/1995',               // OPTIONAL: Date of birth (DD/MM/YYYY)
+        LOCAL_ADDRESS: '123 Main St, City, State',     // COMPULSORY: Local address
+        PERMANENT_ADDRESS: '123 Main St, City, State', // COMPULSORY: Permanent address
+
+        // ========== COMPULSORY EMERGENCY CONTACT ==========
+        EMERGENCY_CONTACT_NUMBER: '9876543211',  // COMPULSORY: Emergency contact number
+        EMERGENCY_CONTACT_NAME: 'Jane Doe',       // COMPULSORY: Emergency contact name
+        EMERGENCY_RELATION: 'Mother',             // COMPULSORY: Relationship
+
+        // ========== ENROLLMENT INFORMATION ==========
+        COURSE_NAME: 'Graphic Design',            // OPTIONAL: Course name
+        SOFTWARES_INCLUDED: 'Photoshop, Illustrator, InDesign, After Effects', // OPTIONAL: Comma-separated software list
+        ENROLLMENT_TYPE: 'Course',               // OPTIONAL: Course or Individual software
+
+        // ========== COMPULSORY PAYMENT INFORMATION ==========
+        PAYMENT_MODE: 'Cash',                    // COMPULSORY: Cash, Online, Cheque, NEFT, RTGS, UPI
+        PAYMENT_DATE: '15/01/2024',             // COMPULSORY: Date of payment (DD/MM/YYYY)
+        BOOKING_AMOUNT: 10000,                  // COMPULSORY: Initial booking amount paid
+        TOTAL_DEAL: 50000,                      // COMPULSORY: Total deal amount
+        BALANCE_AMOUNT: 40000,                  // COMPULSORY: Balance amount
+        PAYMENT_STATUS: 'Partial Paid',         // COMPULSORY: Unpaid, Partial Paid, Fully Paid
+        RECEIPT_NUMBER: 'REC001',               // OPTIONAL: Receipt number
+
+        // ========== SOFTWARE STATUS TRACKING (24+ Software) ==========
+        SOFTWARE_PHOTOSHOP_STATUS: 'In Progress',     // Pending/In Progress/Finished
+        SOFTWARE_ILLUSTRATOR_STATUS: 'Pending',       // Pending/In Progress/Finished
+        SOFTWARE_INDESIGN_STATUS: 'Finished',         // Pending/In Progress/Finished
+        SOFTWARE_AFTEREFFECTS_STATUS: 'Pending',      // Pending/In Progress/Finished
+        SOFTWARE_PREMIEREPRO_STATUS: 'Pending',       // Pending/In Progress/Finished
+        SOFTWARE_ANIMATECC_STATUS: 'Pending',         // Pending/In Progress/Finished
+        SOFTWARE_FIGMA_STATUS: 'Pending',             // Pending/In Progress/Finished
+        SOFTWARE_XD_STATUS: 'Pending',                // Pending/In Progress/Finished
+        SOFTWARE_COREL_STATUS: 'Pending',             // Pending/In Progress/Finished
+        SOFTWARE_AUTOCAD_STATUS: 'Pending',            // Pending/In Progress/Finished
+        SOFTWARE_3DSMAX_STATUS: 'Pending',            // Pending/In Progress/Finished
+        SOFTWARE_MAYA_STATUS: 'Pending',              // Pending/In Progress/Finished
+        SOFTWARE_BLENDER_STATUS: 'Pending',           // Pending/In Progress/Finished
+        SOFTWARE_UNREAL_STATUS: 'Pending',            // Pending/In Progress/Finished
+        SOFTWARE_CINEMA4D_STATUS: 'Pending',           // Pending/In Progress/Finished
+        SOFTWARE_HOUDINI_STATUS: 'Pending',            // Pending/In Progress/Finished
+        SOFTWARE_ZBRUSH_STATUS: 'Pending',             // Pending/In Progress/Finished
+        SOFTWARE_SUBSTANCEPAINTER_STATUS: 'Pending',  // Pending/In Progress/Finished
+        SOFTWARE_FUSION_STATUS: 'Pending',            // Pending/In Progress/Finished
+        SOFTWARE_NUKE_STATUS: 'Pending',              // Pending/In Progress/Finished
+        SOFTWARE_DAVINCIRESOLVE_STATUS: 'Pending',    // Pending/In Progress/Finished
+        SOFTWARE_SKETCHUP_STATUS: 'Pending',           // Pending/In Progress/Finished
+        SOFTWARE_LUMION_STATUS: 'Pending',             // Pending/In Progress/Finished
+        SOFTWARE_VUE_STATUS: 'Pending',                // Pending/In Progress/Finished
+
+        // ========== SCHEDULE INFORMATION ==========
+        SCHEDULE_TYPE: 'MWF',                   // OPTIONAL: MWF or TTS
+        START_TIME: '7:00 AM',                  // OPTIONAL: Start time
+        END_TIME: '9:00 AM',                    // OPTIONAL: End time
+        CLASS_DAYS: 'Mon, Wed, Fri',            // OPTIONAL: Class days
+        BATCH_NAME: 'Morning Batch 1',          // OPTIONAL: Batch name
+
         // ========== ADDITIONAL INFORMATION ==========
-        complimentarySoftware: 'Adobe Creative Cloud',
-        complimentaryGift: 'Mouse Pad',
-        hasReference: 'Yes',
-        referenceDetails: 'Referred by friend',
-        counselorName: 'Sarah Smith',
-        leadSource: 'Walk-in',
-        walkinDate: '2024-01-10',
-        masterFaculty: 'Dr. John Smith',
-        
-        // ========== 1ST SOFTWARE SECTION ==========
-        '1st Software': 'Photoshop',
-        'Start Dt': '2024-01-20',         // Merged: Start Dt, 1st Software START DATE
-        '1st Software START DATE': '2024-01-20',
-        'End': '2024-03-20',              // Merged: End, 1st Software END DATE
-        '1st Software END DATE': '2024-03-20',
-        'Batch Time': '7 to 9',           // Merged: Batch Time, 1st Software BATCH TIMING
-        '1st Software BATCH TIMING': '7 to 9',
-        'Days': 'MWF',                    // Days for 1st Software
-        '1st Software FACULTY': 'Dr. Smith',
-        '1st Software CURRENT SOFTARE': 'IP',
-        '1st Software CURRENT': 'IP',
-        
-        // ========== 2ND SOFTWARE SECTION ==========
-        '2nd Software': 'Illustrator',
-        'START DATE': '2024-03-25',       // Merged: START DATE, 2nd Software START DATE
-        '2nd Software START DATE': '2024-03-25',
-        'END DATE': '2024-05-25',         // Merged: END DATE, 2nd Software END DATE
-        '2nd Software END DATE': '2024-05-25',
-        'BATCH TIME': '8 to 12',          // Merged: BATCH TIME, 2nd Software BATCH TIMING
-        '2nd Software BATCH TIMING': '8 to 12',
-        'Days ': 'TTS',                   // Days for 2nd Software (note the space)
-        '2nd Software FACULTY': 'Dr. Johnson',
-        '2nd Software CURRENT SOFTARE': 'XX',
-        '2nd Software CURRENT': 'XX',
-        
-        // ========== FUTURE BATCH SECTION ==========
-        'Future Batch START DATE': '2024-06-01',
-        'Future Batch END DATE': '2024-08-01',
-        'Future Batch BATCH TIME': '9 to 11',
-        'MWF/TTS': 'MWF',
-        'Future Batch MWF/TTS': 'MWF',
-        'Future Batch FACULTY': 'Dr. Williams',
-        'Future Batch CURRENT SOFTARE': 'XX',
-        'Future Batch RENT SOFT': '',
-        'REMARK': 'Continuing next month',
-        'NEXT SOFTWARE': 'After Effects',
-        
-        // ========== SOFTWARE STATUS COLUMNS (Numeric codes - Use XX, IP, NO, or Finished) ==========
-        '6': 'IP',        // PHOTOSHOP
-        '7': 'XX',        // ILLUSTRATOR + Indegn
-        '8': 'Finished',  // FUME FX
-        '10': 'NO',       // FUSION, REAL FLOW, THINKING PARTICAL
-        '11': 'XX',       // FCP
-        '12': 'XX',       // AFTER EFFECT, HOUDNI, CAD UNITY, Z-BRUSH, SKETCHUP
-        '13': 'XX',       // VUE
-        '14': 'XX',       // COREL, PREMIERE AUDITION
-        '15': 'XX',       // Auto-Cad
-        '16': 'XX',       // ILLUSTRATOR + Indegn, AFTER EFFECT
-        '23': 'XX',       // PHOTOSHOP
-        '24': 'XX',       // HTML Java DW CSS, NUKE, UNITY GAME DESIGN
-        '32': 'XX',       // ANIMATE CC
-        '33': 'XX',       // UNREAL
-        '48': 'XX',       // Ar. MAX + Vray
-        '72': 'XX',       // BLENDER PRO, CINEAMA 4D
-        '89': 'XX',       // MAX
-        '92': 'XX',       // MAYA, Davinci
-        
-        // ========== ADDITIONAL SOFTWARE NAME COLUMNS ==========
-        'PHOTOSHOP': 'IP',
-        'ILLUSTRATOR + Indegn': 'XX',
-        'COREL': 'XX',
-        'Figma ': 'XX',
-        'XD': 'XX',
-        'ANIMATE CC': 'XX',
-        'PREMIERE AUDITION': 'XX',
-        'AFTER EFFECT': 'XX',
-        'HTML Java DW CSS': 'XX',
-        'Ar. MAX + Vray ': 'XX',
-        'MAX': 'XX',
-        'FUSION': 'XX',
-        'REAL FLOW': 'XX',
-        'FUME FX': 'XX',
-        'NUKE': 'XX',
-        'THINKING PARTICAL': 'XX',
-        'RAY FIRE': 'XX',
-        'MOCHA': 'XX',
-        'SILHOUETTE': 'XX',
-        'PF TRACK': 'XX',
-        'VUE': 'XX',
-        'HOUDNI': 'XX',
-        'FCP': 'XX',
-        'MAYA': 'XX',
-        'CAD  UNITY': 'XX',
-        'MUDBOX ': 'XX',
-        'UNITY GAME DESIGN': 'XX',
-        'Z-BRUSH': 'XX',
-        'LUMION': 'XX',
-        'SKETCHUP': 'XX',
-        'UNREAL': 'XX',
-        'BLENDER PRO': 'XX',
-        'CINEAMA 4D': 'XX',
-        'SUBSTANCE PAINTER': 'XX',
-        '3D EQUALIZER': 'XX',
-        'Photography ': 'XX',
-        'Auto-Cad': 'XX',
-        'Wordpress': 'XX',
-        'Vuforia SDK': 'XX',
-        'Davinci ': 'XX',
+        COMPLIMENTARY_SOFTWARE: 'Adobe Creative Cloud, Figma, XD', // OPTIONAL: Complimentary software package
+        INDIVIDUAL_COMPLIMENTARY_SOFTWARE: 'Figma, XD, CorelDRAW', // OPTIONAL: Individual complimentary software list
+        COMPLIMENTARY_GIFT: 'Mouse Pad, Notebook',         // OPTIONAL: Complimentary gift
+        HAS_REFERENCE: 'Yes',                    // OPTIONAL: Has reference (Yes/No)
+        REFERENCE_DETAILS: 'Referred by friend', // OPTIONAL: Reference details
+        COUNSELOR_NAME: 'Sarah Smith',           // COMPULSORY: Counselor name
+        LEAD_SOURCE: 'Walk-in',                  // COMPULSORY: Lead source
+        WALKIN_DATE: '10/01/2024',              // OPTIONAL: Walk-in date (DD/MM/YYYY)
+        MASTER_FACULTY: 'Dr. John Smith',        // COMPULSORY: Master faculty
+        STUDENT_STATUS: 'Active',                // OPTIONAL: Student status
       },
       {
-        // Second example row with different data
-        DATE: '2024-02-01',
-        NAME: 'Jane Smith',
-        NUMBER: '9876543211',
-        email: 'jane.smith@example.com',
-        dob: '1996-06-15',
-        whatsappNumber: '9876543211',
-        localAddress: '456 Oak Ave, City, State',
-        permanentAddress: '456 Oak Ave, City, State',
-        emergencyContactNumber: '9876543212',
-        emergencyName: 'John Smith',
-        emergencyRelation: 'Father',
-        'New COURSE': 'Video Editing',
-        COMMON: 'Video Editing',
-        courseName: 'Video Editing',
-        Tyoe: 'A Plus',
-        TYPE: 'A Plus',
-        COURSE: 'A Plus',
-        courseType: 'A Plus',
-        Status: 'Active',
-        STATUS: 'Active',
-        studentStatus: 'Active',
-        'TIME COMMITMENT': '8 to 12',
-        TIME: '8 to 12',
-        batchTiming: '8 to 12',
-        PLUS: '',
-        softwaresIncluded: 'After Effects, Premiere Pro',
-        finishedBatches: 'After Effects',
-        currentBatches: 'Premiere Pro',
-        pendingBatches: 'DaVinci Resolve',
-        totalDeal: 60000,
-        bookingAmount: 15000,
-        balanceAmount: 45000,
-        emiPlan: 'Yes',
-        emiPlanDate: '2024-03-01',
-        complimentarySoftware: '',
-        complimentaryGift: '',
-        hasReference: 'No',
-        referenceDetails: '',
-        counselorName: 'Mike Johnson',
-        leadSource: 'Online',
-        walkinDate: '2024-01-25',
-        masterFaculty: 'Dr. Brown',
-        '1st Software': 'After Effects',
-        'Start Dt': '2024-02-05',
-        '1st Software START DATE': '2024-02-05',
-        'End': '2024-04-05',
-        '1st Software END DATE': '2024-04-05',
-        'Batch Time': '8 to 12',
-        '1st Software BATCH TIMING': '8 to 12',
-        'Days': 'TTS',
-        '1st Software FACULTY': 'Dr. Brown',
-        '1st Software CURRENT SOFTARE': 'IP',
-        '1st Software CURRENT': 'IP',
-        '2nd Software': 'Premiere Pro',
-        'START DATE': '2024-04-10',
-        '2nd Software START DATE': '2024-04-10',
-        'END DATE': '2024-06-10',
-        '2nd Software END DATE': '2024-06-10',
-        'BATCH TIME': '8 to 12',
-        '2nd Software BATCH TIMING': '8 to 12',
-        'Days ': 'MWF',
-        '2nd Software FACULTY': 'Dr. Davis',
-        '2nd Software CURRENT': 'XX',
-        'Future Batch START DATE': '2024-06-15',
-        'Future Batch END DATE': '2024-08-15',
-        'Future Batch BATCH TIME': '9 to 11',
-        'MWF/TTS': 'TTS',
-        'Future Batch MWF/TTS': 'TTS',
-        'Future Batch FACULTY': 'Dr. Wilson',
-        'Future Batch CURRENT SOFTARE': 'XX',
-        'Future Batch RENT SOFT': '',
-        'REMARK': '',
-        'NEXT SOFTWARE': 'DaVinci Resolve',
-        '6': 'Finished',
-        '7': 'Finished',
-        '12': 'IP',
-        '13': 'IP',
-        '92': 'IP',
-        'PHOTOSHOP': 'Finished',
-        'ILLUSTRATOR + Indegn': 'Finished',
-        'AFTER EFFECT': 'IP',
-        'PREMIERE AUDITION': 'IP',
-        'Davinci ': 'IP',
+        // Second example row with different software status
+        DATE: '01/02/2024',                     // COMPULSORY: Date of admission (DD/MM/YYYY)
+        NAME: 'Jane Smith',                      // COMPULSORY: Student name
+        NUMBER: '9876543211',                   // COMPULSORY: Phone number
+        EMAIL: 'jane.smith@example.com',        // COMPULSORY: Email address
+        WHATSAPP_NUMBER: '9876543211',          // COMPULSORY: WhatsApp number
+
+        // ========== PERSONAL INFORMATION ==========
+        DOB: '15/06/1996',                      // OPTIONAL: Date of birth (DD/MM/YYYY)
+        LOCAL_ADDRESS: '456 Oak Ave, City, State',    // COMPULSORY: Local address
+        PERMANENT_ADDRESS: '456 Oak Ave, City, State',// COMPULSORY: Permanent address
+
+        // ========== COMPULSORY EMERGENCY CONTACT ==========
+        EMERGENCY_CONTACT_NUMBER: '9876543212', // COMPULSORY: Emergency contact number
+        EMERGENCY_CONTACT_NAME: 'John Smith',    // COMPULSORY: Emergency contact name
+        EMERGENCY_RELATION: 'Father',            // COMPULSORY: Relationship
+
+        // ========== ENROLLMENT INFORMATION ==========
+        COURSE_NAME: 'Video Editing',            // OPTIONAL: Course name
+        SOFTWARES_INCLUDED: 'After Effects, Premiere Pro, Photoshop', // OPTIONAL: Comma-separated software list
+        ENROLLMENT_TYPE: 'Individual',           // OPTIONAL: Course or Individual software
+
+        // ========== COMPULSORY PAYMENT INFORMATION ==========
+        PAYMENT_MODE: 'Online',                  // COMPULSORY: Cash, Online, Cheque, NEFT, RTGS, UPI
+        PAYMENT_DATE: '01/02/2024',             // COMPULSORY: Date of payment (DD/MM/YYYY)
+        BOOKING_AMOUNT: 15000,                  // COMPULSORY: Initial booking amount paid
+        TOTAL_DEAL: 60000,                      // COMPULSORY: Total deal amount
+        BALANCE_AMOUNT: 45000,                  // COMPULSORY: Balance amount
+        PAYMENT_STATUS: 'Partial Paid',         // COMPULSORY: Unpaid, Partial Paid, Fully Paid
+        RECEIPT_NUMBER: 'REC002',               // OPTIONAL: Receipt number
+
+        // ========== SOFTWARE STATUS TRACKING (24+ Software) ==========
+        SOFTWARE_PHOTOSHOP_STATUS: 'Finished',       // Pending/In Progress/Finished
+        SOFTWARE_ILLUSTRATOR_STATUS: 'In Progress',   // Pending/In Progress/Finished
+        SOFTWARE_INDESIGN_STATUS: 'Pending',          // Pending/In Progress/Finished
+        SOFTWARE_AFTEREFFECTS_STATUS: 'In Progress',   // Pending/In Progress/Finished
+        SOFTWARE_PREMIEREPRO_STATUS: 'In Progress',    // Pending/In Progress/Finished
+        SOFTWARE_ANIMATECC_STATUS: 'Pending',          // Pending/In Progress/Finished
+        SOFTWARE_FIGMA_STATUS: 'Pending',              // Pending/In Progress/Finished
+        SOFTWARE_XD_STATUS: 'Pending',                 // Pending/In Progress/Finished
+        SOFTWARE_COREL_STATUS: 'Pending',              // Pending/In Progress/Finished
+        SOFTWARE_AUTOCAD_STATUS: 'Pending',             // Pending/In Progress/Finished
+        SOFTWARE_3DSMAX_STATUS: 'Pending',             // Pending/In Progress/Finished
+        SOFTWARE_MAYA_STATUS: 'Pending',               // Pending/In Progress/Finished
+        SOFTWARE_BLENDER_STATUS: 'Pending',            // Pending/In Progress/Finished
+        SOFTWARE_UNREAL_STATUS: 'Pending',             // Pending/In Progress/Finished
+        SOFTWARE_CINEMA4D_STATUS: 'Pending',            // Pending/In Progress/Finished
+        SOFTWARE_HOUDINI_STATUS: 'Pending',             // Pending/In Progress/Finished
+        SOFTWARE_ZBRUSH_STATUS: 'Pending',              // Pending/In Progress/Finished
+        SOFTWARE_SUBSTANCEPAINTER_STATUS: 'Pending',   // Pending/In Progress/Finished
+        SOFTWARE_FUSION_STATUS: 'Pending',              // Pending/In Progress/Finished
+        SOFTWARE_NUKE_STATUS: 'Pending',                // Pending/In Progress/Finished
+        SOFTWARE_DAVINCIRESOLVE_STATUS: 'In Progress', // Pending/In Progress/Finished
+        SOFTWARE_SKETCHUP_STATUS: 'Pending',            // Pending/In Progress/Finished
+        SOFTWARE_LUMION_STATUS: 'Pending',              // Pending/In Progress/Finished
+        SOFTWARE_VUE_STATUS: 'Pending',                 // Pending/In Progress/Finished
+
+        // ========== SCHEDULE INFORMATION ==========
+        SCHEDULE_TYPE: 'TTS',                    // OPTIONAL: MWF or TTS
+        START_TIME: '8:00 AM',                   // OPTIONAL: Start time
+        END_TIME: '12:00 PM',                   // OPTIONAL: End time
+        CLASS_DAYS: 'Tue, Thu, Sat',            // OPTIONAL: Class days
+        BATCH_NAME: 'Daytime Batch 2',          // OPTIONAL: Batch name
+
+        // ========== ADDITIONAL INFORMATION ==========
+        COMPLIMENTARY_SOFTWARE: 'Adobe Suite, Blender', // OPTIONAL: Complimentary software package
+        INDIVIDUAL_COMPLIMENTARY_SOFTWARE: 'Blender, Maya, ZBrush', // OPTIONAL: Individual complimentary software list
+        COMPLIMENTARY_GIFT: 'Graphics Tablet, Stylus',   // OPTIONAL: Complimentary gift
+        HAS_REFERENCE: 'No',                     // OPTIONAL: Has reference
+        REFERENCE_DETAILS: '',                   // OPTIONAL: Reference details
+        COUNSELOR_NAME: 'Mike Johnson',          // COMPULSORY: Counselor name
+        LEAD_SOURCE: 'Online',                   // COMPULSORY: Lead source
+        WALKIN_DATE: '25/01/2024',              // OPTIONAL: Walk-in date (DD/MM/YYYY)
+        MASTER_FACULTY: 'Dr. Brown',             // COMPULSORY: Master faculty
+        STUDENT_STATUS: 'Active',                // OPTIONAL: Student status
       },
     ];
 
     // Create workbook
-    logger.info('Creating workbook...');
+    logger.info('Creating enhanced workbook with color coding...');
     const workbook = XLSX.utils.book_new();
     
-    // Reorder columns to ensure DATE is absolutely first
-    // Define the exact column order with DATE first, numeric codes LAST
+    // Define column order with software status columns
     const columnOrder = [
-      // ========== DATE MUST BE FIRST ==========
-      'DATE', // FIRST COLUMN - must be first
+      // ========== COMPULSORY BASIC INFORMATION ==========
+      'DATE', 'NAME', 'NUMBER', 'EMAIL', 'WHATSAPP_NUMBER',
       
-      // ========== BASIC STUDENT INFO ==========
-      'NAME', 'NUMBER', 'email', 'dob',
+      // ========== PERSONAL INFORMATION (Some Compulsory) ==========
+      'DOB', 'LOCAL_ADDRESS', 'PERMANENT_ADDRESS',
       
-      // ========== CONTACT INFO ==========
-      'whatsappNumber', 'localAddress', 'permanentAddress',
-      'emergencyContactNumber', 'emergencyName', 'emergencyRelation',
+      // ========== COMPULSORY EMERGENCY CONTACT ==========
+      'EMERGENCY_CONTACT_NUMBER', 'EMERGENCY_CONTACT_NAME', 'EMERGENCY_RELATION',
       
-      // ========== COURSE INFO ==========
-      'New COURSE', 'COMMON', 'courseName', 'Tyoe', 'TYPE', 'COURSE', 'courseType',
-      'Status', 'STATUS', 'studentStatus', 'TIME COMMITMENT', 'TIME', 'batchTiming', 'PLUS',
+      // ========== ENROLLMENT INFORMATION ==========
+      'COURSE_NAME', 'SOFTWARES_INCLUDED', 'ENROLLMENT_TYPE',
       
-      // ========== BATCH STATUS ==========
-      'softwaresIncluded', 'finishedBatches', 'currentBatches', 'pendingBatches',
+      // ========== COMPULSORY PAYMENT INFORMATION ==========
+      'PAYMENT_MODE', 'PAYMENT_DATE', 'BOOKING_AMOUNT', 'TOTAL_DEAL', 'BALANCE_AMOUNT', 'PAYMENT_STATUS', 'RECEIPT_NUMBER',
       
-      // ========== FINANCIAL ==========
-      'totalDeal', 'bookingAmount', 'balanceAmount', 'emiPlan', 'emiPlanDate',
+      // ========== SOFTWARE STATUS TRACKING (24+ Software) ==========
+      'SOFTWARE_PHOTOSHOP_STATUS', 'SOFTWARE_ILLUSTRATOR_STATUS', 'SOFTWARE_INDESIGN_STATUS',
+      'SOFTWARE_AFTEREFFECTS_STATUS', 'SOFTWARE_PREMIEREPRO_STATUS', 'SOFTWARE_ANIMATECC_STATUS',
+      'SOFTWARE_FIGMA_STATUS', 'SOFTWARE_XD_STATUS', 'SOFTWARE_COREL_STATUS', 'SOFTWARE_AUTOCAD_STATUS',
+      'SOFTWARE_3DSMAX_STATUS', 'SOFTWARE_MAYA_STATUS', 'SOFTWARE_BLENDER_STATUS', 'SOFTWARE_UNREAL_STATUS',
+      'SOFTWARE_CINEMA4D_STATUS', 'SOFTWARE_HOUDINI_STATUS', 'SOFTWARE_ZBRUSH_STATUS', 'SOFTWARE_SUBSTANCEPAINTER_STATUS',
+      'SOFTWARE_FUSION_STATUS', 'SOFTWARE_NUKE_STATUS', 'SOFTWARE_DAVINCIRESOLVE_STATUS', 'SOFTWARE_SKETCHUP_STATUS',
+      'SOFTWARE_LUMION_STATUS', 'SOFTWARE_VUE_STATUS',
       
-      // ========== ADDITIONAL INFO ==========
-      'complimentarySoftware', 'complimentaryGift', 'hasReference', 'referenceDetails',
-      'counselorName', 'leadSource', 'walkinDate', 'masterFaculty',
+      // ========== SCHEDULE INFORMATION ==========
+      'SCHEDULE_TYPE', 'START_TIME', 'END_TIME', 'CLASS_DAYS', 'BATCH_NAME',
       
-      // ========== 1ST SOFTWARE SECTION ==========
-      '1st Software', 'Start Dt', '1st Software START DATE', 'End', '1st Software END DATE',
-      'Batch Time', '1st Software BATCH TIMING', 'Days', 'FACULTY', '1st Software FACULTY',
-      'CURRENT SOFTARE', '1st Software CURRENT',
-      
-      // ========== 2ND SOFTWARE SECTION ==========
-      '2nd Software', 'START DATE', '2nd Software START DATE', 'END DATE', '2nd Software END DATE',
-      'BATCH TIME', '2nd Software BATCH TIMING', 'Days ', '2nd Software FACULTY', '2nd Software CURRENT',
-      
-      // ========== FUTURE BATCH SECTION ==========
-      'Future Batch START DATE', 'Future Batch END DATE', 'Future Batch BATCH TIME',
-      'MWF/TTS', 'Future Batch MWF/TTS', 'Future Batch FACULTY', 'Future Batch CURRENT SOFTARE',
-      'Future Batch RENT SOFT', 'REMARK', 'NEXT SOFTWARE',
-      
-      // ========== SOFTWARE NAME COLUMNS (before numeric codes) ==========
-      'PHOTOSHOP', 'ILLUSTRATOR + Indegn', 'COREL', 'Figma ', 'XD', 'ANIMATE CC',
-      'PREMIERE AUDITION', 'AFTER EFFECT', 'HTML Java DW CSS', 'Ar. MAX + Vray ', 'MAX',
-      'FUSION', 'REAL FLOW', 'FUME FX', 'NUKE', 'THINKING PARTICAL', 'RAY FIRE',
-      'MOCHA', 'SILHOUETTE', 'PF TRACK', 'VUE', 'HOUDNI', 'FCP', 'MAYA',
-      'CAD  UNITY', 'MUDBOX ', 'UNITY GAME DESIGN', 'Z-BRUSH', 'LUMION', 'SKETCHUP',
-      'UNREAL', 'BLENDER PRO', 'CINEAMA 4D', 'SUBSTANCE PAINTER', '3D EQUALIZER',
-      'Photography ', 'Auto-Cad', 'Wordpress', 'Vuforia SDK', 'Davinci ',
-      
-      // ========== NUMERIC SOFTWARE CODE COLUMNS (LAST - after all other fields) ==========
-      '6', '7', '8', '10', '11', '12', '13', '14', '15', '16', '23', '24', '32', '33', '48', '72', '89', '92'
+      // ========== ADDITIONAL INFORMATION ==========
+      'COMPLIMENTARY_SOFTWARE', 'INDIVIDUAL_COMPLIMENTARY_SOFTWARE', 'COMPLIMENTARY_GIFT', 'HAS_REFERENCE', 'REFERENCE_DETAILS',
+      'COUNSELOR_NAME', 'LEAD_SOURCE', 'WALKIN_DATE', 'MASTER_FACULTY', 'STUDENT_STATUS',
     ];
     
-    // Numeric codes must be added LAST as strings to ensure they come after DATE
-    const numericCodes = ['6', '7', '8', '10', '11', '12', '13', '14', '15', '16', '23', '24', '32', '33', '48', '72', '89', '92'];
-    
-    // Create ordered data with DATE first, numeric codes LAST
-    // IMPORTANT: Process DATE first, then all non-numeric columns, then numeric codes last
-    const orderedSampleData = sampleData.map((row: any) => {
-      const orderedRow: any = {};
-      
-      // STEP 1: Add DATE FIRST (must be the very first column)
-      if (row.DATE !== undefined && row.DATE !== null) {
-        orderedRow.DATE = row.DATE;
-      }
-      
-      // STEP 2: Add all non-numeric columns in order (skip DATE and numeric codes)
-      columnOrder.forEach(key => {
-        if (key !== 'DATE' && !numericCodes.includes(key) && Object.prototype.hasOwnProperty.call(row, key)) {
-          orderedRow[key] = row[key];
-        }
-      });
-      
-      // STEP 3: Add numeric codes LAST (after all other columns)
-      numericCodes.forEach(key => {
-        if (Object.prototype.hasOwnProperty.call(row, key)) {
-          orderedRow[key] = row[key];
-        }
-      });
-      
-      // STEP 4: Add any remaining keys that weren't in the order list (except numeric codes and DATE)
-      Object.keys(row).forEach(key => {
-        if (!columnOrder.includes(key) && !numericCodes.includes(key) && key !== 'DATE' && !Object.prototype.hasOwnProperty.call(orderedRow, key)) {
-          orderedRow[key] = row[key];
-        }
-      });
-      
-      return orderedRow;
-    });
-    
-    // Create worksheet with explicit column order to ensure DATE is first
-    // Get all columns in the exact order we want: DATE first, numeric codes last
-    // Build column list: DATE first, then all non-numeric columns, then numeric codes last
-    const nonNumericColumns = columnOrder.filter(k => k !== 'DATE' && !numericCodes.includes(k));
-    const allColumns = ['DATE', ...nonNumericColumns, ...numericCodes];
-    
-    logger.info(`Creating worksheet with ${allColumns.length} columns. First column: ${allColumns[0]}, Last columns: ${numericCodes.slice(-3).join(', ')}`);
-    
-    // Create worksheet manually with explicit column order using array-based approach
-    // This ensures DATE is column 0 (A), and numeric codes are at the end
+    // Create worksheet with explicit column order
     const worksheet: any = {};
     
-    // Set headers in correct order (row 0) - DATE will be column A (index 0)
-    allColumns.forEach((colName, idx) => {
+    // Set headers in correct order (row 0)
+    columnOrder.forEach((colName, idx) => {
       const cellAddress = XLSX.utils.encode_cell({ r: 0, c: idx });
       worksheet[cellAddress] = { t: 's', v: colName };
     });
-    
+
     // Copy data rows in correct column order
-    for (let rowIdx = 0; rowIdx < orderedSampleData.length; rowIdx++) {
-      allColumns.forEach((colName, colIdx) => {
+    for (let rowIdx = 0; rowIdx < sampleData.length; rowIdx++) {
+      columnOrder.forEach((colName, colIdx) => {
         const cellAddress = XLSX.utils.encode_cell({ r: rowIdx + 1, c: colIdx });
-        const value = orderedSampleData[rowIdx]?.[colName];
+        const value = (sampleData[rowIdx] as any)?.[colName];
         if (value !== undefined && value !== null && value !== '') {
           if (typeof value === 'string') {
             worksheet[cellAddress] = { t: 's', v: value };
@@ -2762,167 +2908,105 @@ export const downloadUnifiedTemplate = async (req: AuthRequest, res: Response): 
       });
     }
     
-    // Set worksheet range - ensure it covers all columns
+    // Set worksheet range
     worksheet['!ref'] = XLSX.utils.encode_range({ 
       s: { r: 0, c: 0 }, 
-      e: { r: orderedSampleData.length, c: allColumns.length - 1 } 
+      e: { r: sampleData.length, c: columnOrder.length - 1 } 
     });
     
-    logger.info(`Worksheet created. Range: ${worksheet['!ref']}, Total columns: ${allColumns.length}`);
+    logger.info(`Enhanced worksheet created. Range: ${worksheet['!ref']}, Total columns: ${columnOrder.length}`);
     
-    // Set column widths for better readability - DATE is FIRST column
+    // Set column widths for better readability
     const colWidths = [
-      { wch: 12 }, // DATE - FIRST COLUMN
+      { wch: 12 }, // DATE
       { wch: 20 }, // NAME
       { wch: 15 }, // NUMBER
-      { wch: 25 }, // email
-      { wch: 12 }, // dob
-      // Contact Info (3)
-      { wch: 15 }, // whatsappNumber
-      { wch: 30 }, // localAddress
-      { wch: 30 }, // permanentAddress
-      // Emergency Contact (3)
-      { wch: 18 }, // emergencyContactNumber
-      { wch: 20 }, // emergencyName
-      { wch: 15 }, // emergencyRelation
-      // Course Info (9)
-      { wch: 20 }, // New COURSE
-      { wch: 20 }, // COMMON
-      { wch: 20 }, // courseName
-      { wch: 12 }, // Tyoe
-      { wch: 12 }, // TYPE
-      { wch: 12 }, // COURSE
-      { wch: 12 }, // courseType
-      { wch: 12 }, // Status
-      { wch: 12 }, // STATUS
-      { wch: 12 }, // studentStatus
-      { wch: 15 }, // TIME COMMITMENT
-      { wch: 12 }, // TIME
-      { wch: 12 }, // batchTiming
-      { wch: 10 }, // PLUS
-      // Batch Status (3)
-      { wch: 30 }, // softwaresIncluded
-      { wch: 30 }, // finishedBatches
-      { wch: 30 }, // currentBatches
-      { wch: 30 }, // pendingBatches
-      // Financial (5)
-      { wch: 12 }, // totalDeal
-      { wch: 12 }, // bookingAmount
-      { wch: 12 }, // balanceAmount
-      { wch: 10 }, // emiPlan
-      { wch: 12 }, // emiPlanDate
-      // Additional Info (7)
-      { wch: 25 }, // complimentarySoftware
-      { wch: 20 }, // complimentaryGift
-      { wch: 10 }, // hasReference
-      { wch: 25 }, // referenceDetails
-      { wch: 20 }, // counselorName
-      { wch: 15 }, // leadSource
-      { wch: 12 }, // walkinDate
-      { wch: 20 }, // masterFaculty
-      // 1st Software (11 columns - including merged fields)
-      { wch: 20 }, // 1st Software
-      { wch: 12 }, // Start Dt
-      { wch: 18 }, // 1st Software START DATE
-      { wch: 12 }, // End
-      { wch: 18 }, // 1st Software END DATE
-      { wch: 15 }, // Batch Time
-      { wch: 18 }, // 1st Software BATCH TIMING
-      { wch: 10 }, // Days
-      { wch: 18 }, // FACULTY
-      { wch: 18 }, // 1st Software FACULTY
-      { wch: 15 }, // CURRENT SOFTARE
-      { wch: 15 }, // 1st Software CURRENT
-      // 2nd Software (11 columns - including merged fields)
-      { wch: 20 }, // 2nd Software
-      { wch: 18 }, // START DATE
-      { wch: 18 }, // 2nd Software START DATE
-      { wch: 18 }, // END DATE
-      { wch: 18 }, // 2nd Software END DATE
-      { wch: 18 }, // BATCH TIME
-      { wch: 18 }, // 2nd Software BATCH TIMING
-      { wch: 10 }, // Days (with space)
-      { wch: 18 }, // 2nd Software FACULTY
-      { wch: 15 }, // 2nd Software CURRENT
-      // Future Batch (9 columns)
-      { wch: 18 }, // Future Batch START DATE
-      { wch: 18 }, // Future Batch END DATE
-      { wch: 18 }, // Future Batch BATCH TIME
-      { wch: 12 }, // MWF/TTS
-      { wch: 12 }, // Future Batch MWF/TTS
-      { wch: 18 }, // Future Batch FACULTY
-      { wch: 15 }, // Future Batch CURRENT SOFTARE
-      { wch: 15 }, // Future Batch RENT SOFT
-      { wch: 20 }, // REMARK
-      { wch: 20 }, // NEXT SOFTWARE
-      // Software Status Codes (18 numeric codes)
-      { wch: 8 }, { wch: 8 }, { wch: 8 }, { wch: 8 }, { wch: 8 }, { wch: 8 },
-      { wch: 8 }, { wch: 8 }, { wch: 8 }, { wch: 8 }, { wch: 8 }, { wch: 8 },
-      { wch: 8 }, { wch: 8 }, { wch: 8 }, { wch: 8 }, { wch: 8 }, { wch: 8 },
-      // Software Name Columns (40 columns)
-      { wch: 15 }, // PHOTOSHOP
-      { wch: 20 }, // ILLUSTRATOR + Indegn
-      { wch: 12 }, // COREL
-      { wch: 12 }, // Figma
-      { wch: 8 },  // XD
-      { wch: 15 }, // ANIMATE CC
-      { wch: 20 }, // PREMIERE AUDITION
-      { wch: 15 }, // AFTER EFFECT
-      { wch: 20 }, // HTML Java DW CSS
-      { wch: 18 }, // Ar. MAX + Vray
-      { wch: 10 }, // MAX
-      { wch: 12 }, // FUSION
-      { wch: 12 }, // REAL FLOW
-      { wch: 12 }, // FUME FX
-      { wch: 10 }, // NUKE
-      { wch: 20 }, // THINKING PARTICAL
-      { wch: 12 }, // RAY FIRE
-      { wch: 10 }, // MOCHA
-      { wch: 15 }, // SILHOUETTE
-      { wch: 12 }, // PF TRACK
-      { wch: 10 }, // VUE
-      { wch: 12 }, // HOUDNI
-      { wch: 8 },  // FCP
-      { wch: 10 }, // MAYA
-      { wch: 15 }, // CAD UNITY
-      { wch: 12 }, // MUDBOX
-      { wch: 20 }, // UNITY GAME DESIGN
-      { wch: 12 }, // Z-BRUSH
-      { wch: 12 }, // LUMION
-      { wch: 12 }, // SKETCHUP
-      { wch: 12 }, // UNREAL
-      { wch: 15 }, // BLENDER PRO
-      { wch: 15 }, // CINEAMA 4D
-      { wch: 20 }, // SUBSTANCE PAINTER
-      { wch: 15 }, // 3D EQUALIZER
-      { wch: 15 }, // Photography
-      { wch: 12 }, // Auto-Cad
-      { wch: 12 }, // Wordpress
-      { wch: 15 }, // Vuforia SDK
-      { wch: 12 }, // Davinci
+      { wch: 25 }, // EMAIL
+      { wch: 15 }, // WHATSAPP_NUMBER
+      { wch: 12 }, // DOB
+      { wch: 30 }, // LOCAL_ADDRESS
+      { wch: 30 }, // PERMANENT_ADDRESS
+      { wch: 18 }, // EMERGENCY_CONTACT_NUMBER
+      { wch: 20 }, // EMERGENCY_CONTACT_NAME
+      { wch: 15 }, // EMERGENCY_RELATION
+      { wch: 20 }, // COURSE_NAME
+      { wch: 30 }, // SOFTWARES_INCLUDED
+      { wch: 15 }, // ENROLLMENT_TYPE
+      { wch: 12 }, // PAYMENT_MODE
+      { wch: 12 }, // PAYMENT_DATE
+      { wch: 12 }, // BOOKING_AMOUNT
+      { wch: 12 }, // TOTAL_DEAL
+      { wch: 12 }, // BALANCE_AMOUNT
+      { wch: 15 }, // PAYMENT_STATUS
+      { wch: 12 }, // RECEIPT_NUMBER
+      
+      // Software Status Columns (24 columns)
+      { wch: 20 }, // SOFTWARE_PHOTOSHOP_STATUS
+      { wch: 22 }, // SOFTWARE_ILLUSTRATOR_STATUS
+      { wch: 20 }, // SOFTWARE_INDESIGN_STATUS
+      { wch: 24 }, // SOFTWARE_AFTEREFFECTS_STATUS
+      { wch: 22 }, // SOFTWARE_PREMIEREPRO_STATUS
+      { wch: 20 }, // SOFTWARE_ANIMATECC_STATUS
+      { wch: 15 }, // SOFTWARE_FIGMA_STATUS
+      { wch: 12 }, // SOFTWARE_XD_STATUS
+      { wch: 15 }, // SOFTWARE_COREL_STATUS
+      { wch: 17 }, // SOFTWARE_AUTOCAD_STATUS
+      { wch: 17 }, // SOFTWARE_3DSMAX_STATUS
+      { wch: 14 }, // SOFTWARE_MAYA_STATUS
+      { wch: 17 }, // SOFTWARE_BLENDER_STATUS
+      { wch: 16 }, // SOFTWARE_UNREAL_STATUS
+      { wch: 18 }, // SOFTWARE_CINEMA4D_STATUS
+      { wch: 18 }, // SOFTWARE_HOUDINI_STATUS
+      { wch: 17 }, // SOFTWARE_ZBRUSH_STATUS
+      { wch: 26 }, // SOFTWARE_SUBSTANCEPAINTER_STATUS
+      { wch: 16 }, // SOFTWARE_FUSION_STATUS
+      { wch: 14 }, // SOFTWARE_NUKE_STATUS
+      { wch: 26 }, // SOFTWARE_DAVINCIRESOLVE_STATUS
+      { wch: 19 }, // SOFTWARE_SKETCHUP_STATUS
+      { wch: 16 }, // SOFTWARE_LUMION_STATUS
+      { wch: 13 }, // SOFTWARE_VUE_STATUS
+      
+      // Schedule Information
+      { wch: 12 }, // SCHEDULE_TYPE
+      { wch: 12 }, // START_TIME
+      { wch: 12 }, // END_TIME
+      { wch: 15 }, // CLASS_DAYS
+      { wch: 15 }, // BATCH_NAME
+      
+      // Additional Information
+      { wch: 25 }, // COMPLIMENTARY_SOFTWARE
+      { wch: 30 }, // INDIVIDUAL_COMPLIMENTARY_SOFTWARE
+      { wch: 20 }, // COMPLIMENTARY_GIFT
+      { wch: 10 }, // HAS_REFERENCE
+      { wch: 25 }, // REFERENCE_DETAILS
+      { wch: 20 }, // COUNSELOR_NAME
+      { wch: 15 }, // LEAD_SOURCE
+      { wch: 12 }, // WALKIN_DATE
+      { wch: 20 }, // MASTER_FACULTY
+      { wch: 12 }, // STUDENT_STATUS
     ];
     worksheet['!cols'] = colWidths;
     
     XLSX.utils.book_append_sheet(workbook, worksheet, 'Student Data');
 
     // Generate buffer
-    logger.info('Generating buffer...');
+    logger.info('Generating enhanced buffer...');
     const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
 
-    logger.info(`Buffer generated, size: ${buffer.length} bytes`);
+    logger.info(`Enhanced buffer generated, size: ${buffer.length} bytes`);
 
     // Set headers BEFORE sending response
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', 'attachment; filename=unified_student_template.xlsx');
+    res.setHeader('Content-Disposition', 'attachment; filename=enhanced_student_template_with_software_status.xlsx');
     res.setHeader('Content-Length', buffer.length.toString());
 
     // Send file
-    logger.info('Sending file...');
+    logger.info('Sending enhanced template file...');
     res.send(buffer);
-    logger.info('Template sent successfully');
+    logger.info('Enhanced template sent successfully');
   } catch (error: any) {
-    logger.error('Download template error:', error);
-    logger.error('Download template error details:', {
+    logger.error('Download enhanced template error:', error);
+    logger.error('Download enhanced template error details:', {
       message: error?.message,
       stack: error?.stack,
       name: error?.name,
@@ -2933,7 +3017,7 @@ export const downloadUnifiedTemplate = async (req: AuthRequest, res: Response): 
       res.setHeader('Content-Type', 'application/json');
       res.status(500).json({
         status: 'error',
-        message: 'Internal server error while generating template',
+        message: 'Internal server error while generating enhanced template',
         error: process.env.NODE_ENV === 'development' ? error.message : undefined,
       });
     } else {
@@ -3132,21 +3216,9 @@ export const checkDuplicate = async (req: AuthRequest, res: Response): Promise<v
       finalWhere = whereConditions[0];
     } else if (whereConditions.length === 2) {
       // Email OR Phone condition
-      const emailOrPhoneCondition = {
+      finalWhere = {
         [Op.or]: [whereConditions[0], whereConditions[1]]
       };
-      
-      if (excludeStudentId) {
-        // Email OR Phone AND NOT excludeStudentId
-        finalWhere = {
-          [Op.and]: [
-            emailOrPhoneCondition,
-            whereConditions[2] // exclusion condition
-          ]
-        };
-      } else {
-        finalWhere = emailOrPhoneCondition;
-      }
     } else if (whereConditions.length === 3) {
       // Email OR Phone AND NOT excludeStudentId
       finalWhere = {
@@ -3206,6 +3278,184 @@ export const checkDuplicate = async (req: AuthRequest, res: Response): Promise<v
       status: 'error',
       message: 'Internal server error while checking for duplicates',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+    });
+  }
+};
+
+/**
+ * Approve corrected balance amount and update payment transaction
+ */
+export const approveCorrectedBalance = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const studentId = parseInt(req.params.id);
+    const { correctedBalance } = req.body;
+
+    if (!correctedBalance || correctedBalance <= 0) {
+      res.status(400).json({
+        status: 'error',
+        message: 'Invalid corrected balance amount',
+      });
+      return;
+    }
+
+    await db.sequelize.transaction(async (transaction) => {
+      // Get the student's enrollment metadata
+      const studentProfile = await db.StudentProfile.findOne({
+        where: { userId: studentId },
+        transaction,
+      });
+
+      if (!studentProfile) {
+        throw new Error('Student profile not found');
+      }
+
+      // documents can be object or JSON string depending on DB dialect/config
+      let documents: any = studentProfile.documents || {};
+      if (typeof documents === 'string') {
+        try {
+          documents = JSON.parse(documents);
+        } catch {
+          documents = {};
+        }
+      }
+      const enrollmentMetadata: any = documents.enrollmentMetadata || (documents.enrollmentMetadata = {});
+
+      if (!enrollmentMetadata.hasPaymentMismatch) {
+        throw new Error('No payment mismatch flagged for this student');
+      }
+
+      // Update the balance amount to the corrected value
+      enrollmentMetadata.balanceAmount = correctedBalance;
+      enrollmentMetadata.hasPaymentMismatch = false;
+      enrollmentMetadata.paymentMismatchResolved = true;
+      enrollmentMetadata.paymentMismatchResolvedAt = new Date().toISOString();
+      enrollmentMetadata.approvedBy = req.user?.userId;
+
+      studentProfile.documents = documents;
+      await studentProfile.save({ transaction });
+
+      // Update or create the payment transaction with the corrected amount
+      const existingPayment = await db.PaymentTransaction.findOne({
+        where: {
+          studentId,
+          notes: { [Op.like]: '%Balance payment from Excel import%' },
+        },
+        transaction,
+      });
+
+      if (existingPayment) {
+        existingPayment.amount = correctedBalance;
+        existingPayment.notes = `Balance payment from Excel import (APPROVED) - Total Deal: ${enrollmentMetadata.totalDeal || 0}, Corrected by: ${req.user?.email}`;
+        await existingPayment.save({ transaction });
+
+        logger.info(
+          `✅ Approved corrected balance for student ${studentId}: ${correctedBalance} (was: ${enrollmentMetadata.originalBalanceAmount || 'N/A'})`
+        );
+      } else {
+        // Create new payment transaction if it doesn't exist
+        const enrollment = await db.Enrollment.findOne({
+          where: { studentId },
+          transaction,
+        });
+
+        await db.PaymentTransaction.create(
+          {
+            studentId,
+            enrollmentId: enrollment?.id || null,
+            amount: correctedBalance,
+            dueDate: enrollmentMetadata.emiPlanDate ? new Date(enrollmentMetadata.emiPlanDate) : new Date(),
+            status: enrollmentMetadata.emiPlan ? PaymentStatus.PENDING : PaymentStatus.UNPAID,
+            notes: `Balance payment from Excel import (APPROVED) - Total Deal: ${enrollmentMetadata.totalDeal || 0}, Corrected by: ${req.user?.email}`,
+          },
+          { transaction }
+        );
+      }
+    });
+
+    res.status(200).json({
+      status: 'success',
+      message: 'Corrected balance amount approved and payment updated successfully',
+    });
+  } catch (error: any) {
+    logger.error('Approve corrected balance error:', error);
+    res.status(500).json({
+      status: 'error',
+      message: error.message || 'Internal server error',
+    });
+  }
+};
+
+/**
+ * Reject corrected balance (keep original amount)
+ */
+export const rejectCorrectedBalance = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const studentId = parseInt(req.params.id);
+    const { keepOriginal, originalBalance } = req.body;
+
+    await db.sequelize.transaction(async (transaction) => {
+      // Get the student's enrollment metadata
+      const studentProfile = await db.StudentProfile.findOne({
+        where: { userId: studentId },
+        transaction,
+      });
+
+      if (!studentProfile) {
+        throw new Error('Student profile not found');
+      }
+
+      let documents: any = studentProfile.documents || {};
+      if (typeof documents === 'string') {
+        try {
+          documents = JSON.parse(documents);
+        } catch {
+          documents = {};
+        }
+      }
+      const enrollmentMetadata: any = documents.enrollmentMetadata || (documents.enrollmentMetadata = {});
+
+      if (!enrollmentMetadata.hasPaymentMismatch) {
+        throw new Error('No payment mismatch flagged for this student');
+      }
+
+      // Mark mismatch as resolved, keeping original amount
+      enrollmentMetadata.hasPaymentMismatch = false;
+      enrollmentMetadata.paymentMismatchResolved = true;
+      enrollmentMetadata.paymentMismatchResolvedAt = new Date().toISOString();
+      enrollmentMetadata.rejectedBy = req.user?.userId;
+      enrollmentMetadata.keptOriginalAmount = keepOriginal !== false;
+
+      studentProfile.documents = documents;
+      await studentProfile.save({ transaction });
+
+      // Update the payment transaction notes to reflect rejection
+      const existingPayment = await db.PaymentTransaction.findOne({
+        where: {
+          studentId,
+          notes: { [Op.like]: '%Balance payment from Excel import%' },
+        },
+        transaction,
+      });
+
+      if (existingPayment) {
+        existingPayment.notes = `Balance payment from Excel import (REJECTED CORRECTION) - Total Deal: ${enrollmentMetadata.totalDeal || 0}, Kept original: ${originalBalance || enrollmentMetadata.balanceAmount}, Rejected by: ${req.user?.email}`;
+        await existingPayment.save({ transaction });
+
+        logger.info(
+          `❌ Rejected correction for student ${studentId}: Kept original balance ${originalBalance || enrollmentMetadata.balanceAmount}`
+        );
+      }
+    });
+
+    res.status(200).json({
+      status: 'success',
+      message: 'Original balance amount retained',
+    });
+  } catch (error: any) {
+    logger.error('Reject corrected balance error:', error);
+    res.status(500).json({
+      status: 'error',
+      message: error.message || 'Internal server error',
     });
   }
 };

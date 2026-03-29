@@ -23,7 +23,7 @@ router.post(
 router.put(
   '/:id',
   verifyTokenMiddleware,
-  checkRole(UserRole.ADMIN, UserRole.SUPERADMIN),
+  checkRole(UserRole.ADMIN, UserRole.SUPERADMIN, UserRole.FACULTY),
   courseController.updateCourse
 );
 

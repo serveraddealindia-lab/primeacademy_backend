@@ -18,8 +18,13 @@ export const createBatch = async (req: AuthRequest, res: Response): Promise<void
       return;
     }
 
-    const { title, software, mode, startDate, endDate, maxCapacity, schedule, status, facultyIds, studentIds, exceptionStudentIds, courseId } =
+    const { title, software: softwareRaw, mode, startDate, endDate, maxCapacity, schedule, status, facultyIds, studentIds, exceptionStudentIds, courseId } =
       req.body;
+
+    // Normalize software: accept string or array (e.g. from different frontend flows)
+    const software = Array.isArray(softwareRaw)
+      ? (softwareRaw as string[]).map((s) => String(s).trim()).filter(Boolean).join(', ')
+      : (softwareRaw != null ? String(softwareRaw).trim() : '');
 
     // Validation - All fields required
     if (!title || !title.trim()) {
@@ -30,7 +35,7 @@ export const createBatch = async (req: AuthRequest, res: Response): Promise<void
       return;
     }
 
-    if (!software || !software.trim()) {
+    if (!software) {
       res.status(400).json({
         status: 'error',
         message: 'Software is required',
@@ -710,7 +715,7 @@ export const suggestCandidates = async (req: AuthRequest, res: Response): Promis
             model: db.StudentProfile,
             as: 'studentProfile',
             required: false, // Changed to false to include students without profiles
-            attributes: ['id', 'softwareList', 'pendingBatches', 'currentBatches', 'finishedBatches', 'status'],
+            attributes: ['id', 'softwareList', 'pendingBatches', 'currentBatches', 'finishedBatches', 'status', 'documents'],
           },
         ],
         attributes: ['id', 'name', 'email', 'phone'],
@@ -739,7 +744,7 @@ export const suggestCandidates = async (req: AuthRequest, res: Response): Promis
               model: db.StudentProfile,
               as: 'studentProfile',
               required: false,
-              attributes: ['id', 'softwareList', 'status'], // Include status if available
+              attributes: ['id', 'softwareList', 'status', 'documents'], // Include documents for excel-import fallbacks
             },
           ],
           attributes: ['id', 'name', 'email', 'phone'],
@@ -825,7 +830,137 @@ export const suggestCandidates = async (req: AuthRequest, res: Response): Promis
             );
             
             if (matches) {
-              return true; // Found match in pending batches
+              // For students with pending batch match, also require enhanced matching (time slot or complimentary software)
+              let hasEnhancedMatch = false;
+              
+              // Check if student has schedule data for time slot matching
+              let studentSchedule: Array<{ day: string; startTime: string; endTime: string }> = [];
+              let hasAnyScheduleMetadata = false;
+              if (student.studentProfile?.documents) {
+                try {
+                  let documents = student.studentProfile.documents;
+                  if (typeof documents === 'string') {
+                    try {
+                      documents = JSON.parse(documents);
+                    } catch {
+                      documents = {};
+                    }
+                  }
+                  
+                  const scheduleData = documents?.schedule || documents?.studentSchedule || {};
+                  if (scheduleData && typeof scheduleData === 'object') {
+                    hasAnyScheduleMetadata = Object.keys(scheduleData).length > 0;
+                    studentSchedule = Object.entries(scheduleData)
+                      .map(([day, times]) => {
+                        if (times && typeof times === 'object' && (times as any).startTime) {
+                          return {
+                            day: day,
+                            startTime: (times as any).startTime,
+                            endTime: (times as any).endTime || (times as any).EndTime,
+                          };
+                        }
+                        return null;
+                      })
+                      .filter((slot): slot is { day: string; startTime: string; endTime: string } => slot !== null);
+                  }
+                } catch (scheduleError) {
+                  logger.warn(`Error parsing student schedule for student ${student.id}:`, scheduleError);
+                  studentSchedule = [];
+                }
+              }
+              
+              // Check time slot match
+              if (studentSchedule.length > 0 && batch.schedule) {
+                try {
+                  let parsedBatchSchedule = batch.schedule;
+                  if (typeof batch.schedule === 'string') {
+                    parsedBatchSchedule = JSON.parse(batch.schedule);
+                  }
+                  
+                  for (const studentSlot of studentSchedule) {
+                    for (const batchSlot of (Array.isArray(parsedBatchSchedule) ? parsedBatchSchedule : [parsedBatchSchedule])) {
+                      const studentDay = studentSlot.day?.toLowerCase() || '';
+                      const batchDay = (batchSlot.day || batchSlot.Day || batchSlot.Days || batchSlot.days || batchSlot.weekday)?.toLowerCase() || '';
+                      
+                      if (studentDay && batchDay && studentDay === batchDay) {
+                        const studentStartStr = studentSlot.startTime || '';
+                        const batchStartStr = batchSlot.startTime || batchSlot.start_time || batchSlot.StartTime || '';
+                        
+                        if (studentStartStr && batchStartStr) {
+                          const studentStart = timeToMinutes(studentStartStr);
+                          const batchStart = timeToMinutes(batchStartStr);
+                          const timeDifference = Math.abs(studentStart - batchStart);
+                          if (timeDifference <= 30) {
+                            hasEnhancedMatch = true;
+                            logger.info(`✓ Enhanced match (pending batch + time slot): Student ${student.id} (${student.name}) time slot matches batch`);
+                            break;
+                          }
+                        }
+                      }
+                    }
+                    if (hasEnhancedMatch) break;
+                  }
+                } catch (scheduleError) {
+                  logger.warn(`Error checking time slot matching for student ${student.id}:`, scheduleError);
+                }
+              }
+              
+              // Check complimentary software match if no time match found
+              if (!hasEnhancedMatch) {
+                try {
+                  if (student.studentProfile?.documents) {
+                    let documents = student.studentProfile.documents;
+                    if (typeof documents === 'string') {
+                      try {
+                        documents = JSON.parse(documents);
+                      } catch {
+                        documents = {};
+                      }
+                    }
+                    
+                    const enrollmentMetadata = documents?.enrollmentMetadata || documents;
+                    if (enrollmentMetadata?.complimentarySoftware) {
+                      const compSoftware = typeof enrollmentMetadata.complimentarySoftware === 'string'
+                        ? enrollmentMetadata.complimentarySoftware.split(',').map((s: string) => s.trim()).filter(Boolean)
+                        : Array.isArray(enrollmentMetadata.complimentarySoftware)
+                        ? enrollmentMetadata.complimentarySoftware
+                        : [];
+                      
+                      const normalizedCompSoftware = compSoftware.map((s: string) => s.toLowerCase().trim());
+                      const compSoftwareMatches = batchSoftwareList.filter((batchSoftware: string) =>
+                        normalizedCompSoftware.some((compSoftware: string) =>
+                          compSoftware === batchSoftware || 
+                          compSoftware.includes(batchSoftware) || 
+                          batchSoftware.includes(compSoftware)
+                        )
+                      );
+                      
+                      if (compSoftwareMatches.length > 0) {
+                        hasEnhancedMatch = true;
+                        logger.info(`✓ Enhanced match (pending batch + complimentary software): Student ${student.id} (${student.name}) has complimentary software: ${compSoftwareMatches.join(', ')}`);
+                      }
+                    }
+                  }
+                } catch (compSoftwareError) {
+                  logger.warn(`Error checking complimentary software matching for student ${student.id}:`, compSoftwareError);
+                }
+              }
+
+              // If the student has no schedule metadata at all, don't block suggestions.
+              // Many legacy/live datasets only have course/software mapping; time slots are optional.
+              if (!hasEnhancedMatch && !hasAnyScheduleMetadata) {
+                hasEnhancedMatch = true;
+                logger.info(`ℹ️ Skipping enhanced match for student ${student.id} (${student.name}) - no schedule metadata found`);
+              }
+              
+              // Only include students with enhanced match (time slot or complimentary software)
+              if (hasEnhancedMatch) {
+                logger.info(`✓ Student ${student.id} (${student.name}) included (pending batch): Has software match AND enhanced match`);
+                return true;
+              } else {
+                logger.debug(`Student ${student.id} (${student.name}) has pending batch match but NO enhanced match (time/complimentary software)`);
+                return false;
+              }
             }
           } catch (e: any) {
             logger.warn(`Student ${student.id}: Error processing pendingBatches: ${e.message}`);
@@ -833,36 +968,64 @@ export const suggestCandidates = async (req: AuthRequest, res: Response): Promis
         }
         
         // Fallback: If no pending batches, check softwareList (for backward compatibility)
-        let softwareList: any = null;
+        // Also support legacy/live imports where software is only stored in documents/enrollmentMetadata.
+        let softwareListRaw: any = null;
         try {
-          softwareList = profile.softwareList;
-          
-          // Handle case where softwareList might be a JSON string (MySQL/MariaDB)
-          if (softwareList && typeof softwareList === 'string') {
-            try {
-              softwareList = JSON.parse(softwareList);
-            } catch (e) {
-              logger.warn(`Student ${student.id} (${student.name}): Failed to parse softwareList as JSON: ${softwareList}`);
-              return false;
+          softwareListRaw = profile.softwareList;
+        } catch {
+          softwareListRaw = null;
+        }
+
+        const normalizeSoftwareList = (value: any): string[] => {
+          if (!value) return [];
+          if (Array.isArray(value)) return value.map((s) => String(s).trim()).filter(Boolean);
+          if (typeof value === 'string') {
+            const raw = value.trim();
+            if (!raw) return [];
+            if (raw.startsWith('[') && raw.endsWith(']')) {
+              try {
+                const parsed = JSON.parse(raw);
+                if (Array.isArray(parsed)) return parsed.map((s) => String(s).trim()).filter(Boolean);
+              } catch {
+                // fallthrough
+              }
             }
+            return raw.split(',').map((s) => s.trim()).filter(Boolean);
           }
-        } catch (e) {
-          logger.debug(`Student ${student.id}: Error accessing softwareList`);
-          return false;
+          return [];
+        };
+
+        let softwareList = normalizeSoftwareList(softwareListRaw);
+
+        // If profile.softwareList is empty/missing, try documents.enrollmentMetadata (Excel imports often store it there)
+        if (softwareList.length === 0 && student.studentProfile?.documents) {
+          try {
+            let documents: any = student.studentProfile.documents;
+            if (typeof documents === 'string') {
+              try {
+                documents = JSON.parse(documents);
+              } catch {
+                documents = {};
+              }
+            }
+            const enrollmentMetadata = documents?.enrollmentMetadata || documents;
+            const fromDocs =
+              enrollmentMetadata?.softwaresIncluded ??
+              enrollmentMetadata?.softwareIncluded ??
+              enrollmentMetadata?.softwareList ??
+              enrollmentMetadata?.software ??
+              null;
+            softwareList = normalizeSoftwareList(fromDocs);
+            if (softwareList.length > 0) {
+              logger.info(`ℹ️ Using software list from documents for student ${student.id} (${student.name})`);
+            }
+          } catch (e) {
+            logger.warn(`Student ${student.id} (${student.name}): Error extracting software list from documents`, e);
+          }
         }
-        
-        if (!softwareList) {
-          logger.debug(`Student ${student.id} (${student.name}): No softwareList or pendingBatches in profile`);
-          return false;
-        }
-        
-        if (!Array.isArray(softwareList)) {
-          logger.debug(`Student ${student.id} (${student.name}): softwareList is not an array: ${typeof softwareList}, value: ${JSON.stringify(softwareList)}`);
-          return false;
-        }
-        
+
         if (softwareList.length === 0) {
-          logger.debug(`Student ${student.id} (${student.name}): softwareList is empty`);
+          logger.debug(`Student ${student.id} (${student.name}): No software list found in profile or documents`);
           return false;
         }
 
@@ -884,6 +1047,7 @@ export const suggestCandidates = async (req: AuthRequest, res: Response): Promis
 
         // Check if any batch software matches any student software
         // Use flexible matching: exact match or contains match
+        // Time slot metadata is optional; we only require enhanced match when schedule metadata exists.
         const matches = batchSoftwareList.some((batchSoftware: string) =>
           normalizedStudentSoftware.some((studentSoftware: string) => {
             try {
@@ -905,10 +1069,138 @@ export const suggestCandidates = async (req: AuthRequest, res: Response): Promis
         );
         
         if (!matches) {
-          logger.debug(`Student ${student.id} (${student.name}): No match. Student has: [${normalizedStudentSoftware.join(', ')}], Batch needs: [${batchSoftwareList.join(', ')}]`);
+          logger.debug(`Student ${student.id} (${student.name}): No software match. Student has: [${normalizedStudentSoftware.join(', ')}], Batch needs: [${batchSoftwareList.join(', ')}]`);
+          return false;
         }
         
-        return matches;
+        // For students with software match, also require enhanced matching (time slot or complimentary software)
+        let hasEnhancedMatch = false;
+        
+        // Check if student has schedule data for time slot matching
+        let studentSchedule: Array<{ day: string; startTime: string; endTime: string }> = [];
+        let hasAnyScheduleMetadata = false;
+        if (student.studentProfile?.documents) {
+          try {
+            let documents = student.studentProfile.documents;
+            if (typeof documents === 'string') {
+              try {
+                documents = JSON.parse(documents);
+              } catch {
+                documents = {};
+              }
+            }
+            
+            const scheduleData = documents?.schedule || documents?.studentSchedule || {};
+            if (scheduleData && typeof scheduleData === 'object') {
+              hasAnyScheduleMetadata = Object.keys(scheduleData).length > 0;
+              studentSchedule = Object.entries(scheduleData)
+                .map(([day, times]) => {
+                  if (times && typeof times === 'object' && (times as any).startTime) {
+                    return {
+                      day: day,
+                      startTime: (times as any).startTime,
+                      endTime: (times as any).endTime || (times as any).EndTime,
+                    };
+                  }
+                  return null;
+                })
+                .filter((slot): slot is { day: string; startTime: string; endTime: string } => slot !== null);
+            }
+          } catch (scheduleError) {
+            logger.warn(`Error parsing student schedule for student ${student.id}:`, scheduleError);
+            studentSchedule = [];
+          }
+        }
+        
+        // Check time slot match
+        if (studentSchedule.length > 0 && batch.schedule) {
+          try {
+            let parsedBatchSchedule = batch.schedule;
+            if (typeof batch.schedule === 'string') {
+              parsedBatchSchedule = JSON.parse(batch.schedule);
+            }
+            
+            for (const studentSlot of studentSchedule) {
+              for (const batchSlot of (Array.isArray(parsedBatchSchedule) ? parsedBatchSchedule : [parsedBatchSchedule])) {
+                const studentDay = studentSlot.day?.toLowerCase() || '';
+                const batchDay = (batchSlot.day || batchSlot.Day || batchSlot.Days || batchSlot.days || batchSlot.weekday)?.toLowerCase() || '';
+                
+                if (studentDay && batchDay && studentDay === batchDay) {
+                  const studentStartStr = studentSlot.startTime || '';
+                  const batchStartStr = batchSlot.startTime || batchSlot.start_time || batchSlot.StartTime || '';
+                  
+                  if (studentStartStr && batchStartStr) {
+                    const studentStart = timeToMinutes(studentStartStr);
+                    const batchStart = timeToMinutes(batchStartStr);
+                    const timeDifference = Math.abs(studentStart - batchStart);
+                    if (timeDifference <= 30) {
+                      hasEnhancedMatch = true;
+                      logger.info(`✓ Enhanced match (time slot): Student ${student.id} (${student.name}) time slot matches batch`);
+                      break;
+                    }
+                  }
+                }
+              }
+              if (hasEnhancedMatch) break;
+            }
+          } catch (scheduleError) {
+            logger.warn(`Error checking time slot matching for student ${student.id}:`, scheduleError);
+          }
+        }
+        
+        // Check complimentary software match if no time match found
+        if (!hasEnhancedMatch) {
+          try {
+            if (student.studentProfile?.documents) {
+              let documents = student.studentProfile.documents;
+              if (typeof documents === 'string') {
+                try {
+                  documents = JSON.parse(documents);
+                } catch {
+                  documents = {};
+                }
+              }
+              
+              const enrollmentMetadata = documents?.enrollmentMetadata || documents;
+              if (enrollmentMetadata?.complimentarySoftware) {
+                const compSoftware = typeof enrollmentMetadata.complimentarySoftware === 'string'
+                  ? enrollmentMetadata.complimentarySoftware.split(',').map((s: string) => s.trim()).filter(Boolean)
+                  : Array.isArray(enrollmentMetadata.complimentarySoftware)
+                  ? enrollmentMetadata.complimentarySoftware
+                  : [];
+                
+                const normalizedCompSoftware = compSoftware.map((s: string) => s.toLowerCase().trim());
+                const compSoftwareMatches = batchSoftwareList.filter((batchSoftware: string) =>
+                  normalizedCompSoftware.some((compSoftware: string) =>
+                    compSoftware === batchSoftware || 
+                    compSoftware.includes(batchSoftware) || 
+                    batchSoftware.includes(compSoftware)
+                  )
+                );
+                
+                if (compSoftwareMatches.length > 0) {
+                  hasEnhancedMatch = true;
+                  logger.info(`✓ Enhanced match (complimentary software): Student ${student.id} (${student.name}) has complimentary software: ${compSoftwareMatches.join(', ')}`);
+                }
+              }
+            }
+          } catch (compSoftwareError) {
+            logger.warn(`Error checking complimentary software matching for student ${student.id}:`, compSoftwareError);
+          }
+        }
+        
+        // Only include students with enhanced match (time slot or complimentary software)
+        if (!hasEnhancedMatch && !hasAnyScheduleMetadata) {
+          hasEnhancedMatch = true;
+          logger.info(`ℹ️ Skipping enhanced match for student ${student.id} (${student.name}) - no schedule metadata found`);
+        }
+        if (hasEnhancedMatch) {
+          logger.info(`✓ Student ${student.id} (${student.name}) included: Has software match AND enhanced match`);
+          return true;
+        } else {
+          logger.debug(`Student ${student.id} (${student.name}) has software match but NO enhanced match (time/complimentary software)`);
+          return false;
+        }
       } catch (studentFilterError: any) {
         logger.error(`Error filtering student ${student.id} (${student.name}): ${studentFilterError.message}`, { error: studentFilterError });
         return false; // Don't include this student if there's an error
@@ -1390,9 +1682,116 @@ export const suggestCandidates = async (req: AuthRequest, res: Response): Promis
         
         const hasOrientation = eligibleStudentIds.has(studentId);
 
-        // Determine candidate status
+        // Determine candidate status with enhanced matching logic
         let status = 'available';
         let statusMessage = 'Available for enrollment';
+        const matchingReasons: string[] = []; // Track why this student is suggested
+
+        // Enhanced Matching Logic:
+
+        // 1. Check if student is in same time slot (Primary enhancement)
+        let hasTimeSlotMatch = false;
+        if (batch.schedule) {
+          try {
+            // Parse batch schedule
+            let parsedBatchSchedule = batch.schedule;
+            if (typeof batch.schedule === 'string') {
+              parsedBatchSchedule = JSON.parse(batch.schedule);
+            }
+
+            // Check if student has schedule data
+            if (studentSchedule.length > 0) {
+              // Compare schedules for time slot matches
+              for (const studentSlot of studentSchedule) {
+                for (const batchSlot of (Array.isArray(parsedBatchSchedule) ? parsedBatchSchedule : [parsedBatchSchedule])) {
+                  // Check if days match
+                  const studentDay = studentSlot.day?.toLowerCase() || '';
+                  const batchDay = (batchSlot.day || batchSlot.Day || batchSlot.Days || batchSlot.days || batchSlot.weekday)?.toLowerCase() || '';
+                  
+                  if (studentDay && batchDay && studentDay === batchDay) {
+                    // Check if times are close (within 2 hours for same time slot matching)
+                    const studentStartStr = studentSlot.startTime || '';
+                    const studentEndStr = studentSlot.endTime || '';
+                    const batchStartStr = batchSlot.startTime || batchSlot.start_time || batchSlot.StartTime || '';
+                    const batchEndStr = batchSlot.endTime || batchSlot.end_time || batchSlot.EndTime || '';
+                    
+                    if (studentStartStr && studentEndStr && batchStartStr && batchEndStr) {
+                      // Convert to minutes for comparison
+                      const timeToMinutes = (timeStr: string) => {
+                        const parts = timeStr.split(':');
+                        const hours = parseInt(parts[0]) || 0;
+                        const minutes = parseInt(parts[1]) || 0;
+                        return hours * 60 + minutes;
+                      };
+                      
+                      const studentStart = timeToMinutes(studentStartStr);
+                      const batchStart = timeToMinutes(batchStartStr);
+                      
+                      // Check if time slots are within 30 minutes of each other (more strict matching)
+                      const timeDifference = Math.abs(studentStart - batchStart);
+                      if (timeDifference <= 30) {
+                        hasTimeSlotMatch = true;
+                        matchingReasons.push(`Time slot match: ${studentDay} ${studentStartStr}-${studentEndStr}`);
+                        break;
+                      }
+                    }
+                  }
+                }
+                if (hasTimeSlotMatch) break;
+              }
+            }
+          } catch (scheduleError) {
+            logger.warn(`Error checking time slot matching for student ${studentId}:`, scheduleError);
+          }
+        }
+
+        // 2. Check for complimentary software matching (Secondary enhancement)
+        let hasComplimentarySoftwareMatch = false;
+        try {
+          // Get complimentary software from student profile documents
+          if (student.studentProfile?.documents) {
+            let documents = student.studentProfile.documents;
+            if (typeof documents === 'string') {
+              try {
+                documents = JSON.parse(documents);
+              } catch {
+                documents = {};
+              }
+            }
+            
+            const enrollmentMetadata = documents?.enrollmentMetadata || documents;
+            if (enrollmentMetadata?.complimentarySoftware) {
+              const compSoftware = typeof enrollmentMetadata.complimentarySoftware === 'string'
+                ? enrollmentMetadata.complimentarySoftware.split(',').map((s: string) => s.trim()).filter(Boolean)
+                : Array.isArray(enrollmentMetadata.complimentarySoftware)
+                ? enrollmentMetadata.complimentarySoftware
+                : [];
+              
+              // Check if any complimentary software matches batch software
+              const normalizedCompSoftware = compSoftware.map((s: string) => s.toLowerCase().trim());
+              const compSoftwareMatches = batchSoftwareList.filter((batchSoftware: string) =>
+                normalizedCompSoftware.some((compSoftware: string) =>
+                  compSoftware === batchSoftware || 
+                  compSoftware.includes(batchSoftware) || 
+                  batchSoftware.includes(compSoftware)
+                )
+              );
+              
+              if (compSoftwareMatches.length > 0) {
+                hasComplimentarySoftwareMatch = true;
+                matchingReasons.push(`Complimentary software match: ${compSoftwareMatches.join(', ')}`);
+              }
+            }
+          }
+        } catch (compSoftwareError) {
+          logger.warn(`Error checking complimentary software matching for student ${studentId}:`, compSoftwareError);
+        }
+
+        // Update status message with matching reasons if any matches found
+        if (hasTimeSlotMatch || hasComplimentarySoftwareMatch) {
+          const reasons = matchingReasons.join('; ');
+          statusMessage = `Enhanced match - ${reasons}`;
+        }
 
         // Check orientation first - if no orientation, mark as not eligible
         if (!hasOrientation) {
@@ -1644,10 +2043,6 @@ export const getBatchEnrollments = async (req: AuthRequest, res: Response): Prom
         {
           model: db.User,
           as: 'student',
-          where: {
-            role: UserRole.STUDENT,
-            isActive: true,
-          },
           attributes: ['id', 'name', 'email', 'phone'],
           required: true,
         },

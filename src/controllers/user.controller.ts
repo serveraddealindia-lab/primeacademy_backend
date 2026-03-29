@@ -6,6 +6,7 @@ import { UserRole } from '../models/User';
 import { logger } from '../utils/logger';
 import { generateToken } from '../utils/jwt';
 import { Op } from 'sequelize';
+import { PaymentSyncService } from '../services/payment-sync-service';
 
 // Function to check for duplicate email or phone across all user types
 export const checkDuplicateEmailOrPhone = async (email: string | null | undefined, phone: string | null | undefined, excludeUserId?: number) => {
@@ -996,6 +997,17 @@ export const updateStudentProfile = async (
 
     // Save the profile
     await studentProfile.save();
+
+    // Trigger payment synchronization if documents were updated (contains payment info)
+    if (req.body.documents !== undefined) {
+      try {
+        await PaymentSyncService.syncStudentPaymentData(userId);
+        logger.info(`Payment synchronization triggered for student ${userId} after document update`);
+      } catch (syncError) {
+        logger.error(`Error during payment synchronization for student ${userId}:`, syncError);
+        // Don't fail the request if payment sync fails, just log the error
+      }
+    }
 
     // Fetch updated user with profile
     const updatedUser = await db.User.findByPk(userId, {

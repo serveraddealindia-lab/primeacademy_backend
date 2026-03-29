@@ -84,10 +84,14 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       const response = await api.post('/auth/login', { email, password });
       if (response.data.status === 'success') {
         const token = response.data.data.token;
+        const refreshToken = response.data.data.refreshToken;
         const userData = response.data.data.user;
         
         // Store token
         localStorage.setItem('token', token);
+        if (refreshToken) {
+          localStorage.setItem('refreshToken', refreshToken);
+        }
         
         // Set user with userId
         setUser({ 
@@ -111,6 +115,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const logout = () => {
     localStorage.removeItem('token');
+    localStorage.removeItem('refreshToken');
     setUser(null);
     window.location.href = '/login';
   };

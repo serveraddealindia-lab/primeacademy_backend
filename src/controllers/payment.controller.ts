@@ -740,73 +740,96 @@ const generateReceiptPDF = async (
 };
 
 const formatPayment = (payment: any) => {
-  const json = payment.toJSON();
-  
-  // Extract paymentPlan from enrollment or studentProfile
-  let paymentPlan = null;
-  if (json.enrollment?.paymentPlan) {
-    // Use enrollment paymentPlan, ensuring it has all fields
-    paymentPlan = {
-      totalDeal: json.enrollment.paymentPlan.totalDeal !== undefined && json.enrollment.paymentPlan.totalDeal !== null ? Number(json.enrollment.paymentPlan.totalDeal) : null,
-      bookingAmount: json.enrollment.paymentPlan.bookingAmount !== undefined && json.enrollment.paymentPlan.bookingAmount !== null ? Number(json.enrollment.paymentPlan.bookingAmount) : null,
-      balanceAmount: json.enrollment.paymentPlan.balanceAmount !== undefined && json.enrollment.paymentPlan.balanceAmount !== null ? Number(json.enrollment.paymentPlan.balanceAmount) : null,
-      emiPlan: json.enrollment.paymentPlan.emiPlan !== undefined ? json.enrollment.paymentPlan.emiPlan : null,
-      emiPlanDate: json.enrollment.paymentPlan.emiPlanDate || null,
-      emiInstallments: json.enrollment.paymentPlan.emiInstallments && Array.isArray(json.enrollment.paymentPlan.emiInstallments) ? json.enrollment.paymentPlan.emiInstallments : null,
-    };
-  } else if (json.student?.studentProfile?.documents) {
-    // Try to get paymentPlan from studentProfile documents
-    let documents = json.student.studentProfile.documents;
-    if (typeof documents === 'string') {
-      try {
-        documents = JSON.parse(documents);
-      } catch (e) {
-        logger.warn(`Failed to parse documents JSON for payment ${json.id}:`, e);
-        documents = null;
+  try {
+    const json = payment.toJSON();
+    
+    // Extract paymentPlan from enrollment or studentProfile
+    let paymentPlan = null;
+    if (json.enrollment?.paymentPlan) {
+      // Use enrollment paymentPlan, ensuring it has all fields
+      paymentPlan = {
+        totalDeal: json.enrollment.paymentPlan.totalDeal !== undefined && json.enrollment.paymentPlan.totalDeal !== null ? Number(json.enrollment.paymentPlan.totalDeal) : null,
+        bookingAmount: json.enrollment.paymentPlan.bookingAmount !== undefined && json.enrollment.paymentPlan.bookingAmount !== null ? Number(json.enrollment.paymentPlan.bookingAmount) : null,
+        balanceAmount: json.enrollment.paymentPlan.balanceAmount !== undefined && json.enrollment.paymentPlan.balanceAmount !== null ? Number(json.enrollment.paymentPlan.balanceAmount) : null,
+        emiPlan: json.enrollment.paymentPlan.emiPlan !== undefined ? json.enrollment.paymentPlan.emiPlan : null,
+        emiPlanDate: json.enrollment.paymentPlan.emiPlanDate || null,
+        emiInstallments: json.enrollment.paymentPlan.emiInstallments && Array.isArray(json.enrollment.paymentPlan.emiInstallments) ? json.enrollment.paymentPlan.emiInstallments : null,
+      };
+    } else if (json.student?.studentProfile?.documents) {
+      // Try to get paymentPlan from studentProfile documents
+      let documents = json.student.studentProfile.documents;
+      if (typeof documents === 'string') {
+        try {
+          documents = JSON.parse(documents);
+        } catch (e) {
+          logger.warn(`Failed to parse documents JSON for payment ${json.id}:`, e);
+          documents = null;
+        }
+      }
+      const metadata = documents?.enrollmentMetadata;
+      if (metadata) {
+        paymentPlan = {
+          totalDeal: metadata.totalDeal !== undefined && metadata.totalDeal !== null ? Number(metadata.totalDeal) : null,
+          bookingAmount: metadata.bookingAmount !== undefined && metadata.bookingAmount !== null ? Number(metadata.bookingAmount) : null,
+          balanceAmount: metadata.balanceAmount !== undefined && metadata.balanceAmount !== null ? Number(metadata.balanceAmount) : null,
+          emiPlan: metadata.emiPlan !== undefined ? metadata.emiPlan : null,
+          emiPlanDate: metadata.emiPlanDate || null,
+          emiInstallments: metadata.emiInstallments && Array.isArray(metadata.emiInstallments) ? metadata.emiInstallments : null,
+        };
       }
     }
-    const metadata = documents?.enrollmentMetadata;
-    if (metadata) {
-      paymentPlan = {
-        totalDeal: metadata.totalDeal !== undefined && metadata.totalDeal !== null ? Number(metadata.totalDeal) : null,
-        bookingAmount: metadata.bookingAmount !== undefined && metadata.bookingAmount !== null ? Number(metadata.bookingAmount) : null,
-        balanceAmount: metadata.balanceAmount !== undefined && metadata.balanceAmount !== null ? Number(metadata.balanceAmount) : null,
-        emiPlan: metadata.emiPlan !== undefined ? metadata.emiPlan : null,
-        emiPlanDate: metadata.emiPlanDate || null,
-        emiInstallments: metadata.emiInstallments && Array.isArray(metadata.emiInstallments) ? metadata.emiInstallments : null,
-      };
-    }
+    
+    return {
+      id: json.id,
+      studentId: json.studentId,
+      enrollmentId: json.enrollmentId || null,
+      amount: json.amount !== undefined && json.amount !== null ? Number(json.amount) : 0,
+      paidAmount: json.paidAmount !== null && json.paidAmount !== undefined ? Number(json.paidAmount) : 0,
+      dueDate: json.dueDate || null,
+      paidDate: json.paidAt || null,
+      status: json.status || 'unpaid',
+      receiptUrl: json.receiptUrl || null,
+      paymentMethod: json.paymentMethod || null,
+      transactionId: json.transactionId || null,
+      notes: json.notes || null,
+      student: json.student || null,
+      enrollment: json.enrollment
+        ? {
+            id: json.enrollment.id || null,
+            batchId: json.enrollment.batchId || null,
+            batch: json.enrollment.batch
+              ? {
+                  id: json.enrollment.batch.id || null,
+                  title: json.enrollment.batch.title || null,
+                }
+              : null,
+            paymentPlan: json.enrollment.paymentPlan || null,
+          }
+        : null,
+      paymentPlan: paymentPlan, // Add paymentPlan at payment level for easier access
+    };
+  } catch (error) {
+    logger.error('Error in formatPayment:', error);
+    // Return a minimal safe object if formatting fails
+    const json = payment.toJSON ? payment.toJSON() : payment;
+    return {
+      id: json.id || null,
+      studentId: json.studentId || null,
+      enrollmentId: json.enrollmentId || null,
+      amount: json.amount !== undefined && json.amount !== null ? Number(json.amount) : 0,
+      paidAmount: json.paidAmount !== null && json.paidAmount !== undefined ? Number(json.paidAmount) : 0,
+      dueDate: json.dueDate || null,
+      paidDate: json.paidAt || null,
+      status: json.status || 'unpaid',
+      receiptUrl: json.receiptUrl || null,
+      paymentMethod: json.paymentMethod || null,
+      transactionId: json.transactionId || null,
+      notes: json.notes || null,
+      student: null,
+      enrollment: null,
+      paymentPlan: null,
+    };
   }
-  
-  return {
-    id: json.id,
-    studentId: json.studentId,
-    enrollmentId: json.enrollmentId,
-    amount: Number(json.amount),
-    paidAmount: json.paidAmount !== null && json.paidAmount !== undefined ? Number(json.paidAmount) : 0,
-    dueDate: json.dueDate,
-    paidDate: json.paidAt,
-    status: json.status,
-    receiptUrl: json.receiptUrl,
-    paymentMethod: json.paymentMethod,
-    transactionId: json.transactionId,
-    notes: json.notes,
-    student: json.student || null,
-    enrollment: json.enrollment
-      ? {
-          id: json.enrollment.id,
-          batchId: json.enrollment.batchId,
-          batch: json.enrollment.batch
-            ? {
-                id: json.enrollment.batch.id,
-                title: json.enrollment.batch.title,
-              }
-            : null,
-          paymentPlan: json.enrollment.paymentPlan || null,
-        }
-      : null,
-    paymentPlan: paymentPlan, // Add paymentPlan at payment level for easier access
-  };
 };
 
 const ensureAdminAccess = (req: AuthRequest, res: Response): boolean => {
@@ -991,16 +1014,50 @@ export const getPayments = async (req: AuthRequest, res: Response): Promise<void
           errno: fallbackError?.parent?.errno,
           sql: fallbackError?.parent?.sql,
         });
-        throw new Error(`Failed to fetch payments: ${fallbackError.message}`);
+        // Don't throw an error, return empty array instead
+        payments = [];
       }
     }
 
-    res.status(200).json({
-      status: 'success',
-      data: {
-        payments: payments.map(formatPayment),
-      },
-    });
+    try {
+      res.status(200).json({
+        status: 'success',
+        data: {
+          payments: payments.map(payment => {
+            try {
+              return formatPayment(payment);
+            } catch (formatError) {
+              logger.error('Error formatting individual payment:', formatError);
+              // Return a minimal safe payment object
+              return {
+                id: payment.id || null,
+                studentId: payment.studentId || null,
+                enrollmentId: payment.enrollmentId || null,
+                amount: payment.amount !== undefined && payment.amount !== null ? Number(payment.amount) : 0,
+                paidAmount: payment.paidAmount !== null && payment.paidAmount !== undefined ? Number(payment.paidAmount) : 0,
+                dueDate: payment.dueDate || null,
+                paidDate: payment.paidAt || null,
+                status: payment.status || 'unpaid',
+                receiptUrl: payment.receiptUrl || null,
+                paymentMethod: payment.paymentMethod || null,
+                transactionId: payment.transactionId || null,
+                notes: payment.notes || null,
+                student: null,
+                enrollment: null,
+                paymentPlan: null,
+              };
+            }
+          }),
+        },
+      });
+    } catch (mappingError: any) {
+      logger.error('Error mapping payments:', mappingError);
+      res.status(500).json({
+        status: 'error',
+        message: 'Failed to format payments',
+        error: process.env.NODE_ENV === 'development' ? mappingError?.message : undefined,
+      });
+    }
   } catch (error: any) {
     logger.error('Get payments error:', error);
     logger.error('Error details:', {
@@ -1015,6 +1072,8 @@ export const getPayments = async (req: AuthRequest, res: Response): Promise<void
     });
   }
 };
+
+
 
 export const getPaymentById = async (req: AuthRequest, res: Response): Promise<void> => {
   try {

@@ -6,6 +6,40 @@ import { UserRole } from '../models/User';
 import { logger } from '../utils/logger';
 import { AttendanceStatus } from '../models/Attendance';
 
+const saveReport = async (reportType: string, reportName: string, generatedBy: number, data: any, parameters?: any, summary?: any) => {
+  try {
+    let recordCount = 0;
+    
+    // Calculate record count based on data structure
+    if (Array.isArray(data)) {
+      recordCount = data.length;
+    } else if (data && typeof data === 'object') {
+      // Count arrays in the data object
+      const countArrays = (obj: any): number => {
+        if (Array.isArray(obj)) return obj.length;
+        if (typeof obj === 'object' && obj !== null) {
+          return Object.values(obj).reduce((sum: number, val: any) => sum + countArrays(val), 0);
+        }
+        return 0;
+      };
+      recordCount = countArrays(data);
+    }
+
+    await db.Report.create({
+      reportType,
+      reportName,
+      generatedBy,
+      data,
+      parameters,
+      summary,
+      recordCount,
+      status: 'completed',
+    });
+  } catch (error) {
+    logger.error(`Failed to save report ${reportType}:`, error);
+  }
+};
+
 const parseNumber = (value: unknown): number | undefined => {
   if (value === undefined || value === null) {
     return undefined;
@@ -70,6 +104,11 @@ const maybeSendCsv = (
 
 export const getFacultyAttendanceReport = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
+    if (!req.user) {
+      res.status(401).json({ status: 'error', message: 'Authentication required' });
+      return;
+    }
+
     const facultyId = parseNumber(req.query.facultyId);
     const batchId = parseNumber(req.query.batchId);
     const dateRange = buildDateRange(req.query.from as string, req.query.to as string);
@@ -124,12 +163,21 @@ export const getFacultyAttendanceReport = async (req: AuthRequest, res: Response
           : '0.00',
     };
 
+    const responseData = { rows, summary };
+
+    // Save report to database
+    await saveReport(
+      'faculty-attendance',
+      `Faculty Attendance Report`,
+      req.user.userId,
+      responseData,
+      { facultyId, batchId, ...(dateRange && { from: dateRange[Op.gte], to: dateRange[Op.lte] }) },
+      summary
+    );
+
     res.status(200).json({
       status: 'success',
-      data: {
-        rows,
-        summary,
-      },
+      data: responseData,
     });
   } catch (error) {
     logger.error('Faculty attendance report error', error);
@@ -142,19 +190,20 @@ export const getFacultyAttendanceReport = async (req: AuthRequest, res: Response
 
 export const getStudentAttendanceReport = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const batchId = parseNumber(req.query.batchId);
-    if (!batchId) {
-      res.status(400).json({
-        status: 'error',
-        message: 'batchId is required',
-      });
+    if (!req.user) {
+      res.status(401).json({ status: 'error', message: 'Authentication required' });
       return;
     }
 
+    const batchId = parseNumber(req.query.batchId);
     const studentId = parseNumber(req.query.studentId);
+    const facultyId = parseNumber(req.query.facultyId);
+    const software = typeof req.query.software === 'string' ? req.query.software : undefined;
     const dateRange = buildDateRange(req.query.from as string, req.query.to as string);
 
-    const sessionWhere: Record<string, unknown> = { batchId };
+    const sessionWhere: Record<string, unknown> = {};
+    if (batchId) sessionWhere.batchId = batchId;
+    if (facultyId) sessionWhere.facultyId = facultyId;
     if (dateRange) sessionWhere.date = dateRange;
 
     const attendanceRecords = await db.Attendance.findAll({
@@ -166,7 +215,12 @@ export const getStudentAttendanceReport = async (req: AuthRequest, res: Response
           model: db.Session,
           as: 'session',
           where: sessionWhere,
-          include: [{ model: db.Batch, as: 'batch', attributes: ['id', 'title'] }],
+          include: [{
+            model: db.Batch,
+            as: 'batch',
+            attributes: ['id', 'title', 'software'],
+            ...(software ? { where: { software } } : {}),
+          }],
           required: true,
         },
         {
@@ -178,7 +232,18 @@ export const getStudentAttendanceReport = async (req: AuthRequest, res: Response
       order: [[{ model: db.Session, as: 'session' }, 'date', 'DESC']],
     });
 
-    const statsMap = new Map<number, { studentId: number; studentName: string; studentEmail: string; present: number; absent: number; manualPresent: number }>();
+    const statsMap = new Map<number, {
+      studentId: number;
+      studentName: string;
+      studentEmail: string;
+      present: number;
+      absent: number;
+      manualPresent: number;
+      A: number;
+      P: number;
+      LATE: number;
+      ONLINE: number;
+    }>();
 
     attendanceRecords.forEach((record) => {
       const recordJson = record.toJSON() as any;
@@ -192,15 +257,23 @@ export const getStudentAttendanceReport = async (req: AuthRequest, res: Response
           present: 0,
           absent: 0,
           manualPresent: 0,
+          A: 0,
+          P: 0,
+          LATE: 0,
+          ONLINE: 0,
         });
       }
       const stat = statsMap.get(student.id)!;
       if (recordJson.status === AttendanceStatus.ABSENT) {
         stat.absent += 1;
+        stat.A += 1;
       } else if (recordJson.status === AttendanceStatus.MANUAL_PRESENT) {
         stat.manualPresent += 1;
+        // Legacy DB does not distinguish LATE vs ONLINE, keep LATE by default.
+        stat.LATE += 1;
       } else {
         stat.present += 1;
+        stat.P += 1;
       }
     });
 
@@ -218,25 +291,104 @@ export const getStudentAttendanceReport = async (req: AuthRequest, res: Response
       return;
     }
 
+    const summary = {
+      students: rows.length,
+      averageRate:
+        rows.length > 0
+          ? (rows.reduce((sum, row) => sum + Number(row.attendanceRate), 0) / rows.length).toFixed(2)
+          : '0.00',
+    };
+
+    const responseData = {
+      batchId: batchId ?? null,
+      rows,
+      summary,
+    };
+
+    // Save report to database
+    await saveReport(
+      'student-attendance',
+      `Student Attendance Report`,
+      req.user.userId,
+      responseData,
+      { batchId, studentId, facultyId, software, ...(dateRange && { from: dateRange[Op.gte], to: dateRange[Op.lte] }) },
+      summary
+    );
+
     res.status(200).json({
       status: 'success',
-      data: {
-        batchId,
-        rows,
-        summary: {
-          students: rows.length,
-          averageRate:
-            rows.length > 0
-              ? (rows.reduce((sum, row) => sum + Number(row.attendanceRate), 0) / rows.length).toFixed(2)
-              : '0.00',
-        },
-      },
+      data: responseData,
     });
   } catch (error) {
     logger.error('Student attendance report error', error);
     res.status(500).json({
       status: 'error',
       message: 'Failed to generate student attendance report',
+    });
+  }
+};
+
+export const getLecturePunchReport = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const facultyId = parseNumber(req.query.facultyId);
+    const batchId = parseNumber(req.query.batchId);
+    const software = typeof req.query.software === 'string' ? req.query.software : undefined;
+    const dateRange = buildDateRange(req.query.from as string, req.query.to as string);
+
+    const where: Record<string, unknown> = {};
+    if (facultyId) where.facultyId = facultyId;
+    if (batchId) where.batchId = batchId;
+    if (dateRange) where.date = dateRange;
+
+    const sessions = await db.Session.findAll({
+      where,
+      include: [
+        {
+          model: db.User,
+          as: 'faculty',
+          attributes: ['id', 'name', 'email'],
+        },
+        {
+          model: db.Batch,
+          as: 'batch',
+          attributes: ['id', 'title', 'software'],
+          ...(software ? { where: { software } } : {}),
+        },
+      ],
+      order: [['date', 'DESC'], ['actualStartAt', 'DESC']],
+    });
+
+    const rows = sessions.map((s: any) => {
+      const json = s.toJSON();
+      return {
+        sessionId: json.id,
+        date: json.date,
+        software: json.batch?.software ?? null,
+        facultyName: json.faculty?.name ?? 'N/A',
+        batchTitle: json.batch?.title ?? 'N/A',
+        punchInAt: json.actualStartAt,
+        punchOutAt: json.actualEndAt,
+      };
+    });
+
+    if (maybeSendCsv(req, res, rows, 'lecture-punch-report.csv')) {
+      return;
+    }
+
+    res.status(200).json({
+      status: 'success',
+      data: {
+        rows,
+        summary: {
+          sessions: rows.length,
+        },
+      },
+    });
+  } catch (error) {
+    logger.error('Lecture punch report error', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Failed to generate lecture punch report',
     });
   }
 };
@@ -252,11 +404,11 @@ export const getAllStudents = async (req: AuthRequest, res: Response): Promise<v
       return;
     }
 
-    // Only Admin or SuperAdmin can view all students
-    if (req.user.role !== UserRole.ADMIN && req.user.role !== UserRole.SUPERADMIN) {
+    // Allow faculty to view student list for task creation dropdown.
+    if (req.user.role !== UserRole.ADMIN && req.user.role !== UserRole.SUPERADMIN && req.user.role !== UserRole.FACULTY) {
       res.status(403).json({
         status: 'error',
-        message: 'Only admins can view all students',
+        message: 'Not allowed',
       });
       return;
     }
@@ -807,6 +959,8 @@ export const getPunchSummaryReport = async (req: AuthRequest, res: Response): Pr
 // GET /attendance-reports/students-without-batch → Students without any batch enrollment
 export const getStudentsWithoutBatch = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
+    logger.info('Fetching students without batch report');
+    
     if (!req.user) {
       res.status(401).json({
         status: 'error',
@@ -823,7 +977,8 @@ export const getStudentsWithoutBatch = async (req: AuthRequest, res: Response): 
       return;
     }
 
-    // Get all students
+    // Get all students (active)
+    logger.info('Starting students without batch query...');
     const allStudents = await db.User.findAll({
       where: {
         role: UserRole.STUDENT,
@@ -832,6 +987,11 @@ export const getStudentsWithoutBatch = async (req: AuthRequest, res: Response): 
       attributes: ['id', 'name', 'email', 'phone', 'avatarUrl', 'createdAt'],
       include: [
         {
+          model: db.StudentProfile,
+          as: 'studentProfile',
+          required: false,
+        },
+        {
           model: db.Enrollment,
           as: 'enrollments',
           required: false,
@@ -839,13 +999,14 @@ export const getStudentsWithoutBatch = async (req: AuthRequest, res: Response): 
             {
               model: db.Batch,
               as: 'batch',
-              attributes: ['id', 'title', 'status'],
+              attributes: ['id', 'title', 'status', 'software', 'endDate'],
             },
           ],
         },
       ],
       order: [['createdAt', 'DESC']],
     });
+    logger.info(`Found ${allStudents.length} total students`);
 
     // Filter students with no active enrollments
     const studentsWithoutBatch = allStudents
@@ -853,21 +1014,66 @@ export const getStudentsWithoutBatch = async (req: AuthRequest, res: Response): 
         const enrollments = student.enrollments || [];
         return enrollments.length === 0 || enrollments.every((e: any) => e.status !== 'active');
       })
-      .map((student: any) => ({
-        id: student.id,
-        name: student.name,
-        email: student.email,
-        phone: student.phone,
-        createdAt: student.createdAt,
-        enrollments: (student.enrollments || []).map((e: any) => ({
-          id: e.id,
-          batch: e.batch ? {
-            id: e.batch.id,
-            title: e.batch.title,
-            status: e.batch.status,
-          } : null,
-        })),
-      }));
+      .map((student: any) => {
+        const studentJson = student.toJSON ? student.toJSON() : student;
+        const profile = studentJson.studentProfile;
+        const enrollments = studentJson.enrollments || [];
+
+        // Last batch finished date = max endDate among enrollments (if any)
+        const finishedBatches = enrollments
+          .map((e: any) => e.batch)
+          .filter(Boolean)
+          .filter((b: any) => b.endDate)
+          .sort((a: any, b: any) => new Date(b.endDate).getTime() - new Date(a.endDate).getTime());
+        const lastFinished = finishedBatches[0] || null;
+
+        // Last software attended = software of last finished batch (fallback null)
+        const lastSoftwareAttended = lastFinished?.software ?? null;
+
+        // Last batch faculty (best-effort): latest session for that batch (any faculty)
+        // NOTE: executed lazily later via Promise.all to avoid N+1 in map
+        return {
+          id: studentJson.id,
+          name: studentJson.name,
+          email: studentJson.email,
+          phone: studentJson.phone,
+          doj: profile?.enrollmentDate || studentJson.createdAt,
+          lastSoftwareAttended,
+          lastBatchFinishedDate: lastFinished?.endDate || null,
+          status: profile?.status || null,
+          lastBatchFaculty: null as null | { id: number; name: string },
+        };
+      });
+
+    // Enrich lastBatchFaculty (best-effort, limited to first 200 rows)
+    const limited = studentsWithoutBatch.slice(0, 200);
+    await Promise.all(
+      limited.map(async (s: any) => {
+        try {
+          if (!s.lastBatchFinishedDate || !s.id) return;
+          // Find latest ended enrollment batch for this student
+          const enrollment = await db.Enrollment.findOne({
+            where: { studentId: s.id },
+            include: [{ model: db.Batch, as: 'batch', required: true }],
+            order: [[{ model: db.Batch, as: 'batch' }, 'endDate', 'DESC']],
+          });
+          const batchId = enrollment?.batchId;
+          if (!batchId) return;
+          const lastSession = await db.Session.findOne({
+            where: { batchId },
+            include: [{ model: db.User, as: 'faculty', attributes: ['id', 'name'], required: false }],
+            order: [['date', 'DESC'], ['actualStartAt', 'DESC']],
+          });
+          const fac = (lastSession as any)?.faculty;
+          if (fac && fac.id && fac.name) {
+            s.lastBatchFaculty = { id: fac.id, name: fac.name };
+          }
+        } catch (error) {
+          // ignore enrichment failures silently
+          console.error('Failed to enrich faculty for student:', s.id, error);
+        }
+      })
+    );
 
     res.status(200).json({
       status: 'success',
@@ -877,10 +1083,17 @@ export const getStudentsWithoutBatch = async (req: AuthRequest, res: Response): 
       },
     });
   } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    const errorStack = error instanceof Error ? error.stack : 'No stack trace';
+    
     logger.error('Get students without batch error:', error);
+    logger.error('Error message:', errorMessage);
+    logger.error('Stack trace:', errorStack);
+    
     res.status(500).json({
       status: 'error',
-      message: 'Internal server error while fetching students',
+      message: `Internal server error while fetching students: ${errorMessage}`,
+      details: process.env.NODE_ENV === 'development' ? errorStack : undefined,
     });
   }
 };
@@ -1335,6 +1548,276 @@ export const getStudentsOnLeavePendingBatches = async (req: AuthRequest, res: Re
       status: 'error',
       message: 'Internal server error while fetching students',
     });
+  };
+};
+
+// GET /reports/saved - Get all saved reports (Superadmin only)
+export const getSavedReports = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    if (!req.user) {
+      res.status(401).json({ status: 'error', message: 'Authentication required' });
+      return;
+    }
+
+    const { reportType, page = '1', limit = '20', from, to } = req.query;
+    const offset = (Number(page) - 1) * Number(limit);
+
+    const where: any = {};
+    if (reportType) where.reportType = reportType;
+    if (from || to) {
+      where.createdAt = {};
+      if (from) where.createdAt[Op.gte] = from;
+      if (to) where.createdAt[Op.lte] = to;
+    }
+
+    const reports = await db.Report.findAll({
+      where,
+      include: [{
+        model: db.User,
+        as: 'generator',
+        attributes: ['id', 'name', 'email', 'role'],
+      }],
+      order: [['createdAt', 'DESC']],
+      limit: Number(limit),
+      offset,
+    });
+
+    const total = await db.Report.count({ where });
+
+    res.status(200).json({
+      status: 'success',
+      data: {
+        reports,
+        pagination: {
+          page: Number(page),
+          limit: Number(limit),
+          total,
+          totalPages: Math.ceil(total / Number(limit)),
+        },
+      },
+    });
+  } catch (error) {
+    logger.error('Get saved reports error:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Failed to fetch saved reports',
+    });
+  }
+};
+
+// GET /reports/saved/:id - Get single saved report details (Superadmin only)
+export const getSavedReportDetails = async (req: AuthRequest & { params: { id: string } }, res: Response): Promise<void> => {
+  try {
+    if (!req.user) {
+      res.status(401).json({ status: 'error', message: 'Authentication required' });
+      return;
+    }
+
+    const report = await db.Report.findByPk(req.params.id, {
+      include: [{
+        model: db.User,
+        as: 'generator',
+        attributes: ['id', 'name', 'email', 'role'],
+      }],
+    });
+
+    if (!report) {
+      res.status(404).json({
+        status: 'error',
+        message: 'Report not found',
+      });
+      return;
+    }
+
+    res.status(200).json({
+      status: 'success',
+      data: report,
+    });
+  } catch (error) {
+    logger.error('Get saved report details error:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Failed to fetch report details',
+    });
+  }
+};
+
+// GET /reports/saved/:id/download - Download saved report as CSV (Superadmin only)
+export const downloadSavedReportCSV = async (req: AuthRequest & { params: { id: string } }, res: Response): Promise<void> => {
+  try {
+    if (!req.user) {
+      res.status(401).json({ status: 'error', message: 'Authentication required' });
+      return;
+    }
+
+    const report = await db.Report.findByPk(req.params.id);
+    if (!report) {
+      res.status(404).json({
+        status: 'error',
+        message: 'Report not found',
+      });
+      return;
+    }
+
+    // Convert report data to CSV
+    const reportData = report.data as any;
+    let csvContent = '';
+    
+    // Add report metadata as comments
+    csvContent += `# Report: ${report.reportName}\n`;
+    csvContent += `# Type: ${report.reportType}\n`;
+    csvContent += `# Generated: ${new Date(report.createdAt).toLocaleString()}\n`;
+    csvContent += `# Records: ${report.recordCount || 'N/A'}\n`;
+    csvContent += `\n`;
+    
+    // Handle different report types intelligently based on ACTUAL data structure
+    if (report.reportType === 'batch-attendance') {
+      // Batch Attendance Report - sessions array with nested attendances
+      csvContent += 'Session Date,Session Time,Topic,Status,Student Name,Student Email,Attendance Status,Marked At,Marked By\n';
+      let hasData = false;
+      if (reportData.sessions && Array.isArray(reportData.sessions)) {
+        reportData.sessions.forEach((session: any) => {
+          if (session.session && session.attendances && Array.isArray(session.attendances)) {
+            hasData = true;
+            session.attendances.forEach((att: any) => {
+              const date = session.session.date || '';
+              const time = `${session.session.startTime || ''}-${session.session.endTime || ''}`;
+              const topic = session.session.topic || '';
+              const status = session.session.status || '';
+              const studentName = att.studentName || '';
+              const studentEmail = att.studentEmail || '';
+              const attStatus = att.status || '';
+              const markedAt = att.markedAt ? new Date(att.markedAt).toLocaleString() : '';
+              const markedBy = att.markedBy?.name || '';
+              csvContent += `${date},${time},${topic},${status},${studentName},${studentEmail},${attStatus},${markedAt},${markedBy}\n`;
+            });
+          }
+        });
+      }
+      // Add summary at the end
+      csvContent += `\n# Summary\n`;
+      csvContent += `Total Sessions,${hasData ? reportData.totalSessions || 0 : 0}\n`;
+      csvContent += `Total Attendances,${hasData ? reportData.totalAttendances || 0 : 0}\n`;
+      csvContent += `Batch Title,${reportData.batch?.title || 'N/A'}\n`;
+      csvContent += `Batch Start Date,${reportData.batch?.startDate ? new Date(reportData.batch.startDate).toLocaleDateString() : 'N/A'}\n`;
+      csvContent += `Batch End Date,${reportData.batch?.endDate ? new Date(reportData.batch.endDate).toLocaleDateString() : 'N/A'}\n`;
+      
+    } else if (report.reportType === 'pending-payments') {
+      // Pending Payments Report - matches EXACT data structure
+      csvContent += 'Student Name,Email,Phone,Amount,Due Date,Is Overdue,Status,Created At\n';
+      if (reportData.payments && Array.isArray(reportData.payments)) {
+        reportData.payments.forEach((p: any) => {
+          const student = p.student || {};
+          const dueDate = p.dueDate ? new Date(p.dueDate).toLocaleDateString() : '';
+          const createdAt = p.createdAt ? new Date(p.createdAt).toLocaleDateString() : '';
+          csvContent += `${student.name || ''},${student.email || ''},${student.phone || ''},${Number(p.amount || 0)},${dueDate},${p.isOverdue ? 'Yes' : 'No'},${p.status},${createdAt}\n`;
+        });
+      }
+      // Add summary
+      csvContent += `\n# Summary\n`;
+      csvContent += `Total Pending Count,${reportData.summary?.totalPending || 0}\n`;
+      csvContent += `Total Pending Amount,₹${reportData.summary?.totalPendingAmount || 0}\n`;
+      csvContent += `Overdue Count,${reportData.summary?.overdue?.count || 0}\n`;
+      csvContent += `Overdue Amount,₹${reportData.summary?.overdue?.amount || 0}\n`;
+      csvContent += `Upcoming Count,${reportData.summary?.upcoming?.count || 0}\n`;
+      csvContent += `Upcoming Amount,₹${reportData.summary?.upcoming?.amount || 0}\n`;
+      
+    } else if (report.reportType === 'portfolio-status') {
+      // Portfolio Status Report
+      csvContent += 'Student Name,Batch Title,Status,Files Count,Submitted At\n';
+      if (reportData.portfolios && Array.isArray(reportData.portfolios)) {
+        reportData.portfolios.forEach((p: any) => {
+          const filesCount = Object.keys(p.files || {}).length;
+          csvContent += `${p.student?.name || ''},${p.batch?.title || ''},${p.status || ''},${filesCount},${p.submittedAt || ''}\n`;
+        });
+      }
+      
+    } else if (report.reportType === 'faculty-occupancy') {
+      // Faculty Occupancy Report
+      csvContent += 'Faculty Name,Working Hours,Occupied Hours,Free Hours,Occupancy %\n';
+      if (reportData.rows && Array.isArray(reportData.rows)) {
+        reportData.rows.forEach((r: any) => {
+          csvContent += `${r.facultyName || ''},${r.workingHours || 0},${r.occupiedHours || 0},${r.freeHours || 0},${r.occupancyPercent || 0}%\n`;
+        });
+      }
+      // Add summary
+      csvContent += `\n# Summary\n`;
+      csvContent += `Working Hours,${reportData.summary?.workingHours || 0}\n`;
+      csvContent += `Occupied Hours,${reportData.summary?.occupiedHours || 0}\n`;
+      csvContent += `Free Hours,${reportData.summary?.freeHours || 0}\n`;
+      csvContent += `Overall Occupancy %,${reportData.summary?.occupancyPercent || 0}%\n`;
+      
+    } else if (report.reportType === 'batch-details') {
+      // Batch Details Report - matches actual data structure
+      csvContent += 'Batch Name,Student Count,Schedule,Assigned Faculty\n';
+      if (reportData.rows && Array.isArray(reportData.rows)) {
+        reportData.rows.forEach((r: any) => {
+          const scheduleStr = r.schedule ? JSON.stringify(r.schedule) : '';
+          const facultyNames = (r.assignedFaculty || []).map((f: any) => f.name).join('; ');
+          csvContent += `${r.batchName || ''},${r.numberOfStudents || 0},${scheduleStr},${facultyNames}\n`;
+        });
+      }
+      
+    } else if (report.reportType === 'all-analysis') {
+      // All Analysis Report - Multiple sections with detailed data
+      csvContent += '# STUDENTS SUMMARY\n';
+      csvContent += `Total Students,${reportData.summary?.students?.total || 0}\n`;
+      csvContent += `With Batch,${reportData.summary?.students?.withBatch || 0}\n`;
+      csvContent += `Without Batch,${reportData.summary?.students?.withoutBatch || 0}\n`;
+      csvContent += `\n# BATCHES SUMMARY\n`;
+      csvContent += `Total Batches,${reportData.summary?.batches?.total || 0}\n`;
+      csvContent += `Active Batches,${reportData.summary?.batches?.active || 0}\n`;
+      csvContent += `Ended Batches,${reportData.summary?.batches?.ended || 0}\n`;
+      csvContent += `\n# SESSIONS SUMMARY\n`;
+      csvContent += `Total Sessions,${reportData.summary?.sessions?.total || 0}\n`;
+      csvContent += `\n# PAYMENTS SUMMARY\n`;
+      csvContent += `Total Transactions,${reportData.summary?.payments?.total || 0}\n`;
+      csvContent += `Pending Transactions,${reportData.summary?.payments?.pending || 0}\n`;
+      csvContent += `Total Amount,₹${reportData.summary?.payments?.totalAmount || 0}\n`;
+      csvContent += `Paid Amount,₹${reportData.summary?.payments?.paidAmount || 0}\n`;
+      csvContent += `Pending Amount,₹${reportData.summary?.payments?.pendingAmount || 0}\n`;
+      csvContent += `\n# PORTFOLIOS SUMMARY\n`;
+      csvContent += `Total Portfolios,${reportData.summary?.portfolios?.total || 0}\n`;
+      csvContent += `Pending Portfolios,${reportData.summary?.portfolios?.pending || 0}\n`;
+      csvContent += `Approved Portfolios,${reportData.summary?.portfolios?.approved || 0}\n`;
+      csvContent += `Rejected Portfolios,${reportData.summary?.portfolios?.rejected || 0}\n`;
+      csvContent += `\n# Report Generated At,${reportData.generatedAt ? new Date(reportData.generatedAt).toLocaleString() : ''}\n`;
+      
+    } else if (Array.isArray(reportData.rows) || Array.isArray(reportData.students)) {
+      // Generic array-based report
+      const rows = reportData.rows || reportData.students;
+      if (rows.length > 0) {
+        const headers = Object.keys(rows[0]);
+        csvContent += headers.join(',') + '\n';
+        rows.forEach((row: any) => {
+          const values = headers.map(header => {
+            const value = row[header];
+            if (typeof value === 'string' && (value.includes(',') || value.includes('"') || value.includes('\n'))) {
+              return `"${value.replace(/"/g, '""')}"`;
+            }
+            return value;
+          });
+          csvContent += values.join(',') + '\n';
+        });
+      }
+    } else {
+      // Fallback: Generic key-value export
+      csvContent += 'Key,Value\n';
+      Object.entries(reportData).forEach(([key, value]) => {
+        const stringValue = typeof value === 'object' ? JSON.stringify(value) : String(value);
+        csvContent += `"${key}","${stringValue.replace(/"/g, '""')}"\n`;
+      });
+    }
+
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${report.reportType}_${report.id}_${new Date().toISOString().split('T')[0]}.csv"`);
+    res.send(csvContent);
+  } catch (error) {
+    logger.error('Download saved report CSV error:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Failed to download report',
+    });
   }
 };
 
@@ -1348,6 +1831,10 @@ export default {
   getStudentsEnrolledBatchNotStarted,
   getStudentsMultipleCoursesConflict,
   getStudentsOnLeavePendingBatches,
+  getLecturePunchReport,
+  getSavedReports,
+  getSavedReportDetails,
+  downloadSavedReportCSV,
 };
 
 
