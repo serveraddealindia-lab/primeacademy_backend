@@ -38,6 +38,8 @@ import certificateRoutes from './routes/certificate.routes';
 import courseRoutes from './routes/course.routes';
 import biometricRoutes from './routes/biometric.routes';
 import studentSoftwareProgressRoutes from './routes/studentSoftwareProgress.routes';
+import taskRoutes from './routes/task.routes';
+import taskReportRoutes from './routes/taskReport.routes';
 import { notFoundHandler, errorHandler } from './middleware/error.middleware';
 import { logger } from './utils/logger';
 
@@ -508,6 +510,8 @@ app.use('/api/certificates', certificateRoutes);
 app.use('/api/courses', courseRoutes);
 app.use('/api/biometric', biometricRoutes);
 app.use('/api/student-software-progress', studentSoftwareProgressRoutes);
+app.use('/api/tasks', taskRoutes);
+app.use('/api/task-reports', taskReportRoutes);
 
 // Log registered routes for debugging
 logger.info('=== Registered API Routes ===');

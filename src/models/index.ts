@@ -30,6 +30,8 @@ import AttendanceLog from './AttendanceLog';
 import StudentOrientation from './StudentOrientation';
 import StudentSoftwareProgress from './StudentSoftwareProgress';
 import Course from './Course';
+import Task from './Task';
+import TaskStudent from './TaskStudent';
 
 const db = {
   sequelize,
@@ -62,6 +64,8 @@ const db = {
   StudentOrientation,
   StudentSoftwareProgress,
   Course,
+  Task,
+  TaskStudent,
 };
 
 // Define associations
@@ -234,6 +238,18 @@ Batch.hasMany(StudentSoftwareProgress, { foreignKey: 'batchId', as: 'studentSoft
 
 // Course associations
 Course.hasMany(Batch, { foreignKey: 'courseId', as: 'batches' });
+
+// Task associations
+Task.belongsTo(User, { foreignKey: 'facultyId', as: 'faculty' });
+Task.belongsTo(User, { foreignKey: 'approvedBy', as: 'approver' });
+Task.hasMany(TaskStudent, { foreignKey: 'taskId', as: 'taskStudents' });
+
+User.hasMany(Task, { foreignKey: 'facultyId', as: 'createdTasks' });
+User.hasMany(Task, { foreignKey: 'approvedBy', as: 'approvedTasks' });
+
+// TaskStudent associations
+TaskStudent.belongsTo(Task, { foreignKey: 'taskId', as: 'task' });
+TaskStudent.belongsTo(User, { foreignKey: 'studentId', as: 'student' });
 
 export default db;
 

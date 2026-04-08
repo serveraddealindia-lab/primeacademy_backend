@@ -3122,16 +3122,17 @@ export const updateStudentProfile = async (req: AuthRequest, res: Response): Pro
 /**
  * Approve corrected balance amount and update payment transaction
  */
-export const approveCorrectedBalance = async (req: AuthRequest, res: Response) => {
+export const approveCorrectedBalance = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const studentId = parseInt(req.params.id);
     const { correctedBalance } = req.body;
 
     if (!correctedBalance || correctedBalance <= 0) {
-      return res.status(400).json({
+      res.status(400).json({
         status: 'error',
         message: 'Invalid corrected balance amount',
       });
+      return;
     }
 
     await db.sequelize.transaction(async (transaction) => {
@@ -3145,8 +3146,16 @@ export const approveCorrectedBalance = async (req: AuthRequest, res: Response) =
         throw new Error('Student profile not found');
       }
 
-      const documents = studentProfile.documents || {};
-      const enrollmentMetadata = documents.enrollmentMetadata || {};
+      // documents can be object or JSON string depending on DB dialect/config
+      let documents: any = studentProfile.documents || {};
+      if (typeof documents === 'string') {
+        try {
+          documents = JSON.parse(documents);
+        } catch {
+          documents = {};
+        }
+      }
+      const enrollmentMetadata: any = documents.enrollmentMetadata || (documents.enrollmentMetadata = {});
 
       if (!enrollmentMetadata.hasPaymentMismatch) {
         throw new Error('No payment mismatch flagged for this student');
@@ -3157,7 +3166,7 @@ export const approveCorrectedBalance = async (req: AuthRequest, res: Response) =
       enrollmentMetadata.hasPaymentMismatch = false;
       enrollmentMetadata.paymentMismatchResolved = true;
       enrollmentMetadata.paymentMismatchResolvedAt = new Date().toISOString();
-      enrollmentMetadata.approvedBy = req.user?.id;
+      enrollmentMetadata.approvedBy = req.user?.userId;
 
       studentProfile.documents = documents;
       await studentProfile.save({ transaction });
@@ -3211,7 +3220,7 @@ export const approveCorrectedBalance = async (req: AuthRequest, res: Response) =
 /**
  * Reject corrected balance (keep original amount)
  */
-export const rejectCorrectedBalance = async (req: AuthRequest, res: Response) => {
+export const rejectCorrectedBalance = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const studentId = parseInt(req.params.id);
     const { keepOriginal, originalBalance } = req.body;
@@ -3227,8 +3236,15 @@ export const rejectCorrectedBalance = async (req: AuthRequest, res: Response) =>
         throw new Error('Student profile not found');
       }
 
-      const documents = studentProfile.documents || {};
-      const enrollmentMetadata = documents.enrollmentMetadata || {};
+      let documents: any = studentProfile.documents || {};
+      if (typeof documents === 'string') {
+        try {
+          documents = JSON.parse(documents);
+        } catch {
+          documents = {};
+        }
+      }
+      const enrollmentMetadata: any = documents.enrollmentMetadata || (documents.enrollmentMetadata = {});
 
       if (!enrollmentMetadata.hasPaymentMismatch) {
         throw new Error('No payment mismatch flagged for this student');
@@ -3238,7 +3254,7 @@ export const rejectCorrectedBalance = async (req: AuthRequest, res: Response) =>
       enrollmentMetadata.hasPaymentMismatch = false;
       enrollmentMetadata.paymentMismatchResolved = true;
       enrollmentMetadata.paymentMismatchResolvedAt = new Date().toISOString();
-      enrollmentMetadata.rejectedBy = req.user?.id;
+      enrollmentMetadata.rejectedBy = req.user?.userId;
       enrollmentMetadata.keptOriginalAmount = keepOriginal !== false;
 
       studentProfile.documents = documents;

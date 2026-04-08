@@ -86,10 +86,13 @@ export const punchIn = async (req: AuthRequest, res: Response): Promise<void> =>
       },
     });
 
-    if (existingPunch && existingPunch.punchInAt) {
+    // Allow punch-in if:
+    // 1. No record exists yet, OR
+    // 2. Record exists but user has already punched out (allows multiple cycles)
+    if (existingPunch && existingPunch.punchInAt && !existingPunch.punchOutAt) {
       res.status(400).json({
         status: 'error',
-        message: 'You have already punched in today',
+        message: 'You have already punched in today. Please punch out first.',
       });
       return;
     }
@@ -102,8 +105,30 @@ export const punchIn = async (req: AuthRequest, res: Response): Promise<void> =>
       typeof req.body.photo === 'string' && !req.file ? req.body.photo : undefined
     );
 
-    if (existingPunch) {
-      // Update existing record
+    if (existingPunch && existingPunch.punchOutAt) {
+      // Re-punching in after punching out - store previous cycle in breaks
+      const breaks = existingPunch.breaks || [];
+      const breaksArray = Array.isArray(breaks) ? breaks : [];
+      
+      // Add the completed cycle to breaks
+      breaksArray.push({
+        punchInAt: existingPunch.punchInAt,
+        punchOutAt: existingPunch.punchOutAt,
+        punchInPhoto: existingPunch.punchInPhoto,
+        punchInLocation: existingPunch.punchInLocation,
+      });
+
+      // Reset punchInAt and clear punchOutAt for new cycle
+      await existingPunch.update({
+        punchInAt: new Date(),
+        punchOutAt: null,
+        punchInPhoto: photoPath,
+        punchInFingerprint: fingerprint || null,
+        punchInLocation: locationData,
+        breaks: breaksArray,
+      });
+    } else if (existingPunch) {
+      // Update existing record (first punch-in)
       await existingPunch.update({
         punchInAt: new Date(),
         punchInPhoto: photoPath,
@@ -191,10 +216,25 @@ export const punchOut = async (req: AuthRequest, res: Response): Promise<void> =
       return;
     }
 
-    if (punch.punchOutAt) {
+    // Check if there's an active session (punched in but not out)
+    // Allow punch-out even if previously punched out, as long as there's a new punch-in
+    const lastPunchOut = punch.punchOutAt ? new Date(punch.punchOutAt) : null;
+    const lastPunchIn = punch.punchInAt ? new Date(punch.punchInAt) : null;
+    
+    // If they've punched out already, check if they punched in again after that
+    if (lastPunchOut && lastPunchIn) {
+      if (lastPunchIn <= lastPunchOut) {
+        res.status(400).json({
+          status: 'error',
+          message: 'You have already punched out. Please punch in first.',
+        });
+        return;
+      }
+    } else if (punch.punchOutAt && !lastPunchIn) {
+      // Punched out but no new punch-in
       res.status(400).json({
         status: 'error',
-        message: 'You have already punched out today',
+        message: 'You have already punched out. Please punch in first.',
       });
       return;
     }

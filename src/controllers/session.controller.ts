@@ -243,6 +243,44 @@ export const getFacultyAssignedBatches = async (req: AuthRequest, res: Response)
             },
           });
 
+    // Get student counts per batch
+    // First try enrollments table
+    const studentCountMap = new Map<number, number>();
+    
+    const enrollments = await db.Enrollment.findAll({
+      attributes: ['batchId', [db.sequelize.fn('COUNT', db.sequelize.col('studentId')), 'studentCount']],
+      where: {
+        batchId: { [Op.in]: batchIds },
+      },
+      group: ['batchId'],
+      raw: true,
+    });
+    enrollments.forEach((e: any) => {
+      studentCountMap.set(e.batchId, parseInt(e.studentCount) || 0);
+    });
+
+    // If no enrollments found, try student_profiles.currentBatches or match by software
+    if (enrollments.length === 0) {
+      // Get all batches with their software
+      const batchesWithSoftware = validAssignments.map(a => {
+        const batch = batchMap.get(a.batchId);
+        return { batchId: a.batchId, software: batch?.software };
+      }).filter(b => b.software);
+
+      // Count students by matching software in their softwareList
+      for (const { batchId, software } of batchesWithSoftware) {
+        if (software) {
+          const count = await db.StudentProfile.count({
+            where: db.sequelize.where(
+              db.sequelize.fn('LOWER', db.sequelize.col('softwareList')),
+              { [Op.like]: `%${software.toLowerCase()}%` }
+            ),
+          });
+          studentCountMap.set(batchId, count || 0);
+        }
+      }
+    }
+
     const data = validAssignments
       .map((assignment) => {
         const batch = batchMap.get(assignment.batchId);
@@ -250,6 +288,29 @@ export const getFacultyAssignedBatches = async (req: AuthRequest, res: Response)
         if (!batch) {
           logger.warn(`Assignment ${assignment.id} has no batch in map, skipping`);
           return null;
+        }
+
+        // Parse schedule to extract days and time
+        // Schedule may be stored as JSON string or object
+        let scheduleDays = '';
+        let scheduleTime = '';
+        try {
+          let scheduleData = batch.schedule;
+          // If schedule is a string, parse it
+          if (typeof scheduleData === 'string' && scheduleData) {
+            scheduleData = JSON.parse(scheduleData);
+          }
+          if (scheduleData && typeof scheduleData === 'object') {
+            scheduleDays = Object.keys(scheduleData).map(d => 
+              d.charAt(0).toUpperCase() + d.slice(1)
+            ).join(', ');
+            const firstDay = Object.keys(scheduleData)[0];
+            if (firstDay && scheduleData[firstDay]) {
+              scheduleTime = `${scheduleData[firstDay].startTime || ''} - ${scheduleData[firstDay].endTime || ''}`;
+            }
+          }
+        } catch (e) {
+          logger.warn(`Failed to parse schedule for batch ${batch.id}`);
         }
 
         const session = activeSessions.find((s) => s.batchId === assignment.batchId) || null;
@@ -266,6 +327,9 @@ export const getFacultyAssignedBatches = async (req: AuthRequest, res: Response)
             status: batch.status,
             createdAt: batch.createdAt,
             updatedAt: batch.updatedAt,
+            studentCount: studentCountMap.get(batch.id) || 0,
+            scheduleDays,
+            scheduleTime,
           },
           activeSession: session ? {
             id: session.id,
@@ -311,6 +375,40 @@ export const startSession = async (req: AuthRequest, res: Response): Promise<voi
     }
 
     await ensureFacultyAccess(req.user.userId, batchId, req.user.role);
+
+    // Check if faculty has punched in today
+    // Use a broader date range to handle timezone issues
+    const currentTime = new Date();
+    const startOfDay = new Date(currentTime);
+    startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date(currentTime);
+    endOfDay.setHours(23, 59, 59, 999);
+
+    const todayPunch = await db.EmployeePunch.findOne({
+      where: {
+        userId: req.user.userId,
+        punchInAt: {
+          [Op.gte]: startOfDay,
+          [Op.lte]: endOfDay,
+        },
+      },
+      order: [['createdAt', 'DESC']],
+    });
+
+    // Debug logging
+    console.log('[Session Start Check] User:', req.user.userId);
+    console.log('  Checking range:', startOfDay.toISOString(), 'to', endOfDay.toISOString());
+    console.log('  Punch record:', todayPunch ? 'Found' : 'Not Found');
+    console.log('  PunchInAt:', todayPunch?.punchInAt);
+    console.log('  PunchOutAt:', todayPunch?.punchOutAt);
+
+    if (!todayPunch || !todayPunch.punchInAt) {
+      res.status(403).json({
+        status: 'error',
+        message: 'You must punch in before starting a session. Please go to the Punch In/Out tab and punch in first.',
+      });
+      return;
+    }
 
     // Get batch to check schedule
     const batch = await db.Batch.findByPk(batchId);
